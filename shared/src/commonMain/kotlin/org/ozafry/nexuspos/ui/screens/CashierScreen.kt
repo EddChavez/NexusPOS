@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,8 +36,10 @@ import org.ozafry.nexuspos.domain.POSCheckoutService
 import org.ozafry.nexuspos.models.*
 import org.ozafry.nexuspos.repository.OfflineSaleRepository
 import org.ozafry.nexuspos.sync.SyncEngine
+import org.ozafry.nexuspos.ui.theme.AmberWarning
 import org.ozafry.nexuspos.ui.theme.EmeraldSuccess
 import org.ozafry.nexuspos.ui.theme.RoseDanger
+import kotlin.math.round
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +63,7 @@ fun CashierScreen(
 
     var showCheckoutDialog by remember { mutableStateOf(false) }
     var showShiftDialog by remember { mutableStateOf(false) }
+    var editingQuantityItem by remember { mutableStateOf<CartItem?>(null) }
     var successNotification by remember { mutableStateOf<String?>(null) }
 
     fun refreshState() {
@@ -82,14 +87,24 @@ fun CashierScreen(
         POSCheckoutService.calculateCart(cartItems)
     }
 
-    fun addToCart(product: ProductDto) {
+    fun addToCart(product: ProductDto, initialQuantity: Double = 1.0) {
         val existingIndex = cartItems.indexOfFirst { it.product.id == product.id }
         cartItems = if (existingIndex >= 0) {
             val item = cartItems[existingIndex]
-            val updated = item.copy(quantity = item.quantity + 1.0)
+            val updated = item.copy(quantity = round((item.quantity + initialQuantity) * 1000.0) / 1000.0)
             cartItems.toMutableList().apply { set(existingIndex, updated) }
         } else {
-            cartItems + CartItem(product = product, quantity = 1.0)
+            cartItems + CartItem(product = product, quantity = initialQuantity)
+        }
+    }
+
+    fun handleBarcodeSubmit(query: String) {
+        val clean = query.trim()
+        if (clean.isBlank()) return
+        val exactMatch = repository.getProductByBarcodeOrSku(clean)
+        if (exactMatch != null) {
+            addToCart(exactMatch)
+            searchQuery = ""
         }
     }
 
@@ -97,8 +112,21 @@ fun CashierScreen(
         val existingIndex = cartItems.indexOfFirst { it.product.id == productId }
         if (existingIndex >= 0) {
             val item = cartItems[existingIndex]
-            val newQty = item.quantity + delta
+            val step = if (item.product.unit == "KG") 0.25 else 1.0
+            val newQty = round((item.quantity + (delta * step)) * 1000.0) / 1000.0
             cartItems = if (newQty > 0.0) {
+                cartItems.toMutableList().apply { set(existingIndex, item.copy(quantity = newQty)) }
+            } else {
+                cartItems.toMutableList().apply { removeAt(existingIndex) }
+            }
+        }
+    }
+
+    fun setDirectQuantity(productId: String, newQty: Double) {
+        val existingIndex = cartItems.indexOfFirst { it.product.id == productId }
+        if (existingIndex >= 0) {
+            cartItems = if (newQty > 0.0) {
+                val item = cartItems[existingIndex]
                 cartItems.toMutableList().apply { set(existingIndex, item.copy(quantity = newQty)) }
             } else {
                 cartItems.toMutableList().apply { removeAt(existingIndex) }
@@ -113,11 +141,11 @@ fun CashierScreen(
     fun triggerSync() {
         coroutineScope.launch {
             isSyncing = true
-            syncMessage = "Sincronizando con servidor..."
+            syncMessage = "Sincronizando con servidor central..."
             val result = syncEngine.syncNow()
             isSyncing = false
             syncMessage = if (result.isSuccess) {
-                "Sincronizado (${result.pushedEventsCount} enviados, ${result.pulledProductsCount} actualizados)"
+                "Sincronizado (${result.pushedEventsCount} eventos enviados, ${result.pulledProductsCount} productos actualizados)"
             } else {
                 "Modo Offline: ${result.errorMessage ?: "Servidor no disponible"}"
             }
@@ -152,14 +180,27 @@ fun CashierScreen(
                         }
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            Text("NexusPOS Terminal", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("NexusPOS", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        "Abarrotes & Miscelánea",
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
                             Text("Caja: $registerId | ${currentShift?.cashierName ?: "Sin Turno Activo"}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
 
                     // Center: Shift Badge & Sync Status
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        // Shift button
                         FilledTonalButton(
                             onClick = { showShiftDialog = true },
                             colors = ButtonDefaults.filledTonalButtonColors(
@@ -174,7 +215,6 @@ fun CashierScreen(
                             )
                         }
 
-                        // Sync button / indicator
                         Button(
                             onClick = { triggerSync() },
                             enabled = !isSyncing,
@@ -203,7 +243,7 @@ fun CashierScreen(
                         onClick = onSwitchToSupervisor,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Text("Modo Supervisión ↗", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Supervisión ↗", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -214,7 +254,7 @@ fun CashierScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Notification bar (if any)
+            // Notification banner
             AnimatedVisibility(visible = successNotification != null || syncMessage != null) {
                 val msg = successNotification ?: syncMessage ?: ""
                 val isSuccess = successNotification != null
@@ -246,7 +286,7 @@ fun CashierScreen(
                 }
             }
 
-            // Main Cashier Workspace (Split View: Catalog on Left, Cart on Right)
+            // Workspace Layout
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -259,17 +299,21 @@ fun CashierScreen(
                         .weight(1.3f)
                         .fillMaxHeight()
                 ) {
-                    // Search bar
+                    // Search bar with barcode support
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Buscar por nombre, código de barras o SKU...") },
+                        placeholder = { Text("Escanear código de barras (EAN-13), SKU o buscar producto...") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { handleBarcodeSubmit(searchQuery) }),
                         trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                TextButton(onClick = { searchQuery = "" }) {
-                                    Text("✕")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (searchQuery.isNotEmpty()) {
+                                    TextButton(onClick = { searchQuery = "" }) {
+                                        Text("✕")
+                                    }
                                 }
                             }
                         },
@@ -301,7 +345,7 @@ fun CashierScreen(
 
                     // Products Grid
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 160.dp),
+                        columns = GridCells.Adaptive(minSize = 165.dp),
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -310,24 +354,55 @@ fun CashierScreen(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { addToCart(product) },
+                                    .clickable {
+                                        if (product.unit == "KG") {
+                                            // Granel: abre diálogo de peso o agrega 1 kg inicial
+                                            addToCart(product, 1.0)
+                                        } else {
+                                            addToCart(product, 1.0)
+                                        }
+                                    },
                                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        product.name,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Text(
+                                            product.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        if (product.unit == "KG") {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = EmeraldSuccess.copy(alpha = 0.15f)
+                                            ) {
+                                                Text(
+                                                    "⚖ KG",
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = EmeraldSuccess
+                                                )
+                                            }
+                                        }
+                                    }
+
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        "SKU: ${product.sku}",
-                                        fontSize = 11.sp,
+                                        "${product.sku} | ${product.barcode ?: ""}",
+                                        fontSize = 10.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+
                                     Spacer(Modifier.height(8.dp))
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -335,9 +410,9 @@ fun CashierScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            "$${product.price}",
+                                            "$${product.price} / ${product.unit}",
                                             fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 16.sp,
+                                            fontSize = 14.sp,
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                         Surface(
@@ -346,7 +421,7 @@ fun CashierScreen(
                                         ) {
                                             Text(
                                                 "Stock: ${product.stockQuantity.toInt()}",
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.SemiBold
                                             )
@@ -358,7 +433,7 @@ fun CashierScreen(
                     }
                 }
 
-                // Right Panel: Cart & Checkout
+                // Right Panel: Active Ticket
                 Surface(
                     modifier = Modifier
                         .weight(1.0f)
@@ -392,7 +467,7 @@ fun CashierScreen(
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                        // Cart Items List
+                        // Cart Items
                         if (cartItems.isEmpty()) {
                             Box(
                                 modifier = Modifier
@@ -401,7 +476,7 @@ fun CashierScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("🛒", fontSize = 36.sp)
+                                    Text("🛍️", fontSize = 36.sp)
                                     Spacer(Modifier.height(8.dp))
                                     Text(
                                         "Ticket vacío",
@@ -410,7 +485,7 @@ fun CashierScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
-                                        "Seleccione productos para cobrar",
+                                        "Escanee código o seleccione producto",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -438,10 +513,10 @@ fun CashierScreen(
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(item.product.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                                Text("$${item.unitPrice} c/u", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("$${item.unitPrice} / ${item.product.unit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
 
-                                            // Quantity Controls
+                                            // Quantity Controls & Pill
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -452,7 +527,22 @@ fun CashierScreen(
                                                 ) {
                                                     Text("-", fontWeight = FontWeight.Bold)
                                                 }
-                                                Text("${item.quantity.toInt()}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                                                // Clickable quantity pill to enter custom weight / amount
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = MaterialTheme.colorScheme.surface,
+                                                    modifier = Modifier.clickable { editingQuantityItem = item }
+                                                ) {
+                                                    val qtyFormatted = if (item.product.unit == "KG") "${item.quantity} kg" else "${item.quantity.toInt()} pza"
+                                                    Text(
+                                                        qtyFormatted,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                    )
+                                                }
+
                                                 FilledTonalIconButton(
                                                     onClick = { updateQuantity(item.product.id, 1.0) },
                                                     modifier = Modifier.size(28.dp)
@@ -461,7 +551,7 @@ fun CashierScreen(
                                                 }
                                             }
 
-                                            Spacer(Modifier.width(12.dp))
+                                            Spacer(Modifier.width(10.dp))
                                             Text(
                                                 "$${item.total}",
                                                 fontWeight = FontWeight.Bold,
@@ -498,7 +588,7 @@ fun CashierScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("IVA (16%):", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("IVA:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("$${cartCalculation.taxTotal}", fontSize = 13.sp)
                             }
                             Spacer(Modifier.height(4.dp))
@@ -507,7 +597,7 @@ fun CashierScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("TOTAL A PAGAR:", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                                Text("TOTAL A COBRAR:", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
                                 Text(
                                     "$${cartCalculation.total}",
                                     fontWeight = FontWeight.ExtraBold,
@@ -548,6 +638,19 @@ fun CashierScreen(
         }
     }
 
+    // Modal para editar cantidad / peso a granel
+    if (editingQuantityItem != null) {
+        val item = editingQuantityItem!!
+        WeightQuantityDialog(
+            item = item,
+            onDismiss = { editingQuantityItem = null },
+            onConfirm = { newQty ->
+                setDirectQuantity(item.product.id, newQty)
+                editingQuantityItem = null
+            }
+        )
+    }
+
     // Checkout Modal Dialog
     if (showCheckoutDialog) {
         CheckoutDialog(
@@ -563,7 +666,7 @@ fun CashierScreen(
                     shiftId = shift.id,
                     registerId = registerId,
                     cashierName = shift.cashierName,
-                    customerName = "Público General",
+                    customerName = "Cliente Mostrador",
                     subtotal = cartCalculation.subtotal,
                     taxTotal = cartCalculation.taxTotal,
                     discountTotal = cartCalculation.discountTotal,
@@ -573,8 +676,8 @@ fun CashierScreen(
                     changeGiven = change,
                     status = "COMPLETED",
                     createdAt = now,
-                    items = cartItems.mapIndexed { idx, item ->
-                        item.toSaleItemDto(saleId, "$saleId-item-$idx")
+                    items = cartItems.mapIndexed { idx, it ->
+                        it.toSaleItemDto(saleId, "$saleId-item-$idx")
                     }
                 )
 
@@ -582,11 +685,9 @@ fun CashierScreen(
                 repository.createSale(saleDto)
                 cartItems = emptyList()
                 showCheckoutDialog = false
-                successNotification = "✓ Venta ${saleId.takeLast(6)} registrada con éxito. Cambio: $$change"
+                successNotification = "✓ Venta ${saleId.takeLast(6)} registrada. Cambio: $$change"
 
                 refreshState()
-
-                // Disparo de sincronización automática en segundo plano
                 triggerSync()
             }
         )
@@ -610,12 +711,105 @@ fun CashierScreen(
                 currentShift?.let { shift ->
                     repository.closeShift(shift.id, actualCash, notes)
                     showShiftDialog = false
-                    successNotification = "Turno cerrado. Corte registrado."
+                    successNotification = "Turno cerrado. Corte de caja registrado."
                     refreshState()
                     triggerSync()
                 }
             }
         )
+    }
+}
+
+@Composable
+fun WeightQuantityDialog(
+    item: CartItem,
+    onDismiss: () -> Unit,
+    onConfirm: (Double) -> Unit
+) {
+    var quantityText by remember { mutableStateOf(item.quantity.toString()) }
+    val isGranel = item.product.unit == "KG"
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    if (isGranel) "⚖ Pesar / Cantidad a Granel" else "Modificar Cantidad",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    item.product.name,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "Precio: $${item.product.price} / ${item.product.unit}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = quantityText,
+                    onValueChange = { quantityText = it },
+                    label = { Text(if (isGranel) "Peso en Kilogramos (kg)" else "Cantidad (piezas)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (isGranel) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Accesos rápidos de peso:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(0.250, 0.500, 0.750, 1.000, 2.000).forEach { weight ->
+                            OutlinedButton(
+                                onClick = { quantityText = weight.toString() },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("${weight}k", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(20.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                        Text("Cancelar")
+                    }
+                    Button(
+                        onClick = {
+                            val parsed = quantityText.toDoubleOrNull() ?: item.quantity
+                            onConfirm(parsed)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Aplicar")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -692,12 +886,12 @@ fun CheckoutDialog(
 
                     Spacer(Modifier.height(8.dp))
 
-                    // Quick cash buttons
+                    // Billetes y monedas habituales en tienda de abarrotes
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        listOf(calculation.total, 50.0, 100.0, 200.0, 500.0).distinct().forEach { cash ->
+                        listOf(calculation.total, 20.0, 50.0, 100.0, 200.0, 500.0).distinct().forEach { cash ->
                             OutlinedButton(
                                 onClick = { amountPaidText = cash.toString() },
                                 modifier = Modifier.weight(1f),
@@ -771,7 +965,7 @@ fun ShiftDialog(
     onOpenShift: (cashier: String, initialCash: Double) -> Unit,
     onCloseShift: (actualCash: Double, notes: String?) -> Unit
 ) {
-    var cashierName by remember { mutableStateOf("Carlos Mendoza") }
+    var cashierName by remember { mutableStateOf("Don Pepe") }
     var initialCashText by remember { mutableStateOf("500.0") }
     var actualCashText by remember { mutableStateOf("") }
     var notesText by remember { mutableStateOf("") }
@@ -790,13 +984,13 @@ fun ShiftDialog(
                     .padding(24.dp)
             ) {
                 if (currentShift == null) {
-                    Text("Apertura de Turno de Caja", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("Apertura de Turno de Tienda", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Spacer(Modifier.height(16.dp))
 
                     OutlinedTextField(
                         value = cashierName,
                         onValueChange = { cashierName = it },
-                        label = { Text("Nombre del Cajero") },
+                        label = { Text("Nombre del Encargado / Cajero") },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -805,7 +999,7 @@ fun ShiftDialog(
                     OutlinedTextField(
                         value = initialCashText,
                         onValueChange = { initialCashText = it },
-                        label = { Text("Fondo Inicial en Caja ($)") },
+                        label = { Text("Fondo Inicial para Cambio ($)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -836,11 +1030,11 @@ fun ShiftDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Cajero: ${currentShift.cashierName}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Encargado: ${currentShift.cashierName}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             Text("Fondo Inicial: $${currentShift.initialCash}", fontSize = 12.sp)
                             Text("Ventas Efectivo: $${currentShift.cashSales}", fontSize = 12.sp)
                             Text("Ventas Tarjeta: $${currentShift.cardSales}", fontSize = 12.sp)
-                            Text("Efectivo Esperado en Cajón: $${currentShift.expectedCash}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("Efectivo Esperado en Caja: $${currentShift.expectedCash}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                         }
                     }
 
@@ -849,7 +1043,7 @@ fun ShiftDialog(
                     OutlinedTextField(
                         value = actualCashText,
                         onValueChange = { actualCashText = it },
-                        label = { Text("Efectivo Contado en Arqueo ($)") },
+                        label = { Text("Efectivo Contado en Caja ($)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -859,7 +1053,7 @@ fun ShiftDialog(
                     OutlinedTextField(
                         value = notesText,
                         onValueChange = { notesText = it },
-                        label = { Text("Notas u Observaciones") },
+                        label = { Text("Observaciones del Corte") },
                         modifier = Modifier.fillMaxWidth()
                     )
 

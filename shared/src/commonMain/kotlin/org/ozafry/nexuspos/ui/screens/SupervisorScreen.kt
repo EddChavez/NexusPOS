@@ -138,7 +138,7 @@ fun SupervisorScreen(
                                     }
 
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                        Text("$${p.price}", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                        Text("$${p.price} / ${p.unit}", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
 
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
@@ -148,8 +148,9 @@ fun SupervisorScreen(
                                                 else -> EmeraldSuccess.copy(alpha = 0.2f)
                                             }
                                         ) {
+                                            val stockFormatted = if (p.unit == "KG") "${p.stockQuantity} kg" else "${p.stockQuantity.toInt()} pza"
                                             Text(
-                                                "Stock: ${p.stockQuantity.toInt()}",
+                                                "Stock: $stockFormatted",
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.sp,
