@@ -28,6 +28,6 @@ class ServerTest {
         val response = client.get("/api/catalog")
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.bodyAsText()
-        assertTrue(body.contains("Café Americano"))
+        assertTrue(body.contains("Arroz Morelos"))
     }
 }
