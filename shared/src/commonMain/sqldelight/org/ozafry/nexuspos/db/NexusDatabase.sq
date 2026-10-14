@@ -15,6 +15,7 @@ CREATE TABLE Product (
     cost_price REAL NOT NULL DEFAULT 0.0,
     tax_rate REAL NOT NULL DEFAULT 0.16,
     stock_quantity REAL NOT NULL DEFAULT 0.0,
+    unit TEXT NOT NULL DEFAULT 'PZA',
     is_active INTEGER NOT NULL DEFAULT 1,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (category_id) REFERENCES Category(id)
@@ -74,6 +75,7 @@ CREATE TABLE SaleItem (
     product_name TEXT NOT NULL,
     unit_price REAL NOT NULL,
     quantity REAL NOT NULL,
+    unit TEXT NOT NULL DEFAULT 'PZA',
     subtotal REAL NOT NULL,
     tax_rate REAL NOT NULL,
     tax_amount REAL NOT NULL,
@@ -123,8 +125,8 @@ WHERE is_active = 1 AND (name LIKE '%' || :query || '%' OR sku LIKE '%' || :quer
 ORDER BY name ASC;
 
 upsertProduct:
-INSERT OR REPLACE INTO Product(id, sku, barcode, name, category_id, price, cost_price, tax_rate, stock_quantity, is_active, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO Product(id, sku, barcode, name, category_id, price, cost_price, tax_rate, stock_quantity, unit, is_active, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 decreaseProductStock:
 UPDATE Product SET stock_quantity = stock_quantity - :qty, updated_at = :updatedAt WHERE id = :productId;
@@ -175,8 +177,8 @@ INSERT INTO Sale(
 
 insertSaleItem:
 INSERT INTO SaleItem(
-    id, sale_id, product_id, product_name, unit_price, quantity, subtotal, tax_rate, tax_amount, discount_amount, total
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    id, sale_id, product_id, product_name, unit_price, quantity, unit, subtotal, tax_rate, tax_amount, discount_amount, total
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 markSaleSynced:
 UPDATE Sale SET synced = 1 WHERE id = ?;

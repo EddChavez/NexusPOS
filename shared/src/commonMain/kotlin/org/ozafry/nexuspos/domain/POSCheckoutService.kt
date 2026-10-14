@@ -25,6 +25,7 @@ data class CartItem(
             productName = product.name,
             unitPrice = unitPrice,
             quantity = quantity,
+            unit = product.unit,
             subtotal = taxableSubtotal,
             taxRate = product.taxRate,
             taxAmount = taxAmount,

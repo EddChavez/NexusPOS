@@ -21,6 +21,7 @@ data class ProductDto(
     val costPrice: Double = 0.0,
     val taxRate: Double = 0.16,
     val stockQuantity: Double = 0.0,
+    val unit: String = "PZA",
     val isActive: Boolean = true,
     val updatedAt: Long
 )
@@ -52,6 +53,7 @@ data class SaleItemDto(
     val productName: String,
     val unitPrice: Double,
     val quantity: Double,
+    val unit: String = "PZA",
     val subtotal: Double,
     val taxRate: Double,
     val taxAmount: Double,

@@ -25,62 +25,69 @@ class SharedLogicDesktopTest {
     fun testSeedDataAndProductQueries() {
         val repo = createInMemoryRepo()
         val products = repo.getProducts()
-        assertTrue(products.isNotEmpty(), "Los productos iniciales deben cargarse")
+        assertTrue(products.isNotEmpty(), "Los productos iniciales de abarrotes deben cargarse")
 
-        val found = repo.getProductByBarcodeOrSku("7501001")
+        val found = repo.getProductByBarcodeOrSku("7501000111204")
         assertNotNull(found)
-        assertEquals("Café Americano 12oz", found.name)
+        assertEquals("Arroz Morelos 1kg", found.name)
+        assertEquals("PZA", found.unit)
 
-        val searchResult = repo.searchProducts("Sandwich")
+        val searchResult = repo.searchProducts("Frijol")
         assertEquals(1, searchResult.size)
-        assertEquals("Sandwich Jamón y Queso", searchResult.first().name)
+        assertEquals("Frijol Negro Verde Valle 1kg", searchResult.first().name)
+
+        val granel = repo.getProductByBarcodeOrSku("2000001000001")
+        assertNotNull(granel)
+        assertEquals("Jitomate Saladet (kg)", granel.name)
+        assertEquals("KG", granel.unit)
     }
 
     @Test
     fun testOfflineSaleAtomicTransactionAndOutbox() {
         val repo = createInMemoryRepo()
 
-        // 1. Abrir turno
+        // 1. Abrir turno en tienda
         val shift = repo.openShift(
             id = "shift-001",
             registerId = "REG-01",
-            cashierName = "Carlos",
+            cashierName = "Don Pepe",
             initialCash = 500.0
         )
         assertEquals("OPEN", shift.status)
 
-        // 2. Realizar venta offline
-        val coffee = repo.getProductByBarcodeOrSku("7501001")!!
-        val initialStock = coffee.stockQuantity
+        // 2. Realizar venta offline de abarrotes (Coca-Cola + Jitomate a granel)
+        val coca = repo.getProductByBarcodeOrSku("7501055310884")!!
+        val initialStockCoca = coca.stockQuantity
 
         val sale = SaleDto(
             id = "sale-101",
             shiftId = shift.id,
             registerId = "REG-01",
-            cashierName = "Carlos",
-            customerName = "Cliente Mostrador",
-            subtotal = 70.0,
-            taxTotal = 11.20,
+            cashierName = "Don Pepe",
+            customerName = "Cliente Vecino",
+            subtotal = 38.0,
+            taxTotal = 6.08,
             discountTotal = 0.0,
-            total = 81.20,
+            total = 44.08,
             paymentMethod = "CASH",
-            amountPaid = 100.0,
-            changeGiven = 18.80,
+            amountPaid = 50.0,
+            changeGiven = 5.92,
             status = "COMPLETED",
-            createdAt = System.currentTimeMillis(),
+            createdAt = currentEpochMillis(),
             items = listOf(
                 SaleItemDto(
                     id = "item-1",
                     saleId = "sale-101",
-                    productId = coffee.id,
-                    productName = coffee.name,
-                    unitPrice = coffee.price,
+                    productId = coca.id,
+                    productName = coca.name,
+                    unitPrice = coca.price,
                     quantity = 2.0,
-                    subtotal = 70.0,
-                    taxRate = coffee.taxRate,
-                    taxAmount = 11.20,
+                    unit = coca.unit,
+                    subtotal = 38.0,
+                    taxRate = coca.taxRate,
+                    taxAmount = 6.08,
                     discountAmount = 0.0,
-                    total = 81.20
+                    total = 44.08
                 )
             )
         )
@@ -88,8 +95,8 @@ class SharedLogicDesktopTest {
         repo.createSale(sale)
 
         // Verificar descuento de stock local
-        val updatedCoffee = repo.getProductByBarcodeOrSku("7501001")!!
-        assertEquals(initialStock - 2.0, updatedCoffee.stockQuantity)
+        val updatedCoca = repo.getProductByBarcodeOrSku("7501055310884")!!
+        assertEquals(initialStockCoca - 2.0, updatedCoca.stockQuantity)
 
         // Verificar eventos pendientes en el Outbox (apertura de turno + venta)
         val pendingEvents = repo.getPendingSyncEvents()
@@ -100,7 +107,7 @@ class SharedLogicDesktopTest {
         assertEquals("sale-101", saleEvent.aggregateId)
 
         // Simular éxito de sincronización
-        repo.markSyncEventSuccess(saleEvent.id, System.currentTimeMillis())
+        repo.markSyncEventSuccess(saleEvent.id, currentEpochMillis())
 
         val remainingPending = repo.getPendingSyncEvents()
         assertEquals(1, remainingPending.size)

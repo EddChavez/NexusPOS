@@ -21,9 +21,23 @@ class DesktopDatabaseDriverFactory(
 
         val dbFile = File(path)
         val isNewDb = !dbFile.exists() || dbFile.length() == 0L
-        val driver = JdbcSqliteDriver("jdbc:sqlite:$path")
+        var driver = JdbcSqliteDriver("jdbc:sqlite:$path")
         if (isNewDb) {
             NexusDatabase.Schema.create(driver)
+        } else {
+            try {
+                driver.executeQuery(null, "SELECT unit FROM Product LIMIT 1", { it.next() }, 0)
+            } catch (e: Exception) {
+                try {
+                    driver.execute(null, "ALTER TABLE Product ADD COLUMN unit TEXT NOT NULL DEFAULT 'PZA'", 0)
+                    driver.execute(null, "ALTER TABLE SaleItem ADD COLUMN unit TEXT NOT NULL DEFAULT 'PZA'", 0)
+                } catch (alterEx: Exception) {
+                    driver.close()
+                    dbFile.delete()
+                    driver = JdbcSqliteDriver("jdbc:sqlite:$path")
+                    NexusDatabase.Schema.create(driver)
+                }
+            }
         }
         return driver
     }
