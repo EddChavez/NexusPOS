@@ -19,6 +19,7 @@ docs/
 ├── features/                          # Nivel 2: Documentación Funcional de Módulos (Plantilla 10 secciones)
 │   ├── top-header-navigation.md       # Cabecera global, atajos F1-F6, semáforo LAN y báscula
 │   ├── sales-capture-bar.md           # Barra de control, multi-ticket, escaneo rápido y ribbon de atajos
+│   ├── sales-cart-grid.md             # Parrilla de venta, 8 columnas, soporte granel RS-232 y stock
 │   ├── sales.md                       # Venta, carrito, cobro atómico, folio e impresión ESC/POS
 │   ├── cash-session.md                # Sesiones de caja, fondo inicial, movimientos y arqueo (RN-CAJ-04)
 │   ├── credit-fiado.md                # Crédito/Fiado a clientes, límites, saldo y abonos
