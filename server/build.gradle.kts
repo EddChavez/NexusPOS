@@ -5,11 +5,12 @@ plugins {
 }
 
 application {
-    mainClass.set("org.ozafry.nexuspos.server.ApplicationKt")
+    mainClass.set("mx.nexuspos.server.ApplicationKt")
 }
 
 dependencies {
-    implementation(project(":shared"))
+    implementation(project(":shared:core"))
+    implementation(project(":shared:contracts"))
 
     // Ktor Server
     implementation(libs.ktor.server.core)
@@ -22,11 +23,20 @@ dependencies {
     implementation(libs.ktor.server.callLogging)
     implementation(libs.logback)
 
+    // Persistence & Security
+    implementation(libs.postgresql)
+    implementation(libs.hikaricp)
+    implementation(libs.flyway.core)
+    implementation(libs.flyway.database.postgresql)
+    implementation(libs.jbcrypt)
+
     // Serialization & Datetime
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)
 
     // Testing
+    testImplementation(libs.h2)
     testImplementation(libs.ktor.server.testHost)
+    testImplementation(libs.ktor.client.contentNegotiation)
     testImplementation(libs.kotlin.testJunit)
 }

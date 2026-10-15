@@ -1,0 +1,82 @@
+package mx.nexuspos.server.modules.system
+
+import mx.nexuspos.contracts.system.SettingsDto
+import mx.nexuspos.contracts.system.SystemInfoDto
+import mx.nexuspos.server.persistence.DatabaseFactory
+
+class SettingsService(private val db: DatabaseFactory) {
+
+    fun getSettings(): SettingsDto {
+        return db.inTransaction { conn ->
+            val stmt = conn.prepareStatement("SELECT setting_key, setting_value FROM settings")
+            val rs = stmt.executeQuery()
+            var storeName = "Mi Tiendita de Abarrotes"
+            var storeAddress = "Av. Principal #100"
+            var storePhone = "555-987-6543"
+            var ticketHeader = "¡Gracias por su compra!"
+            var ticketFooter = "Conserve su ticket para cualquier aclaración."
+            var allowNegativeStock = true
+
+            while (rs.next()) {
+                when (rs.getString("setting_key")) {
+                    "store_name" -> storeName = rs.getString("setting_value")
+                    "store_address" -> storeAddress = rs.getString("setting_value")
+                    "store_phone" -> storePhone = rs.getString("setting_value")
+                    "ticket_header" -> ticketHeader = rs.getString("setting_value")
+                    "ticket_footer" -> ticketFooter = rs.getString("setting_value")
+                    "allow_negative_stock" -> allowNegativeStock = rs.getString("setting_value").toBoolean()
+                }
+            }
+            rs.close()
+            stmt.close()
+
+            SettingsDto(
+                storeName = storeName,
+                storeAddress = storeAddress,
+                storePhone = storePhone,
+                ticketHeader = ticketHeader,
+                ticketFooter = ticketFooter,
+                allowNegativeStock = allowNegativeStock
+            )
+        }
+    }
+
+    fun updateSettings(settings: SettingsDto): SettingsDto {
+        db.inTransaction { conn ->
+            val updateStmt = conn.prepareStatement("UPDATE settings SET setting_value = ? WHERE setting_key = ?")
+            val insertStmt = conn.prepareStatement("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)")
+
+            val map = mapOf(
+                "store_name" to settings.storeName,
+                "store_address" to settings.storeAddress,
+                "store_phone" to settings.storePhone,
+                "ticket_header" to settings.ticketHeader,
+                "ticket_footer" to settings.ticketFooter,
+                "allow_negative_stock" to settings.allowNegativeStock.toString()
+            )
+            for ((k, v) in map) {
+                updateStmt.setString(1, v)
+                updateStmt.setString(2, k)
+                val rows = updateStmt.executeUpdate()
+                if (rows == 0) {
+                    insertStmt.setString(1, k)
+                    insertStmt.setString(2, v)
+                    insertStmt.executeUpdate()
+                }
+            }
+            updateStmt.close()
+            insertStmt.close()
+        }
+        return getSettings()
+    }
+
+    fun getSystemInfo(): SystemInfoDto {
+        return SystemInfoDto(
+            appVersion = "2.0.0-lan",
+            apiVersion = "v1",
+            serverTime = System.currentTimeMillis(),
+            dbEngine = "PostgreSQL 16",
+            connectedDevices = 1
+        )
+    }
+}
