@@ -1,10 +1,7 @@
 package mx.nexuspos.client.features.footer
 
 import androidx.compose.ui.graphics.Color
-import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.header.ScaleReading
 
@@ -94,6 +91,11 @@ fun formatTerminalDateTime(dateTime: LocalDateTime): String = formatTerminalDate
  * Obtiene la fecha y hora actual del sistema formateada.
  */
 fun getCurrentFormattedTerminalTime(): String {
-    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-    return formatTerminalDateTime(now)
+    val parts = getPlatformCurrentTimeParts()
+    return formatTerminalDateTime(
+        dayOfMonth = parts.dayOfMonth,
+        monthNumber = parts.monthNumber,
+        hour24 = parts.hour24,
+        minute = parts.minute
+    )
 }

@@ -14,6 +14,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.material3)
     implementation(libs.kotlinx.coroutinesSwing)
+    implementation(libs.kotlinx.datetime)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit)

@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.datetime.Clock
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.header.ScaleReading
 import mx.nexuspos.client.features.header.ScaleStatus
@@ -205,7 +204,7 @@ private fun RealTimeClock(modifier: Modifier = Modifier) {
 
     LaunchedEffect(Unit) {
         while (isActive) {
-            val nowMillis = Clock.System.now().toEpochMilliseconds()
+            val nowMillis = getPlatformEpochMillis()
             val millisUntilNextMinute = 60_000L - (nowMillis % 60_000L)
             delay(millisUntilNextMinute.coerceAtLeast(1000L))
             currentTime = getCurrentFormattedTerminalTime()

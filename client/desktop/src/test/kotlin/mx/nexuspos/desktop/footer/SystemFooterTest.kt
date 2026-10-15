@@ -75,4 +75,12 @@ class SystemFooterTest {
         assertEquals(ScaleStatus.STABLE, state.scaleReading.status)
         assertEquals("NexusPOS v2.4 Desktop • © 2024", state.versionText)
     }
+
+    @Test
+    fun testGetCurrentFormattedTerminalTimeRuntimeClock() {
+        val current = mx.nexuspos.client.features.footer.getCurrentFormattedTerminalTime()
+        kotlin.test.assertTrue(current.isNotBlank())
+        kotlin.test.assertTrue(current.contains("-"))
+        kotlin.test.assertTrue(current.contains("am") || current.contains("pm"))
+    }
 }
