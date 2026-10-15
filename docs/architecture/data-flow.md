@@ -26,7 +26,31 @@ flowchart TD
 
 ---
 
-## 2. Máquina de Estados de Conexión LAN
+## 2. Flujo de Navegación Global y Eventos de Teclado (Compose Desktop)
+
+La aplicación de escritorio coordina la interacción de hardware a nivel de ventana para garantizar agilidad sin ratón en el mostrador:
+
+```mermaid
+flowchart TD
+    KeyEvent["Window.onKeyEvent"] --> WedgeFilter["KeyboardWedgeBarcodeInput"]
+    WedgeFilter -->|"Ráfaga < 35ms (Escáner USB)"| BarcodeAcc["Acumula buffer EAN-13"]
+    BarcodeAcc -->|"Enter de escáner"| ScanEvent["SalesViewModel.onBarcodeScanned(code)"]
+    
+    WedgeFilter -->|"Tecla individual humana"| NavDispatch{"¿Tecla global o contextual?"}
+    NavDispatch -->|"Key.F1 ... Key.F6"| SetModule["activeModule = AppModule (F1-F6)"]
+    NavDispatch -->|"Key.F12"| CobroSales{"¿Módulo Ventas y Carrito > 0?"}
+    CobroSales -- Sí --> OpenPaymentDialog["SalesViewModel.openCashPayment()"]
+    CobroSales -- No --> IgnoreKey["Ignorar"]
+    NavDispatch -->|"Key.Escape"| ModalCheck{"¿Hay modal abierto?"}
+    ModalCheck -- Sí --> CloseModal["Cierra modal activo"]
+    ModalCheck -- No --> CheckModule{"¿activeModule == SALES?"}
+    CheckModule -- No --> ReturnSales["activeModule = AppModule.SALES"]
+    CheckModule -- Sí --> Logout["Cerrar sesión / salir"]
+```
+
+---
+
+## 3. Máquina de Estados de Conexión LAN
 
 Cada terminal de caja ejecuta un monitor en segundo plano ([`ServerConnection`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/core/ServerConnection.kt)) con sondeo de salud periódico (`GET /health`) y reconexión por WebSocket:
 
@@ -47,7 +71,7 @@ stateDiagram-v2
 
 ---
 
-## 3. Flujo de Transacción Atómica de Cobro (`POST /api/v1/sales`)
+## 4. Flujo de Transacción Atómica de Cobro (`POST /api/v1/sales`)
 
 Cuando el cajero confirma el pago, se desencadena una transacción ACID en el servidor autoritativo:
 
@@ -100,7 +124,7 @@ sequenceDiagram
 
 ---
 
-## 4. Deducción de Inventario con Factor de Presentación
+## 5. Deducción de Inventario con Factor de Presentación
 
 En tiendas de abarrotes, los productos se venden en diferentes presentaciones que comparten la misma existencia base. Por ejemplo:
 - **Producto:** Huevo Blanco a Granel (Inventario medido en kilogramos: `unit = KG`).
@@ -113,7 +137,7 @@ $$\text{BaseDeductionMillis} = \frac{\text{quantityMillis} \times \text{factorMi
 
 ---
 
-## 5. Eventos en Tiempo Real por WebSocket
+## 6. Eventos en Tiempo Real por WebSocket
 
 El servidor expone el endpoint `/ws/events`. Las cajas conectadas reciben notificaciones inmediatas:
 - `CATALOG_UPDATED`: Cuando el administrador modifica un precio o alta de producto.

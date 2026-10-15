@@ -17,6 +17,7 @@ docs/
 │   ├── data-flow.md                   # Flujo de datos, estado del cliente, persistencia y WebSockets
 │   └── security.md                    # Autenticación PIN BCrypt, roles y seguridad en LAN
 ├── features/                          # Nivel 2: Documentación Funcional de Módulos (Plantilla 10 secciones)
+│   ├── top-header-navigation.md       # Cabecera global, atajos F1-F6, semáforo LAN y báscula
 │   ├── sales.md                       # Venta, carrito, cobro atómico, folio e impresión ESC/POS
 │   ├── cash-session.md                # Sesiones de caja, fondo inicial, movimientos y arqueo (RN-CAJ-04)
 │   ├── credit-fiado.md                # Crédito/Fiado a clientes, límites, saldo y abonos
@@ -61,17 +62,26 @@ En la misma PC o en cualquier equipo conectado a la red local (LAN):
 
 ---
 
-## 4. Atajos de Teclado Rápidos en Caja
+## 4. Atajos de Teclado Rápidos en Mostrador
 
 La terminal de venta está diseñada para ser operada a máxima velocidad sin necesidad de ratón:
 
-| Atajo | Acción |
-| :--- | :--- |
-| **Enter** | Agregar código de barras escaneado o tecleado al carrito. |
-| **F2** | Búsqueda rápida de productos por nombre o descripción. |
-| **F4** | Seleccionar cliente para venta a crédito / fiado. |
-| **F12** | Abrir diálogo de cobro en efectivo con cálculo de cambio. |
-| **Esc** | Cerrar diálogos modales o cancelar selección. |
+### Navegación Global por Módulos
+| Atajo | Módulo | Descripción |
+| :--- | :--- | :--- |
+| **F1** | **Ventas** | Pantalla principal de captura de productos y cobro (activo por defecto). |
+| **F2** | **Clientes** | Cuentas corrientes, límites de crédito y abonos de clientes fiados. |
+| **F3** | **Productos** | Catálogo general de artículos, precios y códigos de barras. |
+| **F4** | **Inventario** | Control de existencias físicas y alertas de bajo stock. |
+| **F5** | **Configuración** | Parámetros del negocio, impresoras y periféricos. |
+| **F6** | **Cortes** | Arqueo de caja, desglose de efectivo y corte Z/X. |
+
+### Operación en Punto de Venta
+| Atajo | Acción | Contexto |
+| :--- | :--- | :--- |
+| **Enter** | Agregar código de barras escaneado o tecleado al ticket. | Módulo de Ventas |
+| **F12** | Abrir diálogo de cobro en efectivo con cálculo de cambio. | Con carrito y turno activo |
+| **Esc** | Cerrar modales abiertos o regresar a **[F1] Ventas** / Salir. | Contextual en toda la app |
 
 ---
 
