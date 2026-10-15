@@ -162,12 +162,6 @@ private fun RightStatusSection(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Widget de Báscula
-        ScaleWidget(scaleReading = state.scaleReading)
-
-        // Semáforo Visual de Conexión LAN
-        LanTrafficLightWidget(connectionState = state.connectionState)
-
         // Identificador de Sesión (Caja y Cajero)
         SessionIdentifierWidget(
             registerId = state.registerId,
@@ -190,84 +184,6 @@ private fun RightStatusSection(
     }
 }
 
-@Composable
-private fun ScaleWidget(
-    scaleReading: ScaleReading,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text("⚖", fontSize = 14.sp)
-            Text(
-                text = scaleReading.weightText,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            val statusColor = when (scaleReading.status) {
-                ScaleStatus.STABLE -> Color(0xFF2E7D32)
-                ScaleStatus.READING -> Color(0xFFF57F17)
-                ScaleStatus.ZERO -> Color(0xFF1565C0)
-                ScaleStatus.DISCONNECTED -> Color(0xFF757575)
-            }
-
-            Surface(
-                color = statusColor.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(4.dp)
-            ) {
-                Text(
-                    text = scaleReading.status.label,
-                    color = statusColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LanTrafficLightWidget(
-    connectionState: ServerConnectionState,
-    modifier: Modifier = Modifier
-) {
-    val (dotColor, text) = when (connectionState) {
-        ServerConnectionState.CONNECTED -> Color(0xFF2E7D32) to "🟢 Conectado"
-        ServerConnectionState.RECONNECTING -> Color(0xFFF57F17) to "🟡 Reconectando"
-        ServerConnectionState.NO_SERVER -> Color(0xFFC62828) to "🔴 Sin Servidor"
-    }
-
-    Surface(
-        color = dotColor.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, dotColor.copy(alpha = 0.3f)),
-        modifier = modifier
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = text,
-                color = dotColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
-            )
-        }
-    }
-}
 
 @Composable
 private fun SessionIdentifierWidget(

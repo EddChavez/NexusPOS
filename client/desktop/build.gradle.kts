@@ -17,6 +17,7 @@ dependencies {
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.datetime)
 }
 
 compose.desktop {

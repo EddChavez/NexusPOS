@@ -1,0 +1,99 @@
+package mx.nexuspos.client.features.footer
+
+import androidx.compose.ui.graphics.Color
+import kotlinx.datetime.Clock
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import mx.nexuspos.client.core.ServerConnectionState
+import mx.nexuspos.client.features.header.ScaleReading
+
+/**
+ * Estado inmutable para la barra inferior de estado y telemetría.
+ */
+data class SystemFooterUiState(
+    val networkStatus: ServerConnectionState = ServerConnectionState.CONNECTED,
+    val scaleReading: ScaleReading = ScaleReading(),
+    val versionText: String = "NexusPOS v2.4 Desktop • © 2024"
+)
+
+/**
+ * Representación visual del estado de conectividad con el servidor local.
+ */
+data class NetworkStatusDisplay(
+    val label: String,
+    val indicatorColor: Color,
+    val dotSymbol: String = "●"
+)
+
+/**
+ * Mapea el [ServerConnectionState] a los textos y colores definidos para el footer.
+ */
+fun ServerConnectionState.toFooterDisplay(): NetworkStatusDisplay {
+    return when (this) {
+        ServerConnectionState.CONNECTED -> NetworkStatusDisplay(
+            label = "Servidor LAN sincronizado",
+            indicatorColor = Color(0xFF2E7D32)
+        )
+        ServerConnectionState.RECONNECTING -> NetworkStatusDisplay(
+            label = "Conectando...",
+            indicatorColor = Color(0xFFF57F17)
+        )
+        ServerConnectionState.NO_SERVER -> NetworkStatusDisplay(
+            label = "Servidor Desconectado",
+            indicatorColor = Color(0xFFC62828)
+        )
+    }
+}
+
+/**
+ * Formatea una fecha y hora local con el formato requerido por la terminal POS:
+ * Ejemplo: "15 - oct 10:12 am"
+ */
+fun formatTerminalDateTime(
+    dayOfMonth: Int,
+    monthNumber: Int,
+    hour24: Int,
+    minute: Int
+): String {
+    val day = dayOfMonth.toString().padStart(2, '0')
+    val monthShort = when (monthNumber) {
+        1 -> "ene"
+        2 -> "feb"
+        3 -> "mar"
+        4 -> "abr"
+        5 -> "may"
+        6 -> "jun"
+        7 -> "jul"
+        8 -> "ago"
+        9 -> "sep"
+        10 -> "oct"
+        11 -> "nov"
+        12 -> "dic"
+        else -> ""
+    }
+    val hour12 = when (val h = hour24 % 12) {
+        0 -> 12
+        else -> h
+    }
+    val hour12Str = hour12.toString().padStart(2, '0')
+    val minStr = minute.toString().padStart(2, '0')
+    val amPm = if (hour24 < 12) "am" else "pm"
+
+    return "$day - $monthShort $hour12Str:$minStr $amPm"
+}
+
+fun formatTerminalDateTime(dateTime: LocalDateTime): String = formatTerminalDateTime(
+    dayOfMonth = dateTime.dayOfMonth,
+    monthNumber = dateTime.monthNumber,
+    hour24 = dateTime.hour,
+    minute = dateTime.minute
+)
+
+/**
+ * Obtiene la fecha y hora actual del sistema formateada.
+ */
+fun getCurrentFormattedTerminalTime(): String {
+    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+    return formatTerminalDateTime(now)
+}

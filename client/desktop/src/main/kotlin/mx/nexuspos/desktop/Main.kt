@@ -23,6 +23,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import mx.nexuspos.client.features.footer.SystemFooter
 import mx.nexuspos.client.features.header.AppModule
 import mx.nexuspos.client.features.header.ScaleReading
 import mx.nexuspos.client.features.header.ScaleStatus
@@ -251,6 +252,13 @@ fun main() = application {
                                 viewModel.showSessionDialog(true)
                             }
                         }
+                    )
+                },
+                bottomBar = {
+                    SystemFooter(
+                        networkStatus = salesState.connectionState,
+                        scaleReading = scaleReading,
+                        versionText = "NexusPOS v2.4 Desktop • © 2024"
                     )
                 }
             ) { innerPadding ->
