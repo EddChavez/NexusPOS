@@ -15,8 +15,7 @@ docs/
 │   ├── overview.md                    # Capas, topología de red, módulos Gradle y principios
 │   ├── technical-decisions.md         # Registro de Decisiones de Arquitectura (ADRs)
 │   ├── data-flow.md                   # Flujo de datos, estado del cliente, persistencia y WebSockets
-│   ├── security.md                    # Autenticación PIN BCrypt, roles y seguridad en LAN
-│   └── funcionalidades-por-fases.md   # Hoja de ruta por fases (Fase 0 a Fase 4)
+│   └── security.md                    # Autenticación PIN BCrypt, roles y seguridad en LAN
 ├── features/                          # Nivel 2: Documentación Funcional de Módulos (Plantilla 10 secciones)
 │   ├── sales.md                       # Venta, carrito, cobro atómico, folio e impresión ESC/POS
 │   ├── cash-session.md                # Sesiones de caja, fondo inicial, movimientos y arqueo (RN-CAJ-04)

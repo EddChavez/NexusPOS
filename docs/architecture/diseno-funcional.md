@@ -2,7 +2,7 @@
 
 **Versión:** 2.0 (borrador de trabajo) · **Fecha:** 14 de octubre de 2026
 
-Describe **qué hace** el sistema y cómo se comporta desde el punto de vista del negocio. La estructura técnica está en `01-arquitectura.md` y el orden de construcción en `03-funcionalidades-por-fases.md`.
+Describe **qué hace** el sistema y cómo se comporta desde el punto de vista del negocio. La estructura técnica está en `overview.md` y en las especificaciones funcionales de `docs/features/`.
 
 Convenciones: cada regla de negocio lleva un identificador (`RN-VEN-01`) para poder referirla en pruebas, criterios de aceptación y tareas. Lo marcado **(propuesta)** es una decisión por confirmar con el dueño de la tienda.
 
@@ -37,8 +37,6 @@ Una miscelánea con una PC que es servidor y caja principal, otras cajas de escr
 | Respaldos y diagnóstico | Respaldo diario, estado del servidor | 1 |
 | Báscula, ventas en espera, mayoreo, promociones, compras, importación, supervisor móvil | Eficiencia | 2 |
 | Caducidades, recargas, contingencia, kardex, órdenes de compra, kits | Crecimiento | 3 |
-
-El detalle y los criterios de salida de cada fase están en `03-funcionalidades-por-fases.md`.
 
 ## 3. Pantallas y navegación
 
@@ -387,4 +385,4 @@ Escenarios que deben cumplirse (`Dado / Cuando / Entonces`):
 
 ## 13. Fuera de alcance inicial
 
-Facturación electrónica, terminales bancarias integradas, multi-sucursal, nube, operación sin servidor, compras formales y lotes con caducidad. Están ubicados por fase en `03-funcionalidades-por-fases.md`.
+Facturación electrónica, terminales bancarias integradas, multi-sucursal, nube, compras formales y lotes con caducidad.

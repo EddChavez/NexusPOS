@@ -10,7 +10,7 @@
 | --- | --- |
 | `01-arquitectura.md` | Este documento: estructura técnica, decisiones y reglas de código |
 | `02-diseno-funcional.md` | Roles, pantallas, flujos, reglas de negocio, permisos y datos |
-| `03-funcionalidades-por-fases.md` | Qué se construye en cada fase y cómo se mide que está terminada |
+
 
 ---
 

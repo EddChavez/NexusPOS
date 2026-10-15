@@ -34,7 +34,6 @@ La documentación completa del sistema se encuentra organizada en la carpeta [`d
   - [Registro de Decisiones de Arquitectura (ADRs)](./docs/architecture/technical-decisions.md)
   - [Flujo de Datos y Concurrencia](./docs/architecture/data-flow.md)
   - [Seguridad y Control de Acceso](./docs/architecture/security.md)
-  - [Hoja de Ruta por Fases](./docs/architecture/funcionalidades-por-fases.md)
 - **Nivel 2: Documentación Funcional de Módulos**
   - [Ventas y Cobro en Caja](./docs/features/sales.md)
   - [Sesiones y Cortes de Caja (Arqueo RN-CAJ-04)](./docs/features/cash-session.md)
