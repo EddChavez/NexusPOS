@@ -31,7 +31,9 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-include(":androidApp")
-include(":desktopApp")
-include(":shared")
+// include(":androidApp") // Reservado para Fase 2 (Supervisión Móvil LAN)
+include(":shared:core")
+include(":shared:contracts")
 include(":server")
+include(":client:app")
+include(":client:desktop")
