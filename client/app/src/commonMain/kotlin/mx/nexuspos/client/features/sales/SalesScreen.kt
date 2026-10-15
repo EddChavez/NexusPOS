@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.cash.CashSessionDialog
 import mx.nexuspos.client.features.credit.CustomerSelectionDialog
+import mx.nexuspos.core.ProductUnit
 
 @Composable
 fun SalesScreen(
@@ -112,77 +113,20 @@ fun SalesScreen(
                     }
                 }
 
-                // Cart Items List
-                ElevatedCard(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                    if (state.cartLines.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
-                                Text("El carrito está vacío", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.outline)
-                                Text("Escanee productos con el lector o busque por nombre.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                            }
+                // Parrilla de Productos en Venta (Data Grid Central)
+                CartGrid(
+                    items = state.cartLines,
+                    selectedLineId = state.selectedCartLineId,
+                    onSelectItem = { lineId -> viewModel.selectCartLine(lineId) },
+                    onRemoveItem = { lineId -> viewModel.removeCartLine(lineId) },
+                    onEditQuantity = { line ->
+                        if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
+                            viewModel.onScannerInputChanged(line.barcode)
+                            viewModel.onScannerSubmitted()
                         }
-                    } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(state.cartLines) { line ->
-                                val isLineSelected = line.id == state.selectedCartLineId
-                                Surface(
-                                    color = if (isLineSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant,
-                                    shape = MaterialTheme.shapes.small,
-                                    border = if (isLineSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { viewModel.selectCartLine(line.id) }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        // Unit badge
-                                        val unitColor = if (line.unit.code == "KG") Color(0xFF1565C0) else Color(0xFF00796B)
-                                        Surface(color = unitColor.copy(alpha = 0.15f), shape = MaterialTheme.shapes.extraSmall) {
-                                            Text(line.unit.code, color = unitColor, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(4.dp))
-                                        }
-
-                                        // Name and Barcode
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(line.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                            Text(line.barcode, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-
-                                        // Quantity
-                                        Text(
-                                            line.quantity.format(line.unit),
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 14.sp
-                                        )
-
-                                        // Unit Price
-                                        Text(
-                                            line.unitPrice.format(),
-                                            fontSize = 13.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-
-                                        // Total
-                                        Text(
-                                            line.total.format(),
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 15.sp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-
-                                        // Delete
-                                        IconButton(onClick = { viewModel.removeCartLine(line.id) }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                    },
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
             }
 
             // RIGHT COLUMN: Totals & Checkout (32%)

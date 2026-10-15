@@ -156,11 +156,14 @@ class SalesViewModel(
                     presentationId = pres.id,
                     barcode = pres.barcode,
                     name = pres.name,
+                    category = prod.departmentName ?: "Abarrotes",
                     unit = unit,
                     quantity = qty,
                     unitPrice = unitPrice,
                     taxRate = prod.taxRate,
-                    total = lineTotal
+                    total = lineTotal,
+                    currentStockMillis = if (prod.usesInventory) prod.currentStockMillis else null,
+                    isWeighed = unit == ProductUnit.KILOGRAM
                 )
             }
             recalculateTotals(state.copy(cartLines = updatedLines))

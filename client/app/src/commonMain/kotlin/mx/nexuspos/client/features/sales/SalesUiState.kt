@@ -16,11 +16,14 @@ data class CartLine(
     val presentationId: String?,
     val barcode: String,
     val name: String,
+    val category: String = "Abarrotes",
     val unit: ProductUnit,
     val quantity: Quantity,
     val unitPrice: Money,
     val taxRate: Double,
-    val total: Money
+    val total: Money,
+    val currentStockMillis: Long? = null,
+    val isWeighed: Boolean = unit == ProductUnit.KILOGRAM
 )
 
 /**
