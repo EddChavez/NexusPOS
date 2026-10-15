@@ -18,6 +18,7 @@ docs/
 │   └── security.md                    # Autenticación PIN BCrypt, roles y seguridad en LAN
 ├── features/                          # Nivel 2: Documentación Funcional de Módulos (Plantilla 10 secciones)
 │   ├── top-header-navigation.md       # Cabecera global, atajos F1-F6, semáforo LAN y báscula
+│   ├── sales-capture-bar.md           # Barra de control, multi-ticket, escaneo rápido y ribbon de atajos
 │   ├── sales.md                       # Venta, carrito, cobro atómico, folio e impresión ESC/POS
 │   ├── cash-session.md                # Sesiones de caja, fondo inicial, movimientos y arqueo (RN-CAJ-04)
 │   ├── credit-fiado.md                # Crédito/Fiado a clientes, límites, saldo y abonos
@@ -76,12 +77,19 @@ La terminal de venta está diseñada para ser operada a máxima velocidad sin ne
 | **F5** | **Configuración** | Parámetros del negocio, impresoras y periféricos. |
 | **F6** | **Cortes** | Arqueo de caja, desglose de efectivo y corte Z/X. |
 
-### Operación en Punto de Venta
-| Atajo | Acción | Contexto |
+### Operaciones Rápidas en Venta y Captura
+| Atajo | Acción | Descripción |
 | :--- | :--- | :--- |
-| **Enter** | Agregar código de barras escaneado o tecleado al ticket. | Módulo de Ventas |
-| **F12** | Abrir diálogo de cobro en efectivo con cálculo de cambio. | Con carrito y turno activo |
-| **Esc** | Cerrar modales abiertos o regresar a **[F1] Ventas** / Salir. | Contextual en toda la app |
+| **Enter** | Agregar Producto | Procesa el código escaneado o SKU en la barra de captura. |
+| **F12** | Cobrar Efectivo | Abre el diálogo de pago y cálculo de cambio. |
+| **INS** | Varios | Captura libre de artículo genérico con precio abierto. |
+| **Ctrl+P** | Artículos Comunes | Menú de selección rápida de bolsas, recargas y envases. |
+| **F10** | Catálogo | Búsqueda asistida en catálogo general. |
+| **F11** | Mayoreo | Aplica 10% de descuento de mayoreo a la línea seleccionada. |
+| **F7 / F8** | Entradas / Salidas | Registro inmediato de movimientos de efectivo de turno. |
+| **F9** | Granel | Pesaje y captura de producto en kilogramos. |
+| **DEL** | Borrar Artículo | Elimina la línea seleccionada o última del ticket. |
+| **Esc** | Cerrar / Regresar | Cierra diálogos modales activos o regresa a **[F1] Ventas**. |
 
 ---
 
