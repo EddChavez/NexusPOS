@@ -68,6 +68,25 @@ class SystemFooterTest {
     }
 
     @Test
+    fun testScaleStatusToFooterDisplay() {
+        val stable = ScaleStatus.STABLE.toFooterDisplay()
+        assertEquals("Estable", stable.label)
+        assertEquals(Color(0xFF2E7D32), stable.indicatorColor)
+
+        val reading = ScaleStatus.READING.toFooterDisplay()
+        assertEquals("Leyendo...", reading.label)
+        assertEquals(Color(0xFFF57F17), reading.indicatorColor)
+
+        val zero = ScaleStatus.ZERO.toFooterDisplay()
+        assertEquals("En cero", zero.label)
+        assertEquals(Color(0xFF1565C0), zero.indicatorColor)
+
+        val disconnected = ScaleStatus.DISCONNECTED.toFooterDisplay()
+        assertEquals("Desconectada", disconnected.label)
+        assertEquals(Color(0xFF757575), disconnected.indicatorColor)
+    }
+
+    @Test
     fun testSystemFooterUiStateDefaults() {
         val state = SystemFooterUiState()
         assertEquals(ServerConnectionState.CONNECTED, state.networkStatus)

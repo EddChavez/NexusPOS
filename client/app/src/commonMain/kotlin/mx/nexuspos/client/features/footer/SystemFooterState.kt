@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import kotlinx.datetime.LocalDateTime
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.header.ScaleReading
+import mx.nexuspos.client.features.header.ScaleStatus
 
 /**
  * Estado inmutable para la barra inferior de estado y telemetría.
@@ -40,6 +41,27 @@ fun ServerConnectionState.toFooterDisplay(): NetworkStatusDisplay {
             label = "Servidor Desconectado",
             indicatorColor = Color(0xFFC62828)
         )
+    }
+}
+
+/**
+ * Representación visual del estado de la báscula serial en el footer.
+ */
+data class ScaleStatusDisplay(
+    val label: String,
+    val indicatorColor: Color,
+    val dotSymbol: String = "●"
+)
+
+/**
+ * Mapea el [ScaleStatus] a dot y etiqueta en formato similar al servidor.
+ */
+fun ScaleStatus.toFooterDisplay(): ScaleStatusDisplay {
+    return when (this) {
+        ScaleStatus.STABLE -> ScaleStatusDisplay("Estable", Color(0xFF2E7D32))
+        ScaleStatus.READING -> ScaleStatusDisplay("Leyendo...", Color(0xFFF57F17))
+        ScaleStatus.ZERO -> ScaleStatusDisplay("En cero", Color(0xFF1565C0))
+        ScaleStatus.DISCONNECTED -> ScaleStatusDisplay("Desconectada", Color(0xFF757575))
     }
 }
 

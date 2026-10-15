@@ -20,7 +20,7 @@ Dotar a la terminal de punto de venta NexusPOS de un panel de estado inferior pe
     - `🔴 Servidor Desconectado` (Sin comunicación con la base de datos o servidor local).
 - **Monitor de Báscula Serial RS-232 (Sección Izquierda):**
   - Indicador dinámico de lectura de peso (`0.000 kg`, `1.230 kg`) con icono `⚖`.
-  - Chip de estado con color semafórico: `ESTABLE` (verde), `LEYENDO` (naranja), `EN CERO` (azul), `DESCONECTADA` (gris).
+  - Dot visual circular (`7.dp`) y estado descriptivo homogéneo al monitor del servidor: `🟢 Estable`, `🟡 Leyendo...`, `🔵 En cero`, `⚪ Desconectada`.
   - Callback opcional de clic para calibración o diagnóstico (`onScaleClick`).
   - Divisor vertical sutil que separa la conectividad LAN del periférico de báscula.
 - **Información del Sistema (Sección Central):**
@@ -114,7 +114,7 @@ fun StatusBar(...) = SystemFooter(...)
 | Sección | Componente | Altura / Peso | Tipografía / Estilo | Comportamiento |
 |---|---|---|---|---|
 | **Izquierda: LAN** | Dot + Texto | `11.sp` Medium | Verde `#2E7D32`, Naranja `#F57F17`, Rojo `#C62828` | Reactivo a cambios en `ServerConnectionState`. |
-| **Izquierda: Báscula** | Icono `⚖` + Peso + Chip | `11.5.sp` Bold | Chip coloreado según `ScaleStatus` (`ESTABLE`, `LEYENDO`, etc.) | Muestra lecturas en vivo de la báscula serial. |
+| **Izquierda: Báscula** | Icono `⚖` + Peso + Dot + Texto | `11.5.sp` Bold + `11.sp` Medium | Dot circular de `7.dp` y texto (`Estable`, `Leyendo...`, etc.) | Muestra lecturas en vivo de la báscula serial con diseño armónico al servidor LAN. |
 | **Centro** | Versión del software | `11.sp` Normal | Color `onSurfaceVariant` (alpha 0.8f) | Informativo / Marca estática. |
 | **Derecha** | Reloj Digital | `11.sp` Medium | Icono `Schedule` (12.dp) + formato `"15 - oct 10:12 am"` | Actualización al cambio de minuto exacto con `delay`. |
 

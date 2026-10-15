@@ -1,10 +1,8 @@
 package mx.nexuspos.client.features.footer
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.HorizontalDivider
@@ -140,18 +138,13 @@ private fun InfrastructureStatusSection(
         )
 
         // Indicador de Báscula Serial RS-232
-        val scaleStatusColor = when (scaleReading.status) {
-            ScaleStatus.STABLE -> Color(0xFF2E7D32)
-            ScaleStatus.READING -> Color(0xFFF57F17)
-            ScaleStatus.ZERO -> Color(0xFF1565C0)
-            ScaleStatus.DISCONNECTED -> Color(0xFF757575)
-        }
+        val scaleDisplay = scaleReading.status.toFooterDisplay()
 
         Row(
             modifier = Modifier
                 .then(if (onScaleClick != null) Modifier.clickable { onScaleClick() } else Modifier),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Text(
                 text = "⚖",
@@ -166,18 +159,17 @@ private fun InfrastructureStatusSection(
             )
 
             Surface(
-                color = scaleStatusColor.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(3.dp),
-                border = BorderStroke(0.5.dp, scaleStatusColor.copy(alpha = 0.4f))
-            ) {
-                Text(
-                    text = scaleReading.status.label,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = scaleStatusColor,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                )
-            }
+                color = scaleDisplay.indicatorColor,
+                shape = CircleShape,
+                modifier = Modifier.size(7.dp)
+            ) {}
+
+            Text(
+                text = scaleDisplay.label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
