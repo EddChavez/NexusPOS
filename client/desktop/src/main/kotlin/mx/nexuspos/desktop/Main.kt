@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import mx.nexuspos.client.features.header.AppModule
 import mx.nexuspos.client.features.header.ScaleReading
 import mx.nexuspos.client.features.header.ScaleStatus
@@ -32,6 +33,7 @@ import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.desktop.hardware.KeyboardWedgeBarcodeInput
 
 fun main() = application {
+    val windowState = rememberWindowState(width = 1280.dp, height = 820.dp)
     val viewModel = remember { SalesViewModel() }
     val salesState by viewModel.uiState.collectAsState()
 
@@ -63,7 +65,7 @@ fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
         title = "NexusPOS - Terminal de Punto de Venta (LAN-First)",
-        state = WindowState(width = 1280.dp, height = 820.dp),
+        state = windowState,
         onKeyEvent = { keyEvent ->
             // First check if this is an incoming barcode scan from USB hardware scanner
             if (barcodeWedge.onKeyEvent(keyEvent)) {
