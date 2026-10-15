@@ -24,7 +24,8 @@ docs/
 │   ├── cash-session.md                # Sesiones de caja, fondo inicial, movimientos y arqueo (RN-CAJ-04)
 │   ├── credit-fiado.md                # Crédito/Fiado a clientes, límites, saldo y abonos
 │   ├── catalog-inventory.md           # Catálogo, presentaciones, granel/peso y stock negativo configurable
-│   └── authentication.md              # Login por PIN, cambio de cajero y estado LAN
+│   ├── authentication.md              # Login por PIN, cambio de cajero y estado LAN
+│   └── system-status-footer.md        # Barra inferior de estado, LAN, báscula y reloj en tiempo real
 ├── api/
 │   └── endpoints.md                   # Contratos REST /api/v1, DTOs, Idempotency-Key y WebSocket
 └── testing/
