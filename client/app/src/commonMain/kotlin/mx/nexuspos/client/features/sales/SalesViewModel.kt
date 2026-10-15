@@ -65,65 +65,71 @@ class SalesViewModel(
         val input = _uiState.value.scannerInput.trim()
         if (input.isBlank()) return
 
+        _uiState.update { it.copy(scannerStatus = ScannerStatus.PROCESSING) }
+
         scope.launch {
-            val res = apiClient.searchProducts(barcode = input)
-            res.onSuccess { prods ->
-                if (prods.isNotEmpty()) {
-                    val prod = prods.first()
-                    val pres = prod.presentations.firstOrNull { it.barcode == input } ?: prod.presentations.firstOrNull()
-                    if (pres != null) {
-                        if (prod.baseUnit.equals("KG", ignoreCase = true)) {
-                            // Open bulk weight dialog
-                            _uiState.update {
-                                it.copy(
-                                    scannerInput = "",
-                                    isWeighingProduct = Pair(prod, pres),
-                                    errorMessage = null
-                                )
+            try {
+                val res = apiClient.searchProducts(barcode = input)
+                res.onSuccess { prods ->
+                    if (prods.isNotEmpty()) {
+                        val prod = prods.first()
+                        val pres = prod.presentations.firstOrNull { it.barcode == input } ?: prod.presentations.firstOrNull()
+                        if (pres != null) {
+                            if (prod.baseUnit.equals("KG", ignoreCase = true)) {
+                                // Open bulk weight dialog
+                                _uiState.update {
+                                    it.copy(
+                                        scannerInput = "",
+                                        isWeighingProduct = Pair(prod, pres),
+                                        errorMessage = null
+                                    )
+                                }
+                            } else {
+                                addProductPresentation(prod, pres, Quantity.ONE)
+                                _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
                             }
-                        } else {
-                            addProductPresentation(prod, pres, Quantity.ONE)
-                            _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
                         }
-                    }
-                } else {
-                    // Try searching by name/query
-                    val queryRes = apiClient.searchProducts(query = input)
-                    queryRes.onSuccess { queryProds ->
-                        if (queryProds.isNotEmpty()) {
-                            val prod = queryProds.first()
-                            val pres = prod.presentations.firstOrNull()
-                            if (pres != null) {
-                                if (prod.baseUnit.equals("KG", ignoreCase = true)) {
-                                    _uiState.update {
-                                        it.copy(
-                                            scannerInput = "",
-                                            isWeighingProduct = Pair(prod, pres),
-                                            errorMessage = null
-                                        )
+                    } else {
+                        // Try searching by name/query
+                        val queryRes = apiClient.searchProducts(query = input)
+                        queryRes.onSuccess { queryProds ->
+                            if (queryProds.isNotEmpty()) {
+                                val prod = queryProds.first()
+                                val pres = prod.presentations.firstOrNull()
+                                if (pres != null) {
+                                    if (prod.baseUnit.equals("KG", ignoreCase = true)) {
+                                        _uiState.update {
+                                            it.copy(
+                                                scannerInput = "",
+                                                isWeighingProduct = Pair(prod, pres),
+                                                errorMessage = null
+                                            )
+                                        }
+                                    } else {
+                                        addProductPresentation(prod, pres, Quantity.ONE)
+                                        _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
                                     }
-                                } else {
-                                    addProductPresentation(prod, pres, Quantity.ONE)
-                                    _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
+                                }
+                            } else {
+                                _uiState.update {
+                                    it.copy(
+                                        errorMessage = "Producto con código '$input' no encontrado",
+                                        scannerInput = ""
+                                    )
                                 }
                             }
-                        } else {
-                            _uiState.update {
-                                it.copy(
-                                    errorMessage = "Producto con código '$input' no encontrado",
-                                    scannerInput = ""
-                                )
-                            }
                         }
                     }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = "Error al buscar producto: ${err.message}",
+                            connectionState = ServerConnectionState.NO_SERVER
+                        )
+                    }
                 }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        errorMessage = "Error al buscar producto: ${err.message}",
-                        connectionState = ServerConnectionState.NO_SERVER
-                    )
-                }
+            } finally {
+                _uiState.update { it.copy(scannerStatus = ScannerStatus.READY) }
             }
         }
     }
@@ -185,7 +191,207 @@ class SalesViewModel(
     }
 
     fun selectCustomer(customer: CustomerDto?) {
-        _uiState.update { it.copy(selectedCustomer = customer, isShowingCustomerDialog = false) }
+        _uiState.update { state ->
+            val updatedTickets = state.tickets.map { t ->
+                if (t.id == state.activeTicketId) {
+                    t.copy(selectedCustomer = customer)
+                } else t
+            }
+            state.copy(
+                selectedCustomer = customer,
+                tickets = updatedTickets,
+                isShowingCustomerDialog = false
+            )
+        }
+    }
+
+    // ==========================================
+    // MULTI-TICKET MANAGEMENT
+    // ==========================================
+
+    fun newTicket() {
+        _uiState.update { state ->
+            val nextNum = state.tickets.size + 1
+            val newId = "ticket-${UUID.randomUUID().toString().take(6)}"
+            val newTicket = TicketState(id = newId, title = "Ticket $nextNum")
+
+            // Sincronizar el ticket actual saliente
+            val syncedTickets = state.tickets.map { t ->
+                if (t.id == state.activeTicketId) {
+                    t.copy(
+                        cartLines = state.cartLines,
+                        subtotal = state.subtotal,
+                        tax = state.tax,
+                        total = state.total,
+                        selectedCustomer = state.selectedCustomer
+                    )
+                } else t
+            }
+
+            state.copy(
+                tickets = syncedTickets + newTicket,
+                activeTicketId = newId,
+                cartLines = emptyList(),
+                subtotal = Money.ZERO,
+                tax = Money.ZERO,
+                total = Money.ZERO,
+                selectedCustomer = null,
+                selectedCartLineId = null,
+                scannerInput = ""
+            )
+        }
+    }
+
+    fun selectTicket(ticketId: String) {
+        _uiState.update { state ->
+            if (state.activeTicketId == ticketId) return@update state
+            val target = state.tickets.firstOrNull { it.id == ticketId } ?: return@update state
+
+            val syncedTickets = state.tickets.map { t ->
+                if (t.id == state.activeTicketId) {
+                    t.copy(
+                        cartLines = state.cartLines,
+                        subtotal = state.subtotal,
+                        tax = state.tax,
+                        total = state.total,
+                        selectedCustomer = state.selectedCustomer
+                    )
+                } else t
+            }
+
+            state.copy(
+                tickets = syncedTickets,
+                activeTicketId = target.id,
+                cartLines = target.cartLines,
+                subtotal = target.subtotal,
+                tax = target.tax,
+                total = target.total,
+                selectedCustomer = target.selectedCustomer,
+                selectedCartLineId = null,
+                scannerInput = ""
+            )
+        }
+    }
+
+    fun closeTicket(ticketId: String) {
+        _uiState.update { state ->
+            if (state.tickets.size <= 1) {
+                val reset = state.tickets.first().copy(
+                    cartLines = emptyList(),
+                    subtotal = Money.ZERO,
+                    tax = Money.ZERO,
+                    total = Money.ZERO,
+                    selectedCustomer = null
+                )
+                state.copy(
+                    tickets = listOf(reset),
+                    cartLines = emptyList(),
+                    subtotal = Money.ZERO,
+                    tax = Money.ZERO,
+                    total = Money.ZERO,
+                    selectedCustomer = null,
+                    selectedCartLineId = null,
+                    scannerInput = ""
+                )
+            } else {
+                val remaining = state.tickets.filterNot { it.id == ticketId }
+                val nextActive = if (state.activeTicketId == ticketId) {
+                    remaining.last()
+                } else {
+                    remaining.firstOrNull { it.id == state.activeTicketId } ?: remaining.first()
+                }
+
+                state.copy(
+                    tickets = remaining,
+                    activeTicketId = nextActive.id,
+                    cartLines = nextActive.cartLines,
+                    subtotal = nextActive.subtotal,
+                    tax = nextActive.tax,
+                    total = nextActive.total,
+                    selectedCustomer = nextActive.selectedCustomer,
+                    selectedCartLineId = null,
+                    scannerInput = ""
+                )
+            }
+        }
+    }
+
+    // ==========================================
+    // SELECTION & OPERATIONS ON CART LINES
+    // ==========================================
+
+    fun selectCartLine(lineId: String?) {
+        _uiState.update { it.copy(selectedCartLineId = if (it.selectedCartLineId == lineId) null else lineId) }
+    }
+
+    fun deleteActiveCartLine() {
+        val state = _uiState.value
+        val lineToDelete = state.selectedCartLineId ?: state.cartLines.lastOrNull()?.id ?: return
+        removeCartLine(lineToDelete)
+        _uiState.update { it.copy(selectedCartLineId = null) }
+    }
+
+    fun onApplyWholesalePrice() {
+        _uiState.update { state ->
+            val targetId = state.selectedCartLineId ?: state.cartLines.lastOrNull()?.id
+            if (targetId == null) {
+                state.copy(errorMessage = "Seleccione un artículo para aplicar precio de mayoreo.")
+            } else {
+                val updatedLines = state.cartLines.map { line ->
+                    if (line.id == targetId) {
+                        // Descuento de mayoreo del 10%
+                        val discountedUnitPrice = Money.fromCents((line.unitPrice.cents * 0.90).toLong())
+                        val newTotal = PricingRules.calculateLineTotal(discountedUnitPrice, line.quantity)
+                        line.copy(unitPrice = discountedUnitPrice, total = newTotal)
+                    } else line
+                }
+                recalculateTotals(state.copy(cartLines = updatedLines, successMessage = "Precio de mayoreo aplicado."))
+            }
+        }
+    }
+
+    fun addGenericProduct(name: String, priceCents: Long, qty: Quantity = Quantity.ONE) {
+        val unitPrice = Money.fromCents(priceCents)
+        val lineTotal = PricingRules.calculateLineTotal(unitPrice, qty)
+        _uiState.update { state ->
+            val genericLine = CartLine(
+                id = "cart-gen-" + UUID.randomUUID().toString().take(6),
+                productId = null,
+                presentationId = null,
+                barcode = "VAR-GEN",
+                name = name.ifBlank { "Artículo Varios" },
+                unit = ProductUnit.PIECE,
+                quantity = qty,
+                unitPrice = unitPrice,
+                taxRate = 0.0,
+                total = lineTotal
+            )
+            recalculateTotals(state.copy(
+                cartLines = state.cartLines + genericLine,
+                isShowingGenericProductDialog = false,
+                successMessage = "Artículo '$name' agregado."
+            ))
+        }
+    }
+
+    fun showGenericProductDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingGenericProductDialog = show) }
+    }
+
+    fun showCommonArticlesDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingCommonArticlesDialog = show) }
+    }
+
+    fun showSearchCatalogDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingSearchCatalogDialog = show) }
+    }
+
+    fun showCashInDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingCashInDialog = show) }
+    }
+
+    fun showCashOutDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingCashOutDialog = show) }
     }
 
     fun showCashPaymentDialog(show: Boolean) {
@@ -288,13 +494,26 @@ class SalesViewModel(
             )
 
             apiClient.completeSale(saleReq).onSuccess { sale ->
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    val clearedTickets = state.tickets.map { t ->
+                        if (t.id == state.activeTicketId) {
+                            t.copy(
+                                cartLines = emptyList(),
+                                subtotal = Money.ZERO,
+                                tax = Money.ZERO,
+                                total = Money.ZERO,
+                                selectedCustomer = null
+                            )
+                        } else t
+                    }
+                    state.copy(
+                        tickets = clearedTickets,
                         cartLines = emptyList(),
                         subtotal = Money.ZERO,
                         tax = Money.ZERO,
                         total = Money.ZERO,
                         selectedCustomer = null,
+                        selectedCartLineId = null,
                         isShowingCashPayment = false,
                         lastCompletedSale = sale,
                         successMessage = "Venta folio #${sale.folio} completada. Cambio: $${(sale.payments.firstOrNull()?.changeCents ?: 0L) / 100.0}",
@@ -354,13 +573,26 @@ class SalesViewModel(
             )
 
             apiClient.completeSale(saleReq).onSuccess { sale ->
-                _uiState.update {
-                    it.copy(
+                _uiState.update { s ->
+                    val clearedTickets = s.tickets.map { t ->
+                        if (t.id == s.activeTicketId) {
+                            t.copy(
+                                cartLines = emptyList(),
+                                subtotal = Money.ZERO,
+                                tax = Money.ZERO,
+                                total = Money.ZERO,
+                                selectedCustomer = null
+                            )
+                        } else t
+                    }
+                    s.copy(
+                        tickets = clearedTickets,
                         cartLines = emptyList(),
                         subtotal = Money.ZERO,
                         tax = Money.ZERO,
                         total = Money.ZERO,
                         selectedCustomer = null,
+                        selectedCartLineId = null,
                         lastCompletedSale = sale,
                         successMessage = "Venta a crédito folio #${sale.folio} para ${customer.name}. Saldo restante: $${(sale.customerRemainingCreditCents ?: 0L) / 100.0}",
                         errorMessage = null
@@ -388,6 +620,24 @@ class SalesViewModel(
         }
 
         val total = subtotal + tax
-        return state.copy(subtotal = subtotal, tax = tax, total = total)
+
+        val updatedTickets = state.tickets.map { t ->
+            if (t.id == state.activeTicketId) {
+                t.copy(
+                    cartLines = state.cartLines,
+                    subtotal = subtotal,
+                    tax = tax,
+                    total = total,
+                    selectedCustomer = state.selectedCustomer
+                )
+            } else t
+        }
+
+        return state.copy(
+            subtotal = subtotal,
+            tax = tax,
+            total = total,
+            tickets = updatedTickets
+        )
     }
 }

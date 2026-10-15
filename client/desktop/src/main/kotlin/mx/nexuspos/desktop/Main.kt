@@ -11,6 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
@@ -108,18 +110,90 @@ fun main() = application {
                         } else false
                     }
 
+                    Key.Insert -> {
+                        if (activeModule == AppModule.SALES) {
+                            viewModel.showGenericProductDialog(true)
+                            true
+                        } else false
+                    }
+
+                    Key.P -> {
+                        if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
+                            viewModel.showCommonArticlesDialog(true)
+                            true
+                        } else false
+                    }
+
+                    Key.F10 -> {
+                        if (activeModule == AppModule.SALES) {
+                            viewModel.showSearchCatalogDialog(true)
+                            true
+                        } else false
+                    }
+
+                    Key.F11 -> {
+                        if (activeModule == AppModule.SALES) {
+                            viewModel.onApplyWholesalePrice()
+                            true
+                        } else false
+                    }
+
+                    Key.F7 -> {
+                        if (activeModule == AppModule.SALES) {
+                            viewModel.showCashInDialog(true)
+                            true
+                        } else false
+                    }
+
+                    Key.F8 -> {
+                        if (activeModule == AppModule.SALES) {
+                            viewModel.showCashOutDialog(true)
+                            true
+                        } else false
+                    }
+
+                    Key.F9 -> {
+                        if (activeModule == AppModule.SALES) {
+                            val bulkProd = salesState.cartLines.firstOrNull { it.unit.code == "KG" }
+                            if (bulkProd != null) {
+                                viewModel.onScannerInputChanged(bulkProd.barcode)
+                                viewModel.onScannerSubmitted()
+                            } else {
+                                viewModel.showGenericProductDialog(true)
+                            }
+                            true
+                        } else false
+                    }
+
+                    Key.Delete -> {
+                        if (activeModule == AppModule.SALES && salesState.cartLines.isNotEmpty()) {
+                            viewModel.deleteActiveCartLine()
+                            true
+                        } else false
+                    }
+
                     // Escape key handling
                     Key.Escape -> {
                         val hasOpenDialogs = salesState.isShowingCashPayment ||
                                 salesState.isShowingCustomerDialog ||
                                 salesState.isShowingSessionDialog ||
-                                salesState.isWeighingProduct != null
+                                salesState.isWeighingProduct != null ||
+                                salesState.isShowingGenericProductDialog ||
+                                salesState.isShowingCommonArticlesDialog ||
+                                salesState.isShowingCashInDialog ||
+                                salesState.isShowingCashOutDialog ||
+                                salesState.isShowingSearchCatalogDialog
 
                         if (hasOpenDialogs) {
                             viewModel.showCashPaymentDialog(false)
                             viewModel.showCustomerDialog(false)
                             viewModel.dismissWeighingDialog()
                             viewModel.showSessionDialog(false)
+                            viewModel.showGenericProductDialog(false)
+                            viewModel.showCommonArticlesDialog(false)
+                            viewModel.showCashInDialog(false)
+                            viewModel.showCashOutDialog(false)
+                            viewModel.showSearchCatalogDialog(false)
                             true
                         } else if (activeModule != AppModule.SALES) {
                             // Si estamos en otro módulo, Escape regresa a Ventas

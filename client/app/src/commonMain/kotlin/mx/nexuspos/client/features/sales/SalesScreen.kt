@@ -1,6 +1,8 @@
 package mx.nexuspos.client.features.sales
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,21 +42,35 @@ fun SalesScreen(
                 modifier = Modifier.weight(0.68f).fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Barcode scanner field
-                OutlinedTextField(
-                    value = state.scannerInput,
-                    onValueChange = { viewModel.onScannerInputChanged(it) },
-                    label = { Text("Escanear código de barras o teclear nombre y presionar Enter...") },
-                    leadingIcon = { Icon(Icons.Default.QrCodeScanner, contentDescription = "Scanner") },
-                    trailingIcon = {
-                        IconButton(onClick = { viewModel.onScannerSubmitted() }) {
-                            Icon(Icons.Default.AddShoppingCart, contentDescription = "Agregar")
+                // Barra de Control de Venta y Captura Rápida
+                CaptureBar(
+                    state = state.toCaptureBarState(),
+                    onEvent = { event ->
+                        when (event) {
+                            is CaptureBarEvent.SelectTicket -> viewModel.selectTicket(event.ticketId)
+                            is CaptureBarEvent.NewTicket -> viewModel.newTicket()
+                            is CaptureBarEvent.CloseTicket -> viewModel.closeTicket(event.ticketId)
+                            is CaptureBarEvent.OpenCustomerSelector -> viewModel.showCustomerDialog(true)
+                            is CaptureBarEvent.ScannerInputChanged -> viewModel.onScannerInputChanged(event.text)
+                            is CaptureBarEvent.SubmitScanner -> viewModel.onScannerSubmitted()
+                            is CaptureBarEvent.InsertGeneric -> viewModel.showGenericProductDialog(true)
+                            is CaptureBarEvent.CommonArticles -> viewModel.showCommonArticlesDialog(true)
+                            is CaptureBarEvent.SearchCatalog -> viewModel.showSearchCatalogDialog(true)
+                            is CaptureBarEvent.ApplyWholesale -> viewModel.onApplyWholesalePrice()
+                            is CaptureBarEvent.CashIn -> viewModel.showCashInDialog(true)
+                            is CaptureBarEvent.CashOut -> viewModel.showCashOutDialog(true)
+                            is CaptureBarEvent.WeighBulk -> {
+                                val bulkProd = state.cartLines.firstOrNull { it.unit.code == "KG" }
+                                if (bulkProd != null) {
+                                    viewModel.onScannerInputChanged(bulkProd.barcode)
+                                    viewModel.onScannerSubmitted()
+                                } else {
+                                    viewModel.showGenericProductDialog(true)
+                                }
+                            }
+                            is CaptureBarEvent.DeleteItem -> viewModel.deleteActiveCartLine()
                         }
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { viewModel.onScannerSubmitted() }),
-                    modifier = Modifier.fillMaxWidth()
+                    }
                 )
 
                 // Alerts / Messages
@@ -109,10 +125,14 @@ fun SalesScreen(
                     } else {
                         LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(state.cartLines) { line ->
+                                val isLineSelected = line.id == state.selectedCartLineId
                                 Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    color = if (isLineSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant,
                                     shape = MaterialTheme.shapes.small,
-                                    modifier = Modifier.fillMaxWidth()
+                                    border = if (isLineSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { viewModel.selectCartLine(line.id) }
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -162,19 +182,6 @@ fun SalesScreen(
                             }
                         }
                     }
-                }
-
-                // Keyboard Shortcuts Bar
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.extraSmall,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        "[Enter] Escanear/Agregar   •   [F5] Asignar Fiado   •   [F12] Cobrar   •   [Supr] Eliminar",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
                 }
             }
 
@@ -346,6 +353,58 @@ fun SalesScreen(
                 onOpenSession = { fund -> viewModel.openCashSession(fund) },
                 onCloseSession = { counted, notes -> viewModel.closeCashSession(counted, notes) },
                 onDismiss = { viewModel.showSessionDialog(false) }
+            )
+        }
+
+        if (state.isShowingGenericProductDialog) {
+            GenericProductDialog(
+                onConfirm = { name, priceCents -> viewModel.addGenericProduct(name, priceCents) },
+                onDismiss = { viewModel.showGenericProductDialog(false) }
+            )
+        }
+
+        if (state.isShowingCommonArticlesDialog) {
+            CommonArticlesDialog(
+                onSelectArticle = { name, priceCents ->
+                    viewModel.addGenericProduct(name, priceCents)
+                    viewModel.showCommonArticlesDialog(false)
+                },
+                onDismiss = { viewModel.showCommonArticlesDialog(false) }
+            )
+        }
+
+        if (state.isShowingCashInDialog) {
+            CashMovementDialog(
+                isCashIn = true,
+                onConfirm = { amount, reason ->
+                    viewModel.showCashInDialog(false)
+                    viewModel.clearMessages()
+                },
+                onDismiss = { viewModel.showCashInDialog(false) }
+            )
+        }
+
+        if (state.isShowingCashOutDialog) {
+            CashMovementDialog(
+                isCashIn = false,
+                onConfirm = { amount, reason ->
+                    viewModel.showCashOutDialog(false)
+                    viewModel.clearMessages()
+                },
+                onDismiss = { viewModel.showCashOutDialog(false) }
+            )
+        }
+
+        if (state.isShowingSearchCatalogDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.showSearchCatalogDialog(false) },
+                title = { Text("Búsqueda en Catálogo [F10]") },
+                text = { Text("Escriba el nombre o SKU en la barra de captura y presione [ENTER] para agregar directamente el producto.") },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.showSearchCatalogDialog(false) }) {
+                        Text("Entendido [Enter]")
+                    }
+                }
             )
         }
     }
