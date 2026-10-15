@@ -14,15 +14,12 @@ Dotar a la terminal de punto de venta NexusPOS de un panel de estado inferior pe
 
 ### Incluye:
 - **Monitoreo de Infraestructura y Conexión LAN (Sección Izquierda):**
-  - Dot visual con código de color dinámico y texto descriptivo:
-    - `🟢 Servidor LAN sincronizado` (Conexión activa con el servidor autoritativo Ktor).
-    - `🟡 Conectando...` (Intento de reconexión o enlace inestable).
-    - `🔴 Servidor Desconectado` (Sin comunicación con la base de datos o servidor local).
-- **Monitor de Báscula Serial RS-232 (Sección Izquierda):**
+  - Dot visual con código de color dinámico (`7.dp`) y texto descriptivo exacto: `"Nexus Lan Server"` (`🟢` Conectado, `🟡` Conectando, `🔴` Desconectado).
+- **Monitor de Báscula Serial RS-232 (Sección Derecha):**
   - Indicador dinámico de lectura de peso (`0.000 kg`, `1.230 kg`) con icono `⚖`.
-  - Dot visual circular (`7.dp`) y estado descriptivo homogéneo al monitor del servidor: `🟢 Estable`, `🟡 Leyendo...`, `🔵 En cero`, `⚪ Desconectada`.
+  - Dot visual circular (`7.dp`) con color según el estado físico de la lectura (`ScaleStatus`), **sin etiqueta de texto descriptiva**.
   - Callback opcional de clic para calibración o diagnóstico (`onScaleClick`).
-  - Divisor vertical sutil que separa la conectividad LAN del periférico de báscula.
+  - Ubicado a la derecha junto al reloj digital, separado por un divisor vertical fino.
 - **Información del Sistema (Sección Central):**
   - Versión del producto y copyright: `"NexusPOS v2.4 Desktop • © 2024"`.
 - **Reloj en Tiempo Real Aislado (Sección Derecha):**
@@ -113,10 +110,10 @@ fun StatusBar(...) = SystemFooter(...)
 
 | Sección | Componente | Altura / Peso | Tipografía / Estilo | Comportamiento |
 |---|---|---|---|---|
-| **Izquierda: LAN** | Dot + Texto | `11.sp` Medium | Verde `#2E7D32`, Naranja `#F57F17`, Rojo `#C62828` | Reactivo a cambios en `ServerConnectionState`. |
-| **Izquierda: Báscula** | Icono `⚖` + Peso + Dot + Texto | `11.5.sp` Bold + `11.sp` Medium | Dot circular de `7.dp` y texto (`Estable`, `Leyendo...`, etc.) | Muestra lecturas en vivo de la báscula serial con diseño armónico al servidor LAN. |
-| **Centro** | Versión del software | `11.sp` Normal | Color `onSurfaceVariant` (alpha 0.8f) | Informativo / Marca estática. |
-| **Derecha** | Reloj Digital | `11.sp` Medium | Icono `Schedule` (12.dp) + formato `"15 - oct 10:12 am"` | Actualización al cambio de minuto exacto con `delay`. |
+| **Izquierda: LAN** | Dot + Texto | `11.sp` Medium | Dot circular de `7.dp` y texto fijo `"Nexus Lan Server"` | Reactivo a cambios en `ServerConnectionState`. |
+| **Centro** | Versión del software | `11.sp` Normal | Color `onSurfaceVariant` (alpha 0.8f) | Informativo / Marca estática (`NexusPOS v2.4 Desktop • © 2024`). |
+| **Derecha: Báscula** | Icono `⚖` + Peso + Dot | `11.5.sp` Bold | Icono `⚖`, peso y dot de `7.dp` según `ScaleStatus` (sin texto) | Muestra peso y estado físico de la báscula de forma puramente visual. |
+| **Derecha: Reloj** | Icono `Schedule` + Hora | `11.sp` Medium | Icono (12.dp) + formato `"15 - oct 10:12 am"` | Actualización dinámica al minuto exacto con `delay` aislado. |
 
 ---
 

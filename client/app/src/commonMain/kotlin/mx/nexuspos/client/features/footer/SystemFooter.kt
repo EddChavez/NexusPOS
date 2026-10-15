@@ -57,13 +57,9 @@ fun SystemFooter(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 // =====================================================================
-                // 1. MONITOREO DE INFRAESTRUCTURA Y PERIFÉRICOS (IZQUIERDA)
+                // 1. INDICADOR DEL SERVIDOR (IZQUIERDA)
                 // =====================================================================
-                InfrastructureStatusSection(
-                    networkStatus = networkStatus,
-                    scaleReading = scaleReading,
-                    onScaleClick = onScaleClick
-                )
+                ServerStatusSection(networkStatus = networkStatus)
 
                 // =====================================================================
                 // 2. INFORMACIÓN DEL SISTEMA (CENTRO)
@@ -71,9 +67,25 @@ fun SystemFooter(
                 SystemInfoSection(versionText = versionText)
 
                 // =====================================================================
-                // 3. RELOJ EN TIEMPO REAL (DERECHA - AISLADO)
+                // 3. INDICADOR DE BÁSCULA Y RELOJ EN TIEMPO REAL (DERECHA)
                 // =====================================================================
-                RealTimeClock()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ScaleStatusSection(
+                        scaleReading = scaleReading,
+                        onScaleClick = onScaleClick
+                    )
+
+                    VerticalDivider(
+                        modifier = Modifier.height(13.dp),
+                        thickness = 0.8.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+
+                    RealTimeClock()
+                }
             }
         }
     }
@@ -98,79 +110,66 @@ fun StatusBar(
 )
 
 /**
- * Sección izquierda: Estado de conexión LAN y lectura de báscula serial.
+ * Sección izquierda: Estado de conexión con el servidor local con texto fijo "Nexus Lan Server".
  */
 @Composable
-private fun InfrastructureStatusSection(
-    networkStatus: ServerConnectionState,
-    scaleReading: ScaleReading,
-    onScaleClick: (() -> Unit)?
+private fun ServerStatusSection(
+    networkStatus: ServerConnectionState
 ) {
     val display = networkStatus.toFooterDisplay()
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        // Indicador de Servidor LAN
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Surface(
-                color = display.indicatorColor,
-                shape = CircleShape,
-                modifier = Modifier.size(7.dp)
-            ) {}
+        Surface(
+            color = display.indicatorColor,
+            shape = CircleShape,
+            modifier = Modifier.size(7.dp)
+        ) {}
 
-            Text(
-                text = display.label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
+        Text(
+            text = "Nexus Lan Server",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
 
-        VerticalDivider(
-            modifier = Modifier.height(13.dp),
-            thickness = 0.8.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+/**
+ * Sección derecha: Indicador de báscula serial RS-232 con peso y punto de estado (sin texto descriptivo).
+ */
+@Composable
+private fun ScaleStatusSection(
+    scaleReading: ScaleReading,
+    onScaleClick: (() -> Unit)?
+) {
+    val scaleDisplay = scaleReading.status.toFooterDisplay()
+
+    Row(
+        modifier = Modifier
+            .then(if (onScaleClick != null) Modifier.clickable { onScaleClick() } else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(
+            text = "⚖",
+            fontSize = 11.sp
         )
 
-        // Indicador de Báscula Serial RS-232
-        val scaleDisplay = scaleReading.status.toFooterDisplay()
+        Text(
+            text = scaleReading.weightText,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
 
-        Row(
-            modifier = Modifier
-                .then(if (onScaleClick != null) Modifier.clickable { onScaleClick() } else Modifier),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Text(
-                text = "⚖",
-                fontSize = 11.sp
-            )
-
-            Text(
-                text = scaleReading.weightText,
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Surface(
-                color = scaleDisplay.indicatorColor,
-                shape = CircleShape,
-                modifier = Modifier.size(7.dp)
-            ) {}
-
-            Text(
-                text = scaleDisplay.label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
+        Surface(
+            color = scaleDisplay.indicatorColor,
+            shape = CircleShape,
+            modifier = Modifier.size(7.dp)
+        ) {}
     }
 }
 

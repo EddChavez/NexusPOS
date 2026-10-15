@@ -44,15 +44,15 @@ class SystemFooterTest {
     @Test
     fun testNetworkStatusDisplayMapping() {
         val connectedDisplay = ServerConnectionState.CONNECTED.toFooterDisplay()
-        assertEquals("Servidor LAN sincronizado", connectedDisplay.label)
+        assertEquals("Nexus Lan Server", connectedDisplay.label)
         assertEquals(Color(0xFF2E7D32), connectedDisplay.indicatorColor)
 
         val reconnectingDisplay = ServerConnectionState.RECONNECTING.toFooterDisplay()
-        assertEquals("Conectando...", reconnectingDisplay.label)
+        assertEquals("Nexus Lan Server", reconnectingDisplay.label)
         assertEquals(Color(0xFFF57F17), reconnectingDisplay.indicatorColor)
 
         val disconnectedDisplay = ServerConnectionState.NO_SERVER.toFooterDisplay()
-        assertEquals("Servidor Desconectado", disconnectedDisplay.label)
+        assertEquals("Nexus Lan Server", disconnectedDisplay.label)
         assertEquals(Color(0xFFC62828), disconnectedDisplay.indicatorColor)
     }
 

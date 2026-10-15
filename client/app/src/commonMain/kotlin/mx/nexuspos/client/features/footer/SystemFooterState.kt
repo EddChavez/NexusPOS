@@ -30,15 +30,15 @@ data class NetworkStatusDisplay(
 fun ServerConnectionState.toFooterDisplay(): NetworkStatusDisplay {
     return when (this) {
         ServerConnectionState.CONNECTED -> NetworkStatusDisplay(
-            label = "Servidor LAN sincronizado",
+            label = "Nexus Lan Server",
             indicatorColor = Color(0xFF2E7D32)
         )
         ServerConnectionState.RECONNECTING -> NetworkStatusDisplay(
-            label = "Conectando...",
+            label = "Nexus Lan Server",
             indicatorColor = Color(0xFFF57F17)
         )
         ServerConnectionState.NO_SERVER -> NetworkStatusDisplay(
-            label = "Servidor Desconectado",
+            label = "Nexus Lan Server",
             indicatorColor = Color(0xFFC62828)
         )
     }
