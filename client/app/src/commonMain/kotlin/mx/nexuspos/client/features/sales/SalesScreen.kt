@@ -21,75 +21,17 @@ import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.cash.CashSessionDialog
 import mx.nexuspos.client.features.credit.CustomerSelectionDialog
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SalesScreen(viewModel: SalesViewModel = remember { SalesViewModel() }) {
+fun SalesScreen(
+    viewModel: SalesViewModel = remember { SalesViewModel() },
+    modifier: Modifier = Modifier
+) {
     val state by viewModel.uiState.collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("NexusPOS", fontWeight = FontWeight.Black, fontSize = 20.sp)
-                        Text("• Abarrotes y Miscelánea", style = MaterialTheme.typography.bodyMedium)
-                    }
-                },
-                actions = {
-                    // Server Connection Pill
-                    val (connBg, connText) = when (state.connectionState) {
-                        ServerConnectionState.CONNECTED -> Color(0xFF2E7D32) to "🟢 Servidor Conectado"
-                        ServerConnectionState.RECONNECTING -> Color(0xFFF57F17) to "🟡 Reconectando LAN..."
-                        ServerConnectionState.NO_SERVER -> Color(0xFFC62828) to "🔴 Sin Servidor — Cobro Bloqueado"
-                    }
-                    Surface(
-                        color = connBg.copy(alpha = 0.15f),
-                        shape = MaterialTheme.shapes.extraSmall,
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Text(
-                            text = connText,
-                            color = connBg,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    // Cash Session Pill
-                    val sess = state.activeSession
-                    if (sess != null) {
-                        FilledTonalButton(
-                            onClick = { viewModel.showSessionDialog(true) },
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text("Turno Abierto ($${sess.initialFundCents / 100.0})", fontSize = 12.sp)
-                        }
-                    } else {
-                        Button(
-                            onClick = { viewModel.showSessionDialog(true) },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text("Abrir Turno", fontSize = 12.sp)
-                        }
-                    }
-
-                    // Cashier Name
-                    Text(
-                        "👤 ${state.activeCashierName}",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(end = 16.dp)
-                    )
-                }
-            )
-        }
-    ) { paddingValues ->
+    Box(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -319,6 +261,16 @@ fun SalesScreen(viewModel: SalesViewModel = remember { SalesViewModel() }) {
                 val canCheckout = state.cartLines.isNotEmpty() &&
                         state.activeSession != null &&
                         state.connectionState == ServerConnectionState.CONNECTED
+
+                if (state.activeSession == null) {
+                    Button(
+                        onClick = { viewModel.showSessionDialog(true) },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("⚠️ Abrir Turno de Caja para Cobrar", fontWeight = FontWeight.Bold)
+                    }
+                }
 
                 Button(
                     onClick = { viewModel.showCashPaymentDialog(true) },
