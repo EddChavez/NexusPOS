@@ -1,35 +1,54 @@
-This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM).
+# NexusPOS
 
-* [/iosApp](./iosApp/iosApp) contains an iOS application. Even if you’re sharing your UI with Compose Multiplatform,
-  you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
-
-* [/shared](./shared/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./shared/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./shared/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./shared/src/jvmMain/kotlin)
-    folder is the appropriate location.
-
-### Running the apps
-
-Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and options:
-
-- Android app: `./gradlew :androidApp:assembleDebug`
-- Desktop app:
-  - Hot reload: `./gradlew :desktopApp:hotRun --auto`
-  - Standard run: `./gradlew :desktopApp:run`
-- iOS app: open the [/iosApp](./iosApp) directory in Xcode and run it from there.
-
-### Running tests
-
-Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
-
-- Android tests: `./gradlew :shared:testAndroidHostTest`
-- Desktop tests: `./gradlew :shared:jvmTest`
-- iOS tests: `./gradlew :shared:iosSimulatorArm64Test`
+Sistema de Punto de Venta (POS) **LAN-First con Servidor Autoritativo**, optimizado para tiendas de abarrotes, misceláneas y comercio minorista multicaja en red local.
 
 ---
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+## 🚀 Inicio Rápido
+
+### 1. Iniciar Base de Datos (PostgreSQL 16)
+```bash
+docker compose up -d
+```
+
+### 2. Iniciar Servidor Central de Tienda
+```bash
+./gradlew :server:run
+```
+*Inicia en `http://localhost:8080`, ejecuta migraciones Flyway y precarga el catálogo de abarrotes.*
+
+### 3. Iniciar Terminal de Caja de Escritorio
+```bash
+./gradlew :client:desktop:run
+```
+
+---
+
+## 📚 Documentación
+
+La documentación completa del sistema se encuentra organizada en la carpeta [`docs/`](./docs):
+
+- **[Índice Maestro de Documentación](./docs/README.md)**
+- **Nivel 1: Arquitectura y Diseño Técnico**
+  - [Visión General y Topología de Red](./docs/architecture/overview.md)
+  - [Registro de Decisiones de Arquitectura (ADRs)](./docs/architecture/technical-decisions.md)
+  - [Flujo de Datos y Concurrencia](./docs/architecture/data-flow.md)
+  - [Seguridad y Control de Acceso](./docs/architecture/security.md)
+  - [Hoja de Ruta por Fases](./docs/architecture/funcionalidades-por-fases.md)
+- **Nivel 2: Documentación Funcional de Módulos**
+  - [Ventas y Cobro en Caja](./docs/features/sales.md)
+  - [Sesiones y Cortes de Caja (Arqueo RN-CAJ-04)](./docs/features/cash-session.md)
+  - [Crédito y Fiado a Clientes](./docs/features/credit-fiado.md)
+  - [Catálogo, Pesaje e Inventario Negativo](./docs/features/catalog-inventory.md)
+  - [Autenticación por PIN y Estado de Red](./docs/features/authentication.md)
+- **APIs y Pruebas**
+  - [Contratos de API REST y WebSocket](./docs/api/endpoints.md)
+  - [Estrategia de Pruebas Automatizadas](./docs/testing/testing-strategy.md)
+
+---
+
+## 🧪 Pruebas Automatizadas
+
+```bash
+./gradlew :shared:core:jvmTest :shared:contracts:jvmTest :server:test :client:app:jvmJar :client:desktop:test
+```
