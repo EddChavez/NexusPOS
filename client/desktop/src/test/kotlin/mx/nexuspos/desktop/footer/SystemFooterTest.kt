@@ -92,7 +92,7 @@ class SystemFooterTest {
         assertEquals(ServerConnectionState.CONNECTED, state.networkStatus)
         assertEquals("0.000 kg", state.scaleReading.weightText)
         assertEquals(ScaleStatus.STABLE, state.scaleReading.status)
-        assertEquals("NexusPOS v2.4 Desktop • © 2024", state.versionText)
+        assertEquals("NexusPOS v2.4 Desktop • © 2026", state.versionText)
     }
 
     @Test

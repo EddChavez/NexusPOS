@@ -12,7 +12,7 @@ import mx.nexuspos.client.features.header.ScaleStatus
 data class SystemFooterUiState(
     val networkStatus: ServerConnectionState = ServerConnectionState.CONNECTED,
     val scaleReading: ScaleReading = ScaleReading(),
-    val versionText: String = "NexusPOS v2.4 Desktop • © 2024"
+    val versionText: String = "NexusPOS v2.4 Desktop • © 2026"
 )
 
 /**

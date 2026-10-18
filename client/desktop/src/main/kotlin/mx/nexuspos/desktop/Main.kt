@@ -258,7 +258,7 @@ fun main() = application {
                     SystemFooter(
                         networkStatus = salesState.connectionState,
                         scaleReading = scaleReading,
-                        versionText = "NexusPOS v2.4 Desktop • © 2024"
+                        versionText = "NexusPOS v2.4 Desktop • © 2026"
                     )
                 }
             ) { innerPadding ->

@@ -34,7 +34,7 @@ import mx.nexuspos.client.features.header.ScaleStatus
 fun SystemFooter(
     networkStatus: ServerConnectionState = ServerConnectionState.CONNECTED,
     scaleReading: ScaleReading = ScaleReading(),
-    versionText: String = "NexusPOS v2.4 Desktop • © 2024",
+    versionText: String = "NexusPOS v2.4 Desktop • © 2026",
     onScaleClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -98,7 +98,7 @@ fun SystemFooter(
 fun StatusBar(
     networkStatus: ServerConnectionState = ServerConnectionState.CONNECTED,
     scaleReading: ScaleReading = ScaleReading(),
-    versionText: String = "NexusPOS v2.4 Desktop • © 2024",
+    versionText: String = "NexusPOS v2.4 Desktop • © 2026",
     onScaleClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) = SystemFooter(

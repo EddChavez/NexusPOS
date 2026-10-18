@@ -21,7 +21,7 @@ Dotar a la terminal de punto de venta NexusPOS de un panel de estado inferior pe
   - Callback opcional de clic para calibración o diagnóstico (`onScaleClick`).
   - Ubicado a la derecha junto al reloj digital, separado por un divisor vertical fino.
 - **Información del Sistema (Sección Central):**
-  - Versión del producto y copyright: `"NexusPOS v2.4 Desktop • © 2024"`.
+  - Versión del producto y copyright: `"NexusPOS v2.4 Desktop • © 2026"`.
 - **Reloj en Tiempo Real Aislado (Sección Derecha):**
   - Formato local estándar: `"15 - oct 10:12 am"`.
   - Icono de reloj `Icons.Default.Schedule`.
@@ -51,7 +51,7 @@ flowchart LR
     subgraph Footer["SystemFooter (28.dp)"]
         LAN["Conexión LAN (toFooterDisplay)"]
         Scale["Báscula RS-232 (ScaleReading)"]
-        Version["Versión: NexusPOS v2.4 Desktop • © 2024"]
+        Version["Versión: NexusPOS v2.4 Desktop • © 2026"]
         Clock["RealTimeClock (LaunchedEffect + delay)"]
     end
 
@@ -72,7 +72,7 @@ Ubicación: `client/app/src/commonMain/kotlin/mx/nexuspos/client/features/footer
 data class SystemFooterUiState(
     val networkStatus: ServerConnectionState = ServerConnectionState.CONNECTED,
     val scaleReading: ScaleReading = ScaleReading(),
-    val versionText: String = "NexusPOS v2.4 Desktop • © 2024"
+    val versionText: String = "NexusPOS v2.4 Desktop • © 2026"
 )
 
 data class NetworkStatusDisplay(
@@ -95,7 +95,7 @@ Ubicación: `client/app/src/commonMain/kotlin/mx/nexuspos/client/features/footer
 fun SystemFooter(
     networkStatus: ServerConnectionState = ServerConnectionState.CONNECTED,
     scaleReading: ScaleReading = ScaleReading(),
-    versionText: String = "NexusPOS v2.4 Desktop • © 2024",
+    versionText: String = "NexusPOS v2.4 Desktop • © 2026",
     onScaleClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 )
@@ -111,7 +111,7 @@ fun StatusBar(...) = SystemFooter(...)
 | Sección | Componente | Altura / Peso | Tipografía / Estilo | Comportamiento |
 |---|---|---|---|---|
 | **Izquierda: LAN** | Dot + Texto | `11.sp` Medium | Dot circular de `7.dp` y texto fijo `"Nexus Lan Server"` | Reactivo a cambios en `ServerConnectionState`. |
-| **Centro** | Versión del software | `11.sp` Normal | Color `onSurfaceVariant` (alpha 0.8f) | Informativo / Marca estática (`NexusPOS v2.4 Desktop • © 2024`). |
+| **Centro** | Versión del software | `11.sp` Normal | Color `onSurfaceVariant` (alpha 0.8f) | Informativo / Marca estática (`NexusPOS v2.4 Desktop • © 2026`). |
 | **Derecha: Báscula** | Icono `⚖` + Peso + Dot | `11.5.sp` Bold | Icono `⚖`, peso y dot de `7.dp` según `ScaleStatus` (sin texto) | Muestra peso y estado físico de la báscula de forma puramente visual. |
 | **Derecha: Reloj** | Icono `Schedule` + Hora | `11.sp` Medium | Icono (12.dp) + formato `"15 - oct 10:12 am"` | Actualización dinámica al minuto exacto con `delay` aislado. |
 
