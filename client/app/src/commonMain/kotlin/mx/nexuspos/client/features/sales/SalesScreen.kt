@@ -32,236 +32,115 @@ fun SalesScreen(
     val state by viewModel.uiState.collectAsState()
 
     Box(modifier = modifier.fillMaxSize()) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // LEFT COLUMN: Scanner & Cart Table (68%)
-            Column(
-                modifier = Modifier.weight(0.68f).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Barra de Control de Venta y Captura Rápida
-                CaptureBar(
-                    state = state.toCaptureBarState(),
-                    onEvent = { event ->
-                        when (event) {
-                            is CaptureBarEvent.SelectTicket -> viewModel.selectTicket(event.ticketId)
-                            is CaptureBarEvent.NewTicket -> viewModel.newTicket()
-                            is CaptureBarEvent.CloseTicket -> viewModel.closeTicket(event.ticketId)
-                            is CaptureBarEvent.OpenCustomerSelector -> viewModel.showCustomerDialog(true)
-                            is CaptureBarEvent.ScannerInputChanged -> viewModel.onScannerInputChanged(event.text)
-                            is CaptureBarEvent.SubmitScanner -> viewModel.onScannerSubmitted()
-                            is CaptureBarEvent.InsertGeneric -> viewModel.showGenericProductDialog(true)
-                            is CaptureBarEvent.CommonArticles -> viewModel.showCommonArticlesDialog(true)
-                            is CaptureBarEvent.SearchCatalog -> viewModel.showSearchCatalogDialog(true)
-                            is CaptureBarEvent.ApplyWholesale -> viewModel.onApplyWholesalePrice()
-                            is CaptureBarEvent.CashIn -> viewModel.showCashInDialog(true)
-                            is CaptureBarEvent.CashOut -> viewModel.showCashOutDialog(true)
-                            is CaptureBarEvent.WeighBulk -> {
-                                val bulkProd = state.cartLines.firstOrNull { it.unit.code == "KG" }
-                                if (bulkProd != null) {
-                                    viewModel.onScannerInputChanged(bulkProd.barcode)
-                                    viewModel.onScannerSubmitted()
-                                } else {
-                                    viewModel.showGenericProductDialog(true)
-                                }
-                            }
-                            is CaptureBarEvent.DeleteItem -> viewModel.deleteActiveCartLine()
-                        }
-                    }
-                )
-
-                // Alerts / Messages
-                state.errorMessage?.let { msg ->
-                    Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(msg, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { viewModel.clearMessages() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = MaterialTheme.colorScheme.onErrorContainer)
+            // Barra de Control de Venta y Captura Rápida
+            CaptureBar(
+                state = state.toCaptureBarState(),
+                onEvent = { event ->
+                    when (event) {
+                        is CaptureBarEvent.SelectTicket -> viewModel.selectTicket(event.ticketId)
+                        is CaptureBarEvent.NewTicket -> viewModel.newTicket()
+                        is CaptureBarEvent.CloseTicket -> viewModel.closeTicket(event.ticketId)
+                        is CaptureBarEvent.OpenCustomerSelector -> viewModel.showCustomerDialog(true)
+                        is CaptureBarEvent.ScannerInputChanged -> viewModel.onScannerInputChanged(event.text)
+                        is CaptureBarEvent.SubmitScanner -> viewModel.onScannerSubmitted()
+                        is CaptureBarEvent.InsertGeneric -> viewModel.showGenericProductDialog(true)
+                        is CaptureBarEvent.CommonArticles -> viewModel.showCommonArticlesDialog(true)
+                        is CaptureBarEvent.SearchCatalog -> viewModel.showSearchCatalogDialog(true)
+                        is CaptureBarEvent.ApplyWholesale -> viewModel.onApplyWholesalePrice()
+                        is CaptureBarEvent.CashIn -> viewModel.showCashInDialog(true)
+                        is CaptureBarEvent.CashOut -> viewModel.showCashOutDialog(true)
+                        is CaptureBarEvent.WeighBulk -> {
+                            val bulkProd = state.cartLines.firstOrNull { it.unit.code == "KG" }
+                            if (bulkProd != null) {
+                                viewModel.onScannerInputChanged(bulkProd.barcode)
+                                viewModel.onScannerSubmitted()
+                            } else {
+                                viewModel.showGenericProductDialog(true)
                             }
                         }
+                        is CaptureBarEvent.DeleteItem -> viewModel.deleteActiveCartLine()
                     }
                 }
+            )
 
-                state.successMessage?.let { msg ->
-                    Surface(
-                        color = Color(0xFFE8F5E9),
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(msg, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { viewModel.clearMessages() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color(0xFF2E7D32))
-                            }
-                        }
-                    }
-                }
-
-                // Parrilla de Productos en Venta (Data Grid Central)
-                CartGrid(
-                    items = state.cartLines,
-                    selectedLineId = state.selectedCartLineId,
-                    onSelectItem = { lineId -> viewModel.selectCartLine(lineId) },
-                    onRemoveItem = { lineId -> viewModel.removeCartLine(lineId) },
-                    onEditQuantity = { line ->
-                        if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
-                            viewModel.onScannerInputChanged(line.barcode)
-                            viewModel.onScannerSubmitted()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().weight(1f)
-                )
-            }
-
-            // RIGHT COLUMN: Totals & Checkout (32%)
-            Column(
-                modifier = Modifier.weight(0.32f).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                // Customer Card (Fiado / Crédito)
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Cliente (Fiado)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                            TextButton(onClick = { viewModel.showCustomerDialog(true) }) {
-                                Text(if (state.selectedCustomer == null) "Asignar [F5]" else "Cambiar")
-                            }
-                        }
-
-                        val cust = state.selectedCustomer
-                        if (cust != null) {
-                            Text(cust.name, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Saldo pendiente:", fontSize = 12.sp)
-                                Text("$${cust.currentBalanceCents / 100.0}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Crédito disponible:", fontSize = 12.sp)
-                                Text(
-                                    "$${cust.availableCreditCents / 100.0}",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF2E7D32),
-                                    fontSize = 12.sp
-                                )
-                            }
-                        } else {
-                            Text(
-                                "Venta de mostrador general (Público en general)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                // Totals Card
-                ElevatedCard(
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            // Alerts / Messages
+            state.errorMessage?.let { msg ->
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Subtotal neto:", style = MaterialTheme.typography.bodyMedium)
-                            Text(state.subtotal.format(), fontWeight = FontWeight.Bold)
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Impuestos (IVA):", style = MaterialTheme.typography.bodyMedium)
-                            Text(state.tax.format(), fontWeight = FontWeight.Bold)
-                        }
-                        HorizontalDivider()
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("TOTAL:", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                            Text(
-                                state.total.format(),
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+                        Text(msg, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { viewModel.clearMessages() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }
-                }
-
-                // Action Buttons
-                val canCheckout = state.cartLines.isNotEmpty() &&
-                        state.activeSession != null &&
-                        state.connectionState == ServerConnectionState.CONNECTED
-
-                if (state.activeSession == null) {
-                    Button(
-                        onClick = { viewModel.showSessionDialog(true) },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    ) {
-                        Text("⚠️ Abrir Turno de Caja para Cobrar", fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Button(
-                    onClick = { viewModel.showCashPaymentDialog(true) },
-                    enabled = canCheckout,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20))
-                ) {
-                    Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("Cobrar Efectivo [F12]", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-
-                if (state.selectedCustomer != null) {
-                    FilledTonalButton(
-                        onClick = { viewModel.checkoutCredit() },
-                        enabled = canCheckout,
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    ) {
-                        Icon(Icons.Default.CreditCard, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Fiar a Cuenta de Cliente", fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                if (state.cartLines.isNotEmpty()) {
-                    OutlinedButton(
-                        onClick = { viewModel.clearCart() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Vaciar Carrito", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-
-                if (state.connectionState == ServerConnectionState.NO_SERVER) {
-                    Text(
-                        "⚠️ El cobro está bloqueado porque no hay conexión con el servidor autoritativo de la tienda. El carrito permanece seguro.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(4.dp)
-                    )
                 }
             }
+
+            state.successMessage?.let { msg ->
+                Surface(
+                    color = Color(0xFFE8F5E9),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(msg, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { viewModel.clearMessages() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color(0xFF2E7D32))
+                        }
+                    }
+                }
+            }
+
+            // Parrilla de Productos en Venta (Data Grid Central - Scroll Independiente con LazyColumn)
+            CartGrid(
+                items = state.cartLines,
+                selectedLineId = state.selectedCartLineId,
+                onSelectItem = { lineId -> viewModel.selectCartLine(lineId) },
+                onRemoveItem = { lineId -> viewModel.removeCartLine(lineId) },
+                onEditQuantity = { line ->
+                    if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
+                        viewModel.onScannerInputChanged(line.barcode)
+                        viewModel.onScannerSubmitted()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            )
+
+            // Panel Inferior de Totales y Gestión (Bottom Checkout Panel)
+            BottomCheckoutPanel(
+                state = state.toBottomCheckoutPanelState(),
+                onSwitchTicket = { viewModel.cycleNextTicket() },
+                onHoldTicket = { viewModel.holdTicketAndNew() },
+                onDelete = { viewModel.deleteActiveCartLine() },
+                onOpenCashDrawer = { viewModel.openCashDrawer() },
+                onReprintTicket = { viewModel.reprintLastTicket() },
+                onDailySalesAndReturns = { viewModel.openDailySalesAndReturns() },
+                onCheckout = {
+                    if (state.activeSession == null) {
+                        viewModel.showSessionDialog(true)
+                    } else {
+                        viewModel.showCashPaymentDialog(true)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         // Modals

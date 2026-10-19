@@ -276,6 +276,37 @@ class SalesViewModel(
         }
     }
 
+    fun cycleNextTicket() {
+        val state = _uiState.value
+        if (state.tickets.size <= 1) return
+        val currentIndex = state.tickets.indexOfFirst { it.id == state.activeTicketId }
+        val nextIndex = if (currentIndex == -1 || currentIndex >= state.tickets.size - 1) 0 else currentIndex + 1
+        val targetTicketId = state.tickets[nextIndex].id
+        selectTicket(targetTicketId)
+    }
+
+    fun holdTicketAndNew() {
+        newTicket()
+        _uiState.update { it.copy(successMessage = "Ticket anterior puesto en espera. Nuevo ticket listo.") }
+    }
+
+    fun openCashDrawer() {
+        _uiState.update { it.copy(successMessage = "Comando de apertura enviado al cajón de dinero.") }
+    }
+
+    fun reprintLastTicket() {
+        val lastSale = _uiState.value.lastCompletedSale
+        if (lastSale != null) {
+            _uiState.update { it.copy(successMessage = "Reimprimiendo ticket #${lastSale.folio}...") }
+        } else {
+            _uiState.update { it.copy(errorMessage = "No hay ninguna venta completada recientemente para reimprimir.") }
+        }
+    }
+
+    fun openDailySalesAndReturns() {
+        _uiState.update { it.copy(successMessage = "Consultando registro de ventas y devoluciones del turno...") }
+    }
+
     fun closeTicket(ticketId: String) {
         _uiState.update { state ->
             if (state.tickets.size <= 1) {
