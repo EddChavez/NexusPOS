@@ -31,6 +31,7 @@ import mx.nexuspos.client.features.header.TopHeader
 import mx.nexuspos.client.features.header.TopHeaderUiState
 import mx.nexuspos.client.features.sales.SalesScreen
 import mx.nexuspos.client.features.sales.SalesViewModel
+import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.desktop.hardware.KeyboardWedgeBarcodeInput
 
 fun main() = application {
@@ -213,27 +214,7 @@ fun main() = application {
             }
         }
     ) {
-        val lightColors = lightColorScheme(
-            primary = Color(0xFF1B5E20), // Deep Forest Green
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFFA5D6A7),
-            onPrimaryContainer = Color(0xFF002204),
-            secondary = Color(0xFF00695C),
-            onSecondary = Color.White,
-            background = Color(0xFFF8F9FA),
-            surface = Color.White,
-            error = Color(0xFFB00020)
-        )
-
-        val darkColors = darkColorScheme(
-            primary = Color(0xFF81C784),
-            onPrimary = Color(0xFF00390A),
-            background = Color(0xFF121212),
-            surface = Color(0xFF1E1E1E),
-            error = Color(0xFFCF6679)
-        )
-
-        MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColors else lightColors) {
+        NexusTheme {
             Scaffold(
                 topBar = {
                     TopHeader(

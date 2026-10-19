@@ -18,6 +18,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import mx.nexuspos.client.theme.NexusTheme
+
 /**
  * Componente UI del "Panel Inferior de Totales y Gestión" (Bottom Checkout Panel).
  *
@@ -25,7 +27,7 @@ import androidx.compose.ui.unit.sp
  * Contiene 3 tarjetas distribuidas proporcionalmente en un [Row] de altura uniforme (176.dp):
  * 1. Tarjeta Izquierda (~0.30f): GESTIÓN DE TICKET (Atajos F5, F6, DEL con alto contraste y Apertura de Cajón centrada).
  * 2. Tarjeta Central (~0.35f): VENTA ANTERIOR / POST-VENTA (Fondo gris surfaceVariant, cajas amplias con cambio verde brillante y botones auxiliares).
- * 3. Tarjeta Derecha (~0.35f): TOTAL A COBRAR (Borde verde de 2.5.dp, total gigante verde luminoso #00E676 y botón masivo F12 de 58.dp).
+ * 3. Tarjeta Derecha (~0.35f): TOTAL A COBRAR (Borde verde de 2.5.dp, total gigante cian luminoso y botón masivo F12 de 58.dp).
  */
 @Composable
 fun BottomCheckoutPanel(
@@ -95,7 +97,7 @@ private fun TicketManagementCard(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
         color = MaterialTheme.colorScheme.surface,
         modifier = modifier
     ) {
@@ -118,8 +120,9 @@ private fun TicketManagementCard(
                     letterSpacing = 0.5.sp
                 )
                 Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(4.dp)
+                    color = NexusTheme.colors.surfaceGreen,
+                    shape = RoundedCornerShape(4.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderGreen)
                 ) {
                     Text(
                         text = state.statusBadgeText,
@@ -143,6 +146,7 @@ private fun TicketManagementCard(
                         .weight(1f)
                         .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -163,6 +167,7 @@ private fun TicketManagementCard(
                         .weight(1f)
                         .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -176,7 +181,7 @@ private fun TicketManagementCard(
                     }
                 }
 
-                // [DEL] Eliminar (Destacado en rojo/peligro de alto contraste)
+                // [DEL] Eliminar (Destacado en tokens oficiales Neutro/DEL de alto contraste)
                 // Este evento elimina por completo el ticket actual en foco, a diferencia de la eliminación de un producto individual de la parrilla
                 Button(
                     onClick = onCancelCurrentTicket,
@@ -186,10 +191,10 @@ private fun TicketManagementCard(
                         .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFB71C1C),
-                        contentColor = Color.White,
-                        disabledContainerColor = Color(0xFF3E1A1A),
-                        disabledContentColor = Color.White.copy(alpha = 0.45f)
+                        containerColor = NexusTheme.colors.neutralDelBg,
+                        contentColor = NexusTheme.colors.neutralDelText,
+                        disabledContainerColor = NexusTheme.colors.neutralDelBg.copy(alpha = 0.35f),
+                        disabledContentColor = NexusTheme.colors.neutralDelText.copy(alpha = 0.35f)
                     ),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
@@ -198,13 +203,13 @@ private fun TicketManagementCard(
                             "[DEL]",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (state.canCancelTicket) Color.White else Color.White.copy(alpha = 0.45f)
+                            color = if (state.canCancelTicket) NexusTheme.colors.neutralDelText else NexusTheme.colors.neutralDelText.copy(alpha = 0.35f)
                         )
                         Text(
                             "Eliminar",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = if (state.canCancelTicket) Color.White else Color.White.copy(alpha = 0.45f),
+                            color = if (state.canCancelTicket) NexusTheme.colors.neutralDelText else NexusTheme.colors.neutralDelText.copy(alpha = 0.35f),
                             maxLines = 1
                         )
                     }
@@ -218,6 +223,7 @@ private fun TicketManagementCard(
                     .fillMaxWidth()
                     .height(44.dp),
                 shape = RoundedCornerShape(6.dp),
+                border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Row(
@@ -254,8 +260,8 @@ private fun PreviousSaleCard(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
+        color = NexusTheme.colors.bgInput,
         modifier = modifier
     ) {
         Column(
@@ -277,9 +283,9 @@ private fun PreviousSaleCard(
                     letterSpacing = 0.5.sp
                 )
                 Surface(
-                    color = MaterialTheme.colorScheme.surface,
+                    color = NexusTheme.colors.bgSurface,
                     shape = RoundedCornerShape(4.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle)
                 ) {
                     Text(
                         text = state.lastSaleFolio,
@@ -310,12 +316,12 @@ private fun PreviousSaleCard(
                     modifier = Modifier.weight(1f)
                 )
 
-                // CAMBIO (Destacado en verde brillante para alta legibilidad en modo oscuro)
+                // CAMBIO (Destacado con acento de Éxito / Cobro oficial)
                 InfoBox(
                     label = "CAMBIO",
                     value = state.lastSaleChangeFormatted,
-                    labelColor = Color(0xFF81C784),
-                    valueColor = Color(0xFF00E676),
+                    labelColor = NexusTheme.colors.actionSuccessHover,
+                    valueColor = NexusTheme.colors.actionSuccess,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -331,6 +337,7 @@ private fun PreviousSaleCard(
                         .weight(1f)
                         .height(44.dp),
                     shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                 ) {
                     Row(
@@ -358,6 +365,7 @@ private fun PreviousSaleCard(
                         .weight(1f)
                         .height(44.dp),
                     shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                 ) {
                     Row(
@@ -385,7 +393,7 @@ private fun PreviousSaleCard(
 
 /**
  * Tarjeta 3: Total a cobrar actual y botón primario masivo [F12].
- * Destacada con borde verde de 2.5.dp, monto verde brillante #00E676 y botón masivo de 58.dp.
+ * Destacada con borde verde de 2.5.dp, visor gigante cian y botón primario masivo en verde esmeralda.
  */
 @Composable
 private fun TotalToChargeCard(
@@ -395,7 +403,7 @@ private fun TotalToChargeCard(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(2.5.dp, Color(0xFF4CAF50)),
+        border = BorderStroke(2.5.dp, NexusTheme.colors.actionSuccess),
         color = MaterialTheme.colorScheme.surface,
         modifier = modifier
     ) {
@@ -415,7 +423,7 @@ private fun TotalToChargeCard(
                     text = "TOTAL A COBRAR",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF4CAF50),
+                    color = NexusTheme.colors.actionSuccess,
                     letterSpacing = 0.5.sp
                 )
                 Text(
@@ -425,7 +433,7 @@ private fun TotalToChargeCard(
                 )
             }
 
-            // Centro: Texto GIGANTE alineado a la derecha en verde luminoso
+            // Centro: Texto GIGANTE de total en Azul / Cian de alto contraste (WCAG AAA)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -436,13 +444,13 @@ private fun TotalToChargeCard(
                     text = state.currentTotalFormatted,
                     fontSize = 36.sp,
                     fontWeight = FontWeight.Black,
-                    color = Color(0xFF00E676),
+                    color = NexusTheme.colors.highlightCyan,
                     textAlign = TextAlign.End,
                     maxLines = 1
                 )
             }
 
-            // Fila inferior: Botón primario masivo de 58.dp destacado en verde activo
+            // Fila inferior: Botón primario masivo de 58.dp en Verde Éxito / Cobro
             Button(
                 onClick = onCheckout,
                 enabled = state.canCheckout,
@@ -451,10 +459,10 @@ private fun TotalToChargeCard(
                     .height(58.dp),
                 shape = RoundedCornerShape(6.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2E7D32),
-                    contentColor = Color.White,
-                    disabledContainerColor = Color(0xFF1B5E20).copy(alpha = 0.4f),
-                    disabledContentColor = Color.White.copy(alpha = 0.5f)
+                    containerColor = NexusTheme.colors.actionSuccess,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    disabledContainerColor = NexusTheme.colors.actionSuccess.copy(alpha = 0.35f),
+                    disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.45f)
                 ),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
@@ -470,7 +478,7 @@ private fun TotalToChargeCard(
                             imageVector = Icons.Default.Payments,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -478,7 +486,7 @@ private fun TotalToChargeCard(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 0.5.sp,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                     Spacer(modifier = Modifier.height(2.dp))
@@ -486,7 +494,7 @@ private fun TotalToChargeCard(
                         text = "Efectivo / Tarjeta / Fiado",
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Normal,
-                        color = Color.White.copy(alpha = 0.9f)
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                     )
                 }
             }
@@ -496,7 +504,7 @@ private fun TotalToChargeCard(
 
 /**
  * Caja de información con borde para valores clave (Total Ant., Pagó con, Cambio).
- * Altura aumentada a 64.dp con generoso padding interno vertical (8.dp) para separar
+ * Altura de 64.dp con generoso padding interno vertical (8.dp) para separar
  * el texto descriptivo y las cantidades numéricas de los bordes, otorgando mayor "aire" y legibilidad.
  */
 @Composable
@@ -509,8 +517,8 @@ fun InfoBox(
 ) {
     Surface(
         shape = RoundedCornerShape(6.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
+        color = NexusTheme.colors.bgSurface,
         modifier = modifier.height(64.dp)
     ) {
         Column(

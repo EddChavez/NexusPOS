@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import mx.nexuspos.client.theme.NexusTheme
 
 /**
  * Componente integral de la "Barra de Control de Venta y Captura Rápida".
@@ -50,7 +51,7 @@ fun CaptureBar(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -74,14 +75,14 @@ fun CaptureBar(
                     state.tickets.forEach { tab ->
                         val isSelected = tab.isActive
                         val containerColor = if (isSelected) {
-                            MaterialTheme.colorScheme.primaryContainer
+                            MaterialTheme.colorScheme.secondaryContainer
                         } else {
                             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                         }
                         val borderColor = if (isSelected) {
-                            MaterialTheme.colorScheme.primary
+                            NexusTheme.colors.highlightCyan
                         } else {
-                            MaterialTheme.colorScheme.outlineVariant
+                            NexusTheme.colors.borderSubtle
                         }
 
                         Surface(
@@ -100,13 +101,13 @@ fun CaptureBar(
                                     tab.label,
                                     fontSize = 12.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
                                     tab.totalFormatted,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    color = if (isSelected) NexusTheme.colors.highlightCyan else MaterialTheme.colorScheme.onSurface
                                 )
                                 if (tab.canClose && (isSelected || state.tickets.size > 1)) {
                                     Icon(
@@ -125,9 +126,9 @@ fun CaptureBar(
                     // Indicador de tickets pendientes
                     if (state.pendingTicketsCount > 0) {
                         Surface(
-                            color = Color(0xFFFFF3E0),
+                            color = NexusTheme.colors.warningBg,
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color(0xFFFFB74D))
+                            border = BorderStroke(1.dp, NexusTheme.colors.warning.copy(alpha = 0.6f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -137,13 +138,13 @@ fun CaptureBar(
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
-                                        .background(Color(0xFFE65100), CircleShape)
+                                        .background(NexusTheme.colors.warning, CircleShape)
                                 )
                                 Text(
                                     "${state.pendingTicketsCount} ${if (state.pendingTicketsCount == 1) "pendiente" else "pendientes"}",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFE65100)
+                                    color = NexusTheme.colors.warning
                                 )
                             }
                         }
@@ -238,13 +239,20 @@ fun CaptureBar(
                         )
                     },
                     trailingIcon = {
-                        // Badge visual de estado del escáner en el interior
+                        // Badge visual de estado del escáner en el interior con tokens oficiales
+                        val statusBg = when (state.scannerStatus) {
+                            ScannerStatus.READY -> NexusTheme.colors.surfaceGreen
+                            ScannerStatus.READING -> NexusTheme.colors.warningBg
+                            ScannerStatus.PROCESSING -> MaterialTheme.colorScheme.secondaryContainer
+                        }
+                        val statusColor = when (state.scannerStatus) {
+                            ScannerStatus.READY -> NexusTheme.colors.actionSuccess
+                            ScannerStatus.READING -> NexusTheme.colors.warning
+                            ScannerStatus.PROCESSING -> NexusTheme.colors.highlightCyan
+                        }
+
                         Surface(
-                            color = when (state.scannerStatus) {
-                                ScannerStatus.READY -> Color(0xFFE8F5E9)
-                                ScannerStatus.READING -> Color(0xFFFFF3E0)
-                                ScannerStatus.PROCESSING -> Color(0xFFE3F2FD)
-                            },
+                            color = statusBg,
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.padding(end = 8.dp)
                         ) {
@@ -256,24 +264,13 @@ fun CaptureBar(
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
-                                        .background(
-                                            when (state.scannerStatus) {
-                                                ScannerStatus.READY -> Color(0xFF2E7D32)
-                                                ScannerStatus.READING -> Color(0xFFEF6C00)
-                                                ScannerStatus.PROCESSING -> Color(0xFF1976D2)
-                                            },
-                                            CircleShape
-                                        )
+                                        .background(statusColor, CircleShape)
                                 )
                                 Text(
                                     state.scannerStatus.label,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = when (state.scannerStatus) {
-                                        ScannerStatus.READY -> Color(0xFF2E7D32)
-                                        ScannerStatus.READING -> Color(0xFFEF6C00)
-                                        ScannerStatus.PROCESSING -> Color(0xFF1976D2)
-                                    }
+                                    color = statusColor
                                 )
                             }
                         }
@@ -359,13 +356,13 @@ fun CaptureBar(
                     )
                 }
 
-                // Extremo Derecho: [DEL] Borrar Art. (Acción destructiva)
+                // Extremo Derecho: [DEL] Borrar Art. (Acción destructiva con tokens oficiales)
                 Surface(
-                    color = if (state.isDeleteEnabled) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    color = if (state.isDeleteEnabled) NexusTheme.colors.neutralDelBg else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                     shape = RoundedCornerShape(4.dp),
                     border = BorderStroke(
                         1.dp,
-                        if (state.isDeleteEnabled) Color(0xFFEF9A9A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        if (state.isDeleteEnabled) NexusTheme.colors.neutralDelText.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                     ),
                     modifier = Modifier
                         .clickable(enabled = state.isDeleteEnabled) { onEvent(CaptureBarEvent.DeleteItem) }
@@ -376,14 +373,14 @@ fun CaptureBar(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Surface(
-                            color = if (state.isDeleteEnabled) Color(0xFFC62828) else MaterialTheme.colorScheme.outline,
+                            color = if (state.isDeleteEnabled) NexusTheme.colors.neutralDelText else MaterialTheme.colorScheme.outline,
                             shape = RoundedCornerShape(3.dp)
                         ) {
                             Text(
                                 "DEL",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = if (state.isDeleteEnabled) NexusTheme.colors.neutralDelBg else Color.White,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
@@ -391,7 +388,7 @@ fun CaptureBar(
                             "Borrar Art.",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (state.isDeleteEnabled) Color(0xFFC62828) else MaterialTheme.colorScheme.outline
+                            color = if (state.isDeleteEnabled) NexusTheme.colors.neutralDelText else MaterialTheme.colorScheme.outline
                         )
                     }
                 }

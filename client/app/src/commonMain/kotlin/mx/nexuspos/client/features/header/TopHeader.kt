@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.core.ServerConnectionState
+import mx.nexuspos.client.theme.NexusTheme
 
 /**
  * Top Header persistente de la aplicación NexusPOS para Compose Desktop.
@@ -33,7 +34,7 @@ fun TopHeader(
         shadowElevation = 3.dp,
         modifier = modifier
             .fillMaxWidth()
-            .border(width = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            .border(width = 1.dp, color = NexusTheme.colors.borderSubtle)
     ) {
         Row(
             modifier = Modifier
@@ -109,14 +110,15 @@ private fun ModuleNavigationSection(
         AppModule.entries.forEach { module ->
             val isSelected = module == activeModule
 
+            // Pestaña activa en Azul / Cian (Focus) según especificación oficial
             val containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primary
+                MaterialTheme.colorScheme.secondary
             } else {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             }
 
             val contentColor = if (isSelected) {
-                MaterialTheme.colorScheme.onPrimary
+                MaterialTheme.colorScheme.onSecondary
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             }
@@ -138,7 +140,7 @@ private fun ModuleNavigationSection(
                         text = "[${module.keyShortcut}]",
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 12.sp,
-                        color = if (isSelected) contentColor else MaterialTheme.colorScheme.primary
+                        color = if (isSelected) contentColor else MaterialTheme.colorScheme.secondary
                     )
                     Text(
                         text = module.title,
@@ -168,22 +170,26 @@ private fun RightStatusSection(
             cashierName = state.cashierName
         )
 
-        // Botón de Salir con Atajo
+        // Botón de Salir con Atajo (Neutro / Salida oficial)
         OutlinedButton(
             onClick = onLogout,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            shape = RoundedCornerShape(8.dp)
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, NexusTheme.colors.neutralDelText.copy(alpha = 0.45f)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = NexusTheme.colors.neutralDelBg,
+                contentColor = NexusTheme.colors.neutralDelText
+            )
         ) {
             Text(
                 text = "Salir [Esc]",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.error
+                color = NexusTheme.colors.neutralDelText
             )
         }
     }
 }
-
 
 @Composable
 private fun SessionIdentifierWidget(
@@ -194,7 +200,7 @@ private fun SessionIdentifierWidget(
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
         modifier = modifier
     ) {
         Row(

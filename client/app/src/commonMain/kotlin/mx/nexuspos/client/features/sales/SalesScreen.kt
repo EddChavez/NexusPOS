@@ -91,7 +91,7 @@ fun SalesScreen(
 
             state.successMessage?.let { msg ->
                 Surface(
-                    color = Color(0xFFE8F5E9),
+                    color = MaterialTheme.colorScheme.primaryContainer,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -100,9 +100,9 @@ fun SalesScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(msg, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text(msg, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
                         IconButton(onClick = { viewModel.clearMessages() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color(0xFF2E7D32))
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                     }
                 }

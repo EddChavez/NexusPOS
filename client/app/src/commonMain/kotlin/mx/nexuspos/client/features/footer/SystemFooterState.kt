@@ -5,6 +5,7 @@ import kotlinx.datetime.LocalDateTime
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.header.ScaleReading
 import mx.nexuspos.client.features.header.ScaleStatus
+import mx.nexuspos.client.theme.NexusColors
 
 /**
  * Estado inmutable para la barra inferior de estado y telemetría.
@@ -31,15 +32,15 @@ fun ServerConnectionState.toFooterDisplay(): NetworkStatusDisplay {
     return when (this) {
         ServerConnectionState.CONNECTED -> NetworkStatusDisplay(
             label = "Nexus Lan Server",
-            indicatorColor = Color(0xFF2E7D32)
+            indicatorColor = NexusColors.ActionSuccessDark
         )
         ServerConnectionState.RECONNECTING -> NetworkStatusDisplay(
             label = "Nexus Lan Server",
-            indicatorColor = Color(0xFFF57F17)
+            indicatorColor = NexusColors.WarningDark
         )
         ServerConnectionState.NO_SERVER -> NetworkStatusDisplay(
             label = "Nexus Lan Server",
-            indicatorColor = Color(0xFFC62828)
+            indicatorColor = NexusColors.DangerDark
         )
     }
 }
@@ -58,10 +59,10 @@ data class ScaleStatusDisplay(
  */
 fun ScaleStatus.toFooterDisplay(): ScaleStatusDisplay {
     return when (this) {
-        ScaleStatus.STABLE -> ScaleStatusDisplay("Estable", Color(0xFF2E7D32))
-        ScaleStatus.READING -> ScaleStatusDisplay("Leyendo...", Color(0xFFF57F17))
-        ScaleStatus.ZERO -> ScaleStatusDisplay("En cero", Color(0xFF1565C0))
-        ScaleStatus.DISCONNECTED -> ScaleStatusDisplay("Desconectada", Color(0xFF757575))
+        ScaleStatus.STABLE -> ScaleStatusDisplay("Estable", NexusColors.ActionSuccessDark)
+        ScaleStatus.READING -> ScaleStatusDisplay("Leyendo...", NexusColors.WarningDark)
+        ScaleStatus.ZERO -> ScaleStatusDisplay("En cero", NexusColors.HighlightCyanDark)
+        ScaleStatus.DISCONNECTED -> ScaleStatusDisplay("Desconectada", NexusColors.TextMutedDark)
     }
 }
 

@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.core.ProductUnit
 
 /**
@@ -43,7 +44,7 @@ fun CartGrid(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp,
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
         modifier = modifier
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -52,7 +53,7 @@ fun CartGrid(
             // =========================================================================
             CartGridHeader()
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), thickness = 1.dp)
+            HorizontalDivider(color = NexusTheme.colors.borderSubtle, thickness = 1.dp)
 
             // =========================================================================
             // CUERPO SCROLLABLE VIRTUALIZADO (LazyColumn)
@@ -74,7 +75,7 @@ fun CartGrid(
                             onEditQuantity = onEditQuantity?.let { { it(line) } }
                         )
                         HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
+                            color = NexusTheme.colors.borderSubtle.copy(alpha = 0.5f),
                             thickness = 0.5.dp
                         )
                     }
@@ -89,6 +90,13 @@ fun CartGrid(
  */
 @Composable
 private fun CartGridHeader() {
+    val headerTextStyle = androidx.compose.ui.text.TextStyle(
+        fontSize = 11.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        letterSpacing = 0.5.sp
+    )
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
         modifier = Modifier.fillMaxWidth()
@@ -102,7 +110,7 @@ private fun CartGridHeader() {
             // 1. [#]
             Text(
                 text = "#",
-                style = HeaderTextStyle,
+                style = headerTextStyle,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.width(36.dp)
             )
@@ -110,21 +118,21 @@ private fun CartGridHeader() {
             // 2. [CÓDIGO BARRAS]
             Text(
                 text = "CÓDIGO BARRAS",
-                style = HeaderTextStyle,
+                style = headerTextStyle,
                 modifier = Modifier.width(130.dp).padding(horizontal = 4.dp)
             )
 
             // 3. [DESCRIPCIÓN DEL PRODUCTO]
             Text(
                 text = "DESCRIPCIÓN DEL PRODUCTO",
-                style = HeaderTextStyle,
+                style = headerTextStyle,
                 modifier = Modifier.weight(0.36f).padding(horizontal = 4.dp)
             )
 
             // 4. [PRECIO VENTA]
             Text(
                 text = "PRECIO VENTA",
-                style = HeaderTextStyle,
+                style = headerTextStyle,
                 textAlign = TextAlign.End,
                 modifier = Modifier.weight(0.12f).padding(horizontal = 4.dp)
             )
@@ -132,7 +140,7 @@ private fun CartGridHeader() {
             // 5. [CANT.]
             Text(
                 text = "CANTIDAD",
-                style = HeaderTextStyle,
+                style = headerTextStyle,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(0.14f).padding(horizontal = 4.dp)
             )
@@ -140,7 +148,7 @@ private fun CartGridHeader() {
             // 6. [IMPORTE]
             Text(
                 text = "IMPORTE",
-                style = HeaderTextStyle,
+                style = headerTextStyle,
                 textAlign = TextAlign.End,
                 modifier = Modifier.weight(0.13f).padding(horizontal = 4.dp)
             )
@@ -148,7 +156,7 @@ private fun CartGridHeader() {
             // 7. [EXISTENCIA]
             Text(
                 text = "EXISTENCIA",
-                style = HeaderTextStyle,
+                style = headerTextStyle,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(0.11f).padding(horizontal = 4.dp)
             )
@@ -156,7 +164,7 @@ private fun CartGridHeader() {
             // 8. [ACCIÓN]
             Text(
                 text = "ACCIÓN",
-                style = HeaderTextStyle,
+                style = headerTextStyle,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.width(42.dp)
             )
@@ -177,9 +185,9 @@ private fun CartGridRow(
     onEditQuantity: (() -> Unit)?
 ) {
     val rowBackground = if (isSelected) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
     } else if (index % 2 == 1) {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
     } else {
         MaterialTheme.colorScheme.surface
     }
@@ -190,14 +198,14 @@ private fun CartGridRow(
             .background(rowBackground)
             .clickable { onSelect() }
     ) {
-        // Indicador lateral de selección activa
+        // Indicador lateral de selección activa en Azul/Cian (Focus)
         if (isSelected) {
             Box(
                 modifier = Modifier
                     .width(3.5.dp)
                     .fillMaxHeight()
                     .align(Alignment.CenterStart)
-                    .background(MaterialTheme.colorScheme.primary)
+                    .background(MaterialTheme.colorScheme.secondary)
             )
         }
 
@@ -212,7 +220,7 @@ private fun CartGridRow(
                 text = (index + 1).toString().padStart(2, '0'),
                 fontSize = 12.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                color = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.width(36.dp)
             )
@@ -257,9 +265,9 @@ private fun CartGridRow(
                     // Badge condicional: "Báscula RS-232" para artículos a granel
                     if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
                         Surface(
-                            color = Color(0xFFE8F5E9),
+                            color = NexusTheme.colors.surfaceGreen,
                             shape = RoundedCornerShape(4.dp),
-                            border = BorderStroke(0.5.dp, Color(0xFFA5D6A7))
+                            border = BorderStroke(0.5.dp, NexusTheme.colors.borderGreen)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
@@ -274,7 +282,7 @@ private fun CartGridRow(
                                     "Báscula RS-232",
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF2E7D32)
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                             }
                         }
@@ -310,7 +318,7 @@ private fun CartGridRow(
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
                     modifier = Modifier
                         .clickable(enabled = onEditQuantity != null) { onEditQuantity?.invoke() }
                 ) {
@@ -377,13 +385,13 @@ private fun CartGridRow(
                     val isOutOfStock = stockValue <= 0.0
 
                     val badgeColor = when {
-                        isOutOfStock -> Color(0xFFFFEBEE)
-                        isLowStock -> Color(0xFFFFF3E0)
+                        isOutOfStock -> NexusTheme.colors.dangerBg
+                        isLowStock -> NexusTheme.colors.warningBg
                         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     }
                     val textColor = when {
-                        isOutOfStock -> Color(0xFFC62828)
-                        isLowStock -> Color(0xFFE65100)
+                        isOutOfStock -> NexusTheme.colors.danger
+                        isLowStock -> NexusTheme.colors.warning
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
 
@@ -473,10 +481,3 @@ private fun CartGridEmptyState(modifier: Modifier = Modifier) {
         }
     }
 }
-
-private val HeaderTextStyle = androidx.compose.ui.text.TextStyle(
-    fontSize = 11.sp,
-    fontWeight = FontWeight.ExtraBold,
-    color = Color(0xFF49454F),
-    letterSpacing = 0.5.sp
-)
