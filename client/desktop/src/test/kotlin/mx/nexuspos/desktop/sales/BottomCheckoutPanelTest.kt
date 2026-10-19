@@ -162,4 +162,20 @@ class BottomCheckoutPanelTest {
         viewModel.reprintLastTicket()
         assertTrue(viewModel.uiState.value.errorMessage?.contains("No hay ninguna venta") == true)
     }
+
+    @Test
+    fun testCancelCurrentTicketDestroysActiveTicket() {
+        val viewModel = SalesViewModel()
+        // Crear un segundo ticket
+        viewModel.newTicket()
+        assertEquals(2, viewModel.uiState.value.tickets.size)
+        val activeId = viewModel.uiState.value.activeTicketId
+
+        // Simular onCancelCurrentTicket: elimina por completo el ticket en foco
+        viewModel.closeTicket(activeId)
+
+        // Debe quedar 1 solo ticket y el ticket cancelado ya no debe existir en memoria
+        assertEquals(1, viewModel.uiState.value.tickets.size)
+        assertFalse(viewModel.uiState.value.tickets.any { it.id == activeId })
+    }
 }

@@ -23,15 +23,15 @@ Asimismo, unifica el área central de ventas en un esquema vertical donde `CartG
   - Fila de 3 botones cuadrados/compactos:
     - `[F5] Cambiar`: Cicla entre tickets abiertos en memoria.
     - `[F6] Dejar Pend`: Pone en espera el ticket activo y crea un nuevo ticket limpio.
-    - `[DEL] Eliminar`: Elimina la partida seleccionada o la última agregada (resaltado en rojo `error`).
+    - `[DEL] Eliminar`: Cancela y destruye por completo el ticket actual en foco (`onCancelCurrentTicket`) a diferencia de la eliminación de un artículo individual de la parrilla (destacado en rojo/peligro de alto contraste).
   - Fila inferior: Botón de ancho completo `"Abrir Cajón"` con icono `Inbox`.
 - **Tarjeta 2: VENTA ANTERIOR / POST-VENTA (weight ~0.35f):**
   - Surface con color `surfaceVariant` (gris suave) para distinguir que es un contexto histórico ya cerrado.
   - Cabecera con título e indicador de folio (`"Ticket #---"` inicial o `"Ticket #1042"`).
-  - 3 cajas informativas con borde (`InfoBox`):
+  - 3 cajas informativas con borde (`InfoBox`, altura `64.dp` con `padding: 8.dp` para máximo aire y legibilidad):
     - `TOTAL ANT.` (inicial `$0.00`).
     - `PAGÓ CON` (inicial `$0.00`).
-    - `CAMBIO` (inicial `$0.00`, resaltado en color verde `Color(0xFF2E7D32)`).
+    - `CAMBIO` (inicial `$0.00`, resaltado en color verde neón `Color(0xFF00E676)`).
   - 2 botones inferiores: `"Reimprimir Ticket"` y `"Ventas / Devol."`.
 - **Tarjeta 3: TOTAL A COBRAR (weight ~0.35f):**
   - Borde verde principal de 2.dp (`BorderStroke(2.dp, Color(0xFF2E7D32))`) de alta prioridad visual.
@@ -94,7 +94,8 @@ data class BottomCheckoutPanelState(
     val activeTicketLabel: String = "Ticket 1",
     val statusBadgeText: String = "En Curso",
     val hasMultipleTickets: Boolean = false,
-    val canDelete: Boolean = false,
+    val canCancelTicket: Boolean = false,
+    val canDelete: Boolean = canCancelTicket,
 
     // 2. Venta Anterior
     val lastSaleFolio: String = "Ticket #---",
@@ -124,7 +125,7 @@ fun SalesUiState.toBottomCheckoutPanelState(): BottomCheckoutPanelState
 | **Tarjeta 1** | Botones [F5], [F6], [DEL] | Altura `50.dp`, padding `4.dp` | [DEL] en rojo oscuro `0xFFB71C1C` con texto blanco | Operaciones rápidas con alto contraste en tema oscuro. |
 | **Tarjeta 1** | Botón Abrir Cajón | Altura `44.dp`, centrado | Contorno outline, icono 18.dp | Disparo manual del solenoide del cajón de efectivo. |
 | **Tarjeta 2** | Surface contenedor | Altura `176.dp`, radio `8.dp` | `surfaceVariant` (alpha 0.45f) | Denota contexto histórico/pasado de la transacción previa. |
-| **Tarjeta 2** | InfoBoxes (3 cajas) | Altura `58.dp`, borde `1.dp` | CAMBIO en verde neón `0xFF00E676` | Desglose contable holgado de la última venta cerrada. |
+| **Tarjeta 2** | InfoBoxes (3 cajas) | Altura `64.dp`, padding `8.dp` | CAMBIO en verde neón `0xFF00E676` | Desglose contable holgado y con aire de la última venta cerrada. |
 | **Tarjeta 2** | Botones Reimprimir / Ventas | Altura `44.dp`, `11.5.sp` | Contorno outline, iconos centrados | Acciones auxiliares post-venta y consulta de turno. |
 | **Tarjeta 3** | Surface contenedor | Borde `2.5.dp` verde sólido | `Color(0xFF4CAF50)` | Máxima jerarquía visual para el importe a cobrar. |
 | **Tarjeta 3** | Total Gigante | `36.sp` Black, alineado a la derecha | Verde luminoso `Color(0xFF00E676)` | Lectura clara y radiante en fondos oscuros. |
@@ -142,6 +143,7 @@ Las pruebas unitarias automatizadas se localizan en `client/desktop/src/test/kot
 4. **`testCycleNextTicketInViewModel`:** Verifica la alternancia circular de tickets abiertos (`[F5]`).
 5. **`testHoldTicketAndNew`:** Valida que `[F6]` genere un nuevo ticket limpio manteniendo el anterior en espera.
 6. **`testOpenCashDrawerAndReprintMessages`:** Valida los eventos de control de cajón y reimpresión de tickets.
+7. **`testCancelCurrentTicketDestroysActiveTicket`:** Valida que el botón `[DEL]` (vía `onCancelCurrentTicket`) destruya por completo el ticket activo en foco.
 
 ---
 

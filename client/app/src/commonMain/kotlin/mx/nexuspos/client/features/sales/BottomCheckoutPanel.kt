@@ -32,7 +32,8 @@ fun BottomCheckoutPanel(
     state: BottomCheckoutPanelState,
     onSwitchTicket: () -> Unit,
     onHoldTicket: () -> Unit,
-    onDelete: () -> Unit,
+    // Este evento elimina por completo el ticket actual en foco, a diferencia de la eliminación de un producto individual de la parrilla
+    onCancelCurrentTicket: () -> Unit,
     onOpenCashDrawer: () -> Unit,
     onReprintTicket: () -> Unit,
     onDailySalesAndReturns: () -> Unit,
@@ -52,7 +53,7 @@ fun BottomCheckoutPanel(
             state = state,
             onSwitchTicket = onSwitchTicket,
             onHoldTicket = onHoldTicket,
-            onDelete = onDelete,
+            onCancelCurrentTicket = onCancelCurrentTicket,
             onOpenCashDrawer = onOpenCashDrawer,
             modifier = Modifier.weight(0.30f).fillMaxHeight()
         )
@@ -87,7 +88,8 @@ private fun TicketManagementCard(
     state: BottomCheckoutPanelState,
     onSwitchTicket: () -> Unit,
     onHoldTicket: () -> Unit,
-    onDelete: () -> Unit,
+    // Este evento elimina por completo el ticket actual en foco, a diferencia de la eliminación de un producto individual de la parrilla
+    onCancelCurrentTicket: () -> Unit,
     onOpenCashDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -175,9 +177,10 @@ private fun TicketManagementCard(
                 }
 
                 // [DEL] Eliminar (Destacado en rojo/peligro de alto contraste)
+                // Este evento elimina por completo el ticket actual en foco, a diferencia de la eliminación de un producto individual de la parrilla
                 Button(
-                    onClick = onDelete,
-                    enabled = state.canDelete,
+                    onClick = onCancelCurrentTicket,
+                    enabled = state.canCancelTicket,
                     modifier = Modifier
                         .weight(1f)
                         .height(50.dp),
@@ -195,13 +198,13 @@ private fun TicketManagementCard(
                             "[DEL]",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (state.canDelete) Color.White else Color.White.copy(alpha = 0.45f)
+                            color = if (state.canCancelTicket) Color.White else Color.White.copy(alpha = 0.45f)
                         )
                         Text(
                             "Eliminar",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = if (state.canDelete) Color.White else Color.White.copy(alpha = 0.45f),
+                            color = if (state.canCancelTicket) Color.White else Color.White.copy(alpha = 0.45f),
                             maxLines = 1
                         )
                     }
@@ -493,7 +496,8 @@ private fun TotalToChargeCard(
 
 /**
  * Caja de información con borde para valores clave (Total Ant., Pagó con, Cambio).
- * Altura aumentada a 58.dp con holgura vertical y soporte para color de etiqueta personalizado.
+ * Altura aumentada a 64.dp con generoso padding interno vertical (8.dp) para separar
+ * el texto descriptivo y las cantidades numéricas de los bordes, otorgando mayor "aire" y legibilidad.
  */
 @Composable
 fun InfoBox(
@@ -507,12 +511,12 @@ fun InfoBox(
         shape = RoundedCornerShape(6.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
         color = MaterialTheme.colorScheme.surface,
-        modifier = modifier.height(58.dp)
+        modifier = modifier.height(64.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {

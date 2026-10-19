@@ -128,7 +128,8 @@ fun SalesScreen(
                 state = state.toBottomCheckoutPanelState(),
                 onSwitchTicket = { viewModel.cycleNextTicket() },
                 onHoldTicket = { viewModel.holdTicketAndNew() },
-                onDelete = { viewModel.deleteActiveCartLine() },
+                // Este evento elimina por completo el ticket actual en foco, a diferencia de la eliminación de un producto individual de la parrilla
+                onCancelCurrentTicket = { viewModel.closeTicket(state.activeTicketId) },
                 onOpenCashDrawer = { viewModel.openCashDrawer() },
                 onReprintTicket = { viewModel.reprintLastTicket() },
                 onDailySalesAndReturns = { viewModel.openDailySalesAndReturns() },
