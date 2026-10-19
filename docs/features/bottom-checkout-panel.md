@@ -119,15 +119,16 @@ fun SalesUiState.toBottomCheckoutPanelState(): BottomCheckoutPanelState
 
 | Sección | Elemento | Estilo / Dimensiones | Color / Acento | Propósito |
 |---|---|---|---|---|
+| **Contenedor** | Row principal | Altura `176.dp`, padding `14.dp` | Surface con tonalElevation | Contenedor ergonómico de 3 tarjetas a altura uniforme. |
 | **Tarjeta 1** | Cabecera + Badge | `titleSmall` Bold + `labelSmall` | `primaryContainer` | Muestra estado del ticket en curso. |
-| **Tarjeta 1** | Botones [F5], [F6], [DEL] | Altura `46.dp`, forma `6.dp` | [DEL] en `error` (rojo) | Operaciones instantáneas sobre cuentas y partidas. |
-| **Tarjeta 1** | Botón Abrir Cajón | Ancho completo, `38.dp` | Contorno outline | Disparo manual del solenoide del cajón de efectivo. |
-| **Tarjeta 2** | Surface contenedor | Altura `160.dp`, radio `8.dp` | `surfaceVariant` (alpha 0.45f) | Denota contexto histórico/pasado de la transacción previa. |
-| **Tarjeta 2** | InfoBoxes (3 cajas) | Altura `50.dp`, borde `1.dp` | CAMBIO en verde `0xFF2E7D32` | Desglose contable de la última venta cerrada. |
-| **Tarjeta 2** | Botones Reimprimir / Ventas | Altura `38.dp`, `11.sp` | Contorno outline | Acciones auxiliares post-venta y consulta de turno. |
-| **Tarjeta 3** | Surface contenedor | Borde `2.dp` verde sólido | `Color(0xFF2E7D32)` | Máxima jerarquía visual para el importe a cobrar. |
-| **Tarjeta 3** | Total Gigante | `36.sp` Black, alineado a la derecha | `Color(0xFF1B5E20)` | Lectura clara para cajero y cliente en mostrador. |
-| **Tarjeta 3** | Botón [F12] Cobrar | Altura `50.dp`, ancho completo | Verde `Color(0xFF1B5E20)` | Gatillo principal para apertura del diálogo de cobro. |
+| **Tarjeta 1** | Botones [F5], [F6], [DEL] | Altura `50.dp`, padding `4.dp` | [DEL] en rojo oscuro `0xFFB71C1C` con texto blanco | Operaciones rápidas con alto contraste en tema oscuro. |
+| **Tarjeta 1** | Botón Abrir Cajón | Altura `44.dp`, centrado | Contorno outline, icono 18.dp | Disparo manual del solenoide del cajón de efectivo. |
+| **Tarjeta 2** | Surface contenedor | Altura `176.dp`, radio `8.dp` | `surfaceVariant` (alpha 0.45f) | Denota contexto histórico/pasado de la transacción previa. |
+| **Tarjeta 2** | InfoBoxes (3 cajas) | Altura `58.dp`, borde `1.dp` | CAMBIO en verde neón `0xFF00E676` | Desglose contable holgado de la última venta cerrada. |
+| **Tarjeta 2** | Botones Reimprimir / Ventas | Altura `44.dp`, `11.5.sp` | Contorno outline, iconos centrados | Acciones auxiliares post-venta y consulta de turno. |
+| **Tarjeta 3** | Surface contenedor | Borde `2.5.dp` verde sólido | `Color(0xFF4CAF50)` | Máxima jerarquía visual para el importe a cobrar. |
+| **Tarjeta 3** | Total Gigante | `36.sp` Black, alineado a la derecha | Verde luminoso `Color(0xFF00E676)` | Lectura clara y radiante en fondos oscuros. |
+| **Tarjeta 3** | Botón [F12] Cobrar | Altura `58.dp`, ancho completo | Verde activo `Color(0xFF2E7D32)` | Gatillo masivo de cobro con texto blanco nítido. |
 
 ---
 

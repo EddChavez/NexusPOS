@@ -22,10 +22,10 @@ import androidx.compose.ui.unit.sp
  * Componente UI del "Panel Inferior de Totales y Gestión" (Bottom Checkout Panel).
  *
  * Franja horizontal anclada en la parte inferior de la pantalla de ventas (justo sobre el SystemFooter).
- * Contiene 3 tarjetas distribuidas proporcionalmente en un [Row]:
- * 1. Tarjeta Izquierda (~0.30f): GESTIÓN DE TICKET (Atajos F5, F6, DEL y Apertura de Cajón).
- * 2. Tarjeta Central (~0.35f): VENTA ANTERIOR / POST-VENTA (Contexto pasado con fondo gris, cajas de total, pago, cambio en verde y botones auxiliares).
- * 3. Tarjeta Derecha (~0.35f): TOTAL A COBRAR (Borde verde de alto contraste, total gigante a la derecha y botón primario F12).
+ * Contiene 3 tarjetas distribuidas proporcionalmente en un [Row] de altura uniforme (176.dp):
+ * 1. Tarjeta Izquierda (~0.30f): GESTIÓN DE TICKET (Atajos F5, F6, DEL con alto contraste y Apertura de Cajón centrada).
+ * 2. Tarjeta Central (~0.35f): VENTA ANTERIOR / POST-VENTA (Fondo gris surfaceVariant, cajas amplias con cambio verde brillante y botones auxiliares).
+ * 3. Tarjeta Derecha (~0.35f): TOTAL A COBRAR (Borde verde de 2.5.dp, total gigante verde luminoso #00E676 y botón masivo F12 de 58.dp).
  */
 @Composable
 fun BottomCheckoutPanel(
@@ -42,7 +42,7 @@ fun BottomCheckoutPanel(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(160.dp),
+            .height(176.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // =====================================================================
@@ -54,7 +54,7 @@ fun BottomCheckoutPanel(
             onHoldTicket = onHoldTicket,
             onDelete = onDelete,
             onOpenCashDrawer = onOpenCashDrawer,
-            modifier = Modifier.weight(0.30f)
+            modifier = Modifier.weight(0.30f).fillMaxHeight()
         )
 
         // =====================================================================
@@ -64,7 +64,7 @@ fun BottomCheckoutPanel(
             state = state,
             onReprintTicket = onReprintTicket,
             onDailySalesAndReturns = onDailySalesAndReturns,
-            modifier = Modifier.weight(0.35f)
+            modifier = Modifier.weight(0.35f).fillMaxHeight()
         )
 
         // =====================================================================
@@ -73,7 +73,7 @@ fun BottomCheckoutPanel(
         TotalToChargeCard(
             state = state,
             onCheckout = onCheckout,
-            modifier = Modifier.weight(0.35f)
+            modifier = Modifier.weight(0.35f).fillMaxHeight()
         )
     }
 }
@@ -95,12 +95,12 @@ private fun TicketManagementCard(
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
         color = MaterialTheme.colorScheme.surface,
-        modifier = modifier.fillMaxHeight()
+        modifier = modifier
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(10.dp),
+                .padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // Cabecera: Título y badge "En Curso"
@@ -139,9 +139,9 @@ private fun TicketManagementCard(
                     onClick = onSwitchTicket,
                     modifier = Modifier
                         .weight(1f)
-                        .height(46.dp),
+                        .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
-                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("[F5]", fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -159,9 +159,9 @@ private fun TicketManagementCard(
                     onClick = onHoldTicket,
                     modifier = Modifier
                         .weight(1f)
-                        .height(46.dp),
+                        .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
-                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("[F6]", fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -174,55 +174,65 @@ private fun TicketManagementCard(
                     }
                 }
 
-                // [DEL] Eliminar (Destacado en rojo/peligro)
+                // [DEL] Eliminar (Destacado en rojo/peligro de alto contraste)
                 Button(
                     onClick = onDelete,
                     enabled = state.canDelete,
                     modifier = Modifier
                         .weight(1f)
-                        .height(46.dp),
+                        .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError,
-                        disabledContainerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
-                        disabledContentColor = MaterialTheme.colorScheme.onError.copy(alpha = 0.5f)
+                        containerColor = Color(0xFFB71C1C),
+                        contentColor = Color.White,
+                        disabledContainerColor = Color(0xFF3E1A1A),
+                        disabledContentColor = Color.White.copy(alpha = 0.45f)
                     ),
-                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("[DEL]", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "[DEL]",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (state.canDelete) Color.White else Color.White.copy(alpha = 0.45f)
+                        )
                         Text(
                             "Eliminar",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (state.canDelete) Color.White else Color.White.copy(alpha = 0.45f),
                             maxLines = 1
                         )
                     }
                 }
             }
 
-            // Fila inferior: Botón de ancho completo "Abrir Cajón"
+            // Fila inferior: Botón de ancho completo "Abrir Cajón" (Centrado y más alto)
             OutlinedButton(
                 onClick = onOpenCashDrawer,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(38.dp),
+                    .height(44.dp),
                 shape = RoundedCornerShape(6.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Inbox,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(16.dp)
-                        .padding(end = 4.dp)
-                )
-                Text(
-                    text = "Abrir Cajón",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Inbox,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Abrir Cajón",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }
@@ -243,12 +253,12 @@ private fun PreviousSaleCard(
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-        modifier = modifier.fillMaxHeight()
+        modifier = modifier
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(10.dp),
+                .padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // Cabecera: Título y folio del ticket anterior
@@ -278,7 +288,7 @@ private fun PreviousSaleCard(
                 }
             }
 
-            // Fila de 3 cajas informativas con borde
+            // Fila de 3 cajas informativas con borde y altura aumentada
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -297,16 +307,17 @@ private fun PreviousSaleCard(
                     modifier = Modifier.weight(1f)
                 )
 
-                // CAMBIO (Destacado en verde)
+                // CAMBIO (Destacado en verde brillante para alta legibilidad en modo oscuro)
                 InfoBox(
                     label = "CAMBIO",
                     value = state.lastSaleChangeFormatted,
-                    valueColor = Color(0xFF2E7D32),
+                    labelColor = Color(0xFF81C784),
+                    valueColor = Color(0xFF00E676),
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            // Fila inferior de 2 botones secundarios
+            // Fila inferior de 2 botones secundarios con mayor altura y separación
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -315,46 +326,54 @@ private fun PreviousSaleCard(
                     onClick = onReprintTicket,
                     modifier = Modifier
                         .weight(1f)
-                        .height(38.dp),
+                        .height(44.dp),
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Print,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(15.dp)
-                            .padding(end = 4.dp)
-                    )
-                    Text(
-                        text = "Reimprimir Ticket",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Print,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Reimprimir Ticket",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 OutlinedButton(
                     onClick = onDailySalesAndReturns,
                     modifier = Modifier
                         .weight(1f)
-                        .height(38.dp),
+                        .height(44.dp),
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ReceiptLong,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(15.dp)
-                            .padding(end = 4.dp)
-                    )
-                    Text(
-                        text = "Ventas / Devol.",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ReceiptLong,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Ventas / Devol.",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }
@@ -363,7 +382,7 @@ private fun PreviousSaleCard(
 
 /**
  * Tarjeta 3: Total a cobrar actual y botón primario masivo [F12].
- * Destacada con borde verde de 2.dp para máxima prioridad visual.
+ * Destacada con borde verde de 2.5.dp, monto verde brillante #00E676 y botón masivo de 58.dp.
  */
 @Composable
 private fun TotalToChargeCard(
@@ -373,14 +392,14 @@ private fun TotalToChargeCard(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(2.dp, Color(0xFF2E7D32)),
+        border = BorderStroke(2.5.dp, Color(0xFF4CAF50)),
         color = MaterialTheme.colorScheme.surface,
-        modifier = modifier.fillMaxHeight()
+        modifier = modifier
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(10.dp),
+                .padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // Cabecera: Título e indicador de moneda
@@ -393,7 +412,7 @@ private fun TotalToChargeCard(
                     text = "TOTAL A COBRAR",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1B5E20),
+                    color = Color(0xFF4CAF50),
                     letterSpacing = 0.5.sp
                 )
                 Text(
@@ -403,61 +422,68 @@ private fun TotalToChargeCard(
                 )
             }
 
-            // Centro: Texto GIGANTE alineado a la derecha
+            // Centro: Texto GIGANTE alineado a la derecha en verde luminoso
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 2.dp),
+                    .padding(vertical = 4.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Text(
                     text = state.currentTotalFormatted,
                     fontSize = 36.sp,
                     fontWeight = FontWeight.Black,
-                    color = Color(0xFF1B5E20),
+                    color = Color(0xFF00E676),
                     textAlign = TextAlign.End,
                     maxLines = 1
                 )
             }
 
-            // Fila inferior: Botón primario enorme destacado en verde
+            // Fila inferior: Botón primario masivo de 58.dp destacado en verde activo
             Button(
                 onClick = onCheckout,
                 enabled = state.canCheckout,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp),
+                    .height(58.dp),
                 shape = RoundedCornerShape(6.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1B5E20),
+                    containerColor = Color(0xFF2E7D32),
                     contentColor = Color.White,
-                    disabledContainerColor = Color(0xFF1B5E20).copy(alpha = 0.35f),
-                    disabledContentColor = Color.White.copy(alpha = 0.6f)
+                    disabledContainerColor = Color(0xFF1B5E20).copy(alpha = 0.4f),
+                    disabledContentColor = Color.White.copy(alpha = 0.5f)
                 ),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Payments,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp),
+                            tint = Color.White
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "[F12] COBRAR ORDEN",
                             fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.5.sp
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp,
+                            color = Color.White
                         )
                     }
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "Efectivo / Tarjeta / Fiado",
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Normal,
-                        color = Color.White.copy(alpha = 0.85f)
+                        color = Color.White.copy(alpha = 0.9f)
                     )
                 }
             }
@@ -467,24 +493,26 @@ private fun TotalToChargeCard(
 
 /**
  * Caja de información con borde para valores clave (Total Ant., Pagó con, Cambio).
+ * Altura aumentada a 58.dp con holgura vertical y soporte para color de etiqueta personalizado.
  */
 @Composable
 fun InfoBox(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
+    labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     valueColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
     Surface(
         shape = RoundedCornerShape(6.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
         color = MaterialTheme.colorScheme.surface,
-        modifier = modifier.height(50.dp)
+        modifier = modifier.height(58.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -492,14 +520,14 @@ fun InfoBox(
                 text = label,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = labelColor,
                 maxLines = 1
             )
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = value,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.ExtraBold,
                 color = valueColor,
                 maxLines = 1
             )
