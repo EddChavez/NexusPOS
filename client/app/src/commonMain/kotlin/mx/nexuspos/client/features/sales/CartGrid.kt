@@ -230,7 +230,7 @@ private fun CartGridRow(
                 text = line.barcode,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = NexusTheme.colors.accent,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.width(130.dp).padding(horizontal = 4.dp)
@@ -282,7 +282,7 @@ private fun CartGridRow(
                                     "Báscula RS-232",
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    color = NexusTheme.colors.textGreen
                                 )
                             }
                         }
@@ -355,7 +355,7 @@ private fun CartGridRow(
                 text = line.total.format(),
                 fontWeight = FontWeight.Black,
                 fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.primary,
+                color = NexusTheme.colors.actionPrimary,
                 textAlign = TextAlign.End,
                 modifier = Modifier.weight(0.13f).padding(horizontal = 4.dp)
             )
@@ -369,7 +369,8 @@ private fun CartGridRow(
                 if (stockMillis == null) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(4.dp)
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle)
                     ) {
                         Text(
                             text = "Ilim",
@@ -389,9 +390,14 @@ private fun CartGridRow(
                         isLowStock -> NexusTheme.colors.warningBg
                         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     }
+                    val badgeBorder = when {
+                        isOutOfStock -> NexusTheme.colors.dangerBorder
+                        isLowStock -> NexusTheme.colors.warningBorder
+                        else -> NexusTheme.colors.borderSubtle
+                    }
                     val textColor = when {
-                        isOutOfStock -> NexusTheme.colors.danger
-                        isLowStock -> NexusTheme.colors.warning
+                        isOutOfStock -> NexusTheme.colors.dangerText
+                        isLowStock -> NexusTheme.colors.warningText
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
 
@@ -403,7 +409,8 @@ private fun CartGridRow(
 
                     Surface(
                         color = badgeColor,
-                        shape = RoundedCornerShape(4.dp)
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, badgeBorder)
                     ) {
                         Text(
                             text = stockFormatted,
@@ -428,7 +435,7 @@ private fun CartGridRow(
                     Icon(
                         imageVector = Icons.Default.DeleteOutline,
                         contentDescription = "Eliminar artículo",
-                        tint = MaterialTheme.colorScheme.error,
+                        tint = NexusTheme.colors.dangerText,
                         modifier = Modifier.size(18.dp)
                     )
                 }

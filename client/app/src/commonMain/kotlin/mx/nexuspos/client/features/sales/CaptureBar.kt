@@ -289,18 +289,23 @@ fun CaptureBar(
                     onClick = { onEvent(CaptureBarEvent.SubmitScanner) },
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                     shape = RoundedCornerShape(6.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NexusTheme.colors.actionPrimary,
+                        contentColor = NexusTheme.colors.actionPrimaryFg
+                    )
                 ) {
                     Icon(
                         imageVector = Icons.Default.AddShoppingCart,
                         contentDescription = "Añadir",
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp),
+                        tint = NexusTheme.colors.actionPrimaryFg
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         "ENTER Añadir",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        color = NexusTheme.colors.actionPrimaryFg
                     )
                 }
             }
@@ -358,11 +363,11 @@ fun CaptureBar(
 
                 // Extremo Derecho: [DEL] Borrar Art. (Acción destructiva con tokens oficiales)
                 Surface(
-                    color = if (state.isDeleteEnabled) NexusTheme.colors.neutralDelBg else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    color = if (state.isDeleteEnabled) NexusTheme.colors.dangerBg else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                     shape = RoundedCornerShape(4.dp),
                     border = BorderStroke(
                         1.dp,
-                        if (state.isDeleteEnabled) NexusTheme.colors.neutralDelText.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        if (state.isDeleteEnabled) NexusTheme.colors.dangerBorder else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                     ),
                     modifier = Modifier
                         .clickable(enabled = state.isDeleteEnabled) { onEvent(CaptureBarEvent.DeleteItem) }
@@ -373,14 +378,14 @@ fun CaptureBar(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Surface(
-                            color = if (state.isDeleteEnabled) NexusTheme.colors.neutralDelText else MaterialTheme.colorScheme.outline,
+                            color = if (state.isDeleteEnabled) NexusTheme.colors.dangerText else MaterialTheme.colorScheme.outline,
                             shape = RoundedCornerShape(3.dp)
                         ) {
                             Text(
                                 "DEL",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (state.isDeleteEnabled) NexusTheme.colors.neutralDelBg else Color.White,
+                                color = if (state.isDeleteEnabled) NexusTheme.colors.dangerBg else Color.White,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
@@ -388,7 +393,7 @@ fun CaptureBar(
                             "Borrar Art.",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (state.isDeleteEnabled) NexusTheme.colors.neutralDelText else MaterialTheme.colorScheme.outline
+                            color = if (state.isDeleteEnabled) NexusTheme.colors.dangerText else MaterialTheme.colorScheme.outline
                         )
                     }
                 }
@@ -408,9 +413,9 @@ private fun ShortcutActionChip(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(4.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
         modifier = modifier.clickable { onClick() }
     ) {
         Row(
@@ -419,14 +424,14 @@ private fun ShortcutActionChip(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                color = NexusTheme.colors.accentLight,
                 shape = RoundedCornerShape(3.dp)
             ) {
                 Text(
                     shortcut,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = NexusTheme.colors.accent,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }
@@ -434,7 +439,7 @@ private fun ShortcutActionChip(
                 label,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = NexusTheme.colors.btnSecondaryText
             )
         }
     }

@@ -170,22 +170,22 @@ private fun RightStatusSection(
             cashierName = state.cashierName
         )
 
-        // Botón de Salir con Atajo (Neutro / Salida oficial)
+        // Botón de Salir con Atajo (Acción destructiva / Salir)
         OutlinedButton(
             onClick = onLogout,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, NexusTheme.colors.neutralDelText.copy(alpha = 0.45f)),
+            border = BorderStroke(1.dp, NexusTheme.colors.dangerBorder),
             colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = NexusTheme.colors.neutralDelBg,
-                contentColor = NexusTheme.colors.neutralDelText
+                containerColor = NexusTheme.colors.dangerBg,
+                contentColor = NexusTheme.colors.dangerText
             )
         ) {
             Text(
                 text = "Salir [Esc]",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 12.sp,
-                color = NexusTheme.colors.neutralDelText
+                color = NexusTheme.colors.dangerText
             )
         }
     }

@@ -216,6 +216,7 @@ fun main() = application {
     ) {
         NexusTheme {
             Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
                 topBar = {
                     TopHeader(
                         state = headerState,
@@ -247,6 +248,7 @@ fun main() = application {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
                     when (activeModule) {
                         AppModule.SALES, AppModule.CASH_CUT -> {

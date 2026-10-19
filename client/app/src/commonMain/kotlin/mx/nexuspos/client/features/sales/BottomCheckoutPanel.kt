@@ -146,7 +146,10 @@ private fun TicketManagementCard(
                         .weight(1f)
                         .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
+                    border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = NexusTheme.colors.btnSecondaryText
+                    ),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -167,7 +170,10 @@ private fun TicketManagementCard(
                         .weight(1f)
                         .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
+                    border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = NexusTheme.colors.btnSecondaryText
+                    ),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -190,11 +196,12 @@ private fun TicketManagementCard(
                         .weight(1f)
                         .height(50.dp),
                     shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.dangerBorder),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = NexusTheme.colors.neutralDelBg,
-                        contentColor = NexusTheme.colors.neutralDelText,
-                        disabledContainerColor = NexusTheme.colors.neutralDelBg.copy(alpha = 0.35f),
-                        disabledContentColor = NexusTheme.colors.neutralDelText.copy(alpha = 0.35f)
+                        containerColor = NexusTheme.colors.dangerBg,
+                        contentColor = NexusTheme.colors.dangerText,
+                        disabledContainerColor = NexusTheme.colors.dangerBg.copy(alpha = 0.35f),
+                        disabledContentColor = NexusTheme.colors.dangerText.copy(alpha = 0.35f)
                     ),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
@@ -203,13 +210,13 @@ private fun TicketManagementCard(
                             "[DEL]",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (state.canCancelTicket) NexusTheme.colors.neutralDelText else NexusTheme.colors.neutralDelText.copy(alpha = 0.35f)
+                            color = if (state.canCancelTicket) NexusTheme.colors.dangerText else NexusTheme.colors.dangerText.copy(alpha = 0.35f)
                         )
                         Text(
                             "Eliminar",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = if (state.canCancelTicket) NexusTheme.colors.neutralDelText else NexusTheme.colors.neutralDelText.copy(alpha = 0.35f),
+                            color = if (state.canCancelTicket) NexusTheme.colors.dangerText else NexusTheme.colors.dangerText.copy(alpha = 0.35f),
                             maxLines = 1
                         )
                     }
@@ -223,7 +230,10 @@ private fun TicketManagementCard(
                     .fillMaxWidth()
                     .height(44.dp),
                 shape = RoundedCornerShape(6.dp),
-                border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
+                border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = NexusTheme.colors.btnSecondaryText
+                ),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Row(
@@ -337,7 +347,10 @@ private fun PreviousSaleCard(
                         .weight(1f)
                         .height(44.dp),
                     shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
+                    border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = NexusTheme.colors.btnSecondaryText
+                    ),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                 ) {
                     Row(
@@ -365,7 +378,10 @@ private fun PreviousSaleCard(
                         .weight(1f)
                         .height(44.dp),
                     shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
+                    border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = NexusTheme.colors.btnSecondaryText
+                    ),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                 ) {
                     Row(
@@ -403,7 +419,7 @@ private fun TotalToChargeCard(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(2.5.dp, NexusTheme.colors.actionSuccess),
+        border = BorderStroke(2.5.dp, NexusTheme.colors.actionPrimary),
         color = MaterialTheme.colorScheme.surface,
         modifier = modifier
     ) {
@@ -423,7 +439,7 @@ private fun TotalToChargeCard(
                     text = "TOTAL A COBRAR",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = NexusTheme.colors.actionSuccess,
+                    color = NexusTheme.colors.actionPrimary,
                     letterSpacing = 0.5.sp
                 )
                 Text(
@@ -444,7 +460,7 @@ private fun TotalToChargeCard(
                     text = state.currentTotalFormatted,
                     fontSize = 36.sp,
                     fontWeight = FontWeight.Black,
-                    color = NexusTheme.colors.highlightCyan,
+                    color = NexusTheme.colors.totalDisplay,
                     textAlign = TextAlign.End,
                     maxLines = 1
                 )
@@ -459,10 +475,10 @@ private fun TotalToChargeCard(
                     .height(58.dp),
                 shape = RoundedCornerShape(6.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = NexusTheme.colors.actionSuccess,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    disabledContainerColor = NexusTheme.colors.actionSuccess.copy(alpha = 0.35f),
-                    disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.45f)
+                    containerColor = NexusTheme.colors.actionPrimary,
+                    contentColor = NexusTheme.colors.actionPrimaryFg,
+                    disabledContainerColor = NexusTheme.colors.actionPrimary.copy(alpha = 0.35f),
+                    disabledContentColor = NexusTheme.colors.actionPrimaryFg.copy(alpha = 0.45f)
                 ),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
@@ -478,7 +494,7 @@ private fun TotalToChargeCard(
                             imageVector = Icons.Default.Payments,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onPrimary
+                            tint = NexusTheme.colors.actionPrimaryFg
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -486,7 +502,7 @@ private fun TotalToChargeCard(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 0.5.sp,
-                            color = MaterialTheme.colorScheme.onPrimary
+                            color = NexusTheme.colors.actionPrimaryFg
                         )
                     }
                     Spacer(modifier = Modifier.height(2.dp))
