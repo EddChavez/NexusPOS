@@ -30,15 +30,13 @@ fun CartSummaryBar(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = NexusTheme.colors.bgSurface,
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
+        color = NexusTheme.colors.bgSurfaceSubtle,
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 7.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -52,7 +50,7 @@ fun CartSummaryBar(
                 // Pequeño círculo o Badge oscuro con el número de productos
                 Surface(
                     shape = CircleShape,
-                    color = NexusTheme.colors.bgSurfaceSubtle,
+                    color = NexusTheme.colors.bgCanvas,
                     border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
                     modifier = Modifier.size(24.dp)
                 ) {

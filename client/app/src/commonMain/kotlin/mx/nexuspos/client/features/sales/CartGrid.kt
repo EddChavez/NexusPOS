@@ -38,7 +38,8 @@ fun CartGrid(
     onSelectItem: (lineId: String) -> Unit,
     onRemoveItem: (lineId: String) -> Unit,
     onEditQuantity: ((line: CartLine) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    footer: @Composable (() -> Unit)? = null
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -80,6 +81,14 @@ fun CartGrid(
                         )
                     }
                 }
+            }
+
+            // =========================================================================
+            // PIE DE TABLA / RESUMEN (FOOTER INTEGRADO)
+            // =========================================================================
+            if (footer != null) {
+                HorizontalDivider(color = NexusTheme.colors.borderSubtle, thickness = 1.dp)
+                footer()
             }
         }
     }

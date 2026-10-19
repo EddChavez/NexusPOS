@@ -120,13 +120,13 @@ fun SalesScreen(
                         viewModel.onScannerSubmitted()
                     }
                 },
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
-
-            // Barra de Resumen de Venta Actual (Métricas Físicas y Financieras)
-            CartSummaryBar(
-                state = state.toCartSummaryBarState(),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                footer = {
+                    CartSummaryBar(
+                        state = state.toCartSummaryBarState(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             )
 
             // Panel Inferior de Totales y Gestión (Bottom Checkout Panel)
