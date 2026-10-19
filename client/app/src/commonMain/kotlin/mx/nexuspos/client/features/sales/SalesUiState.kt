@@ -46,6 +46,7 @@ data class SalesUiState(
     val subtotal: Money = Money.ZERO,
     val tax: Money = Money.ZERO,
     val total: Money = Money.ZERO,
+    val discount: Money = Money.ZERO,
     val connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
     val activeSession: CashSessionSummary? = null,
     val activeCashierName: String = "Cajero Principal",

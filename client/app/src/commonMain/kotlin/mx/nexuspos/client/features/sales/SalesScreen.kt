@@ -123,6 +123,12 @@ fun SalesScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f)
             )
 
+            // Barra de Resumen de Venta Actual (Métricas Físicas y Financieras)
+            CartSummaryBar(
+                state = state.toCartSummaryBarState(),
+                modifier = Modifier.fillMaxWidth()
+            )
+
             // Panel Inferior de Totales y Gestión (Bottom Checkout Panel)
             BottomCheckoutPanel(
                 state = state.toBottomCheckoutPanelState(),
