@@ -120,6 +120,18 @@ fun SalesScreen(
                         viewModel.onScannerSubmitted()
                     }
                 },
+                onSearchCatalog = { viewModel.showSearchCatalogDialog(true) },
+                onCommonArticles = { viewModel.showCommonArticlesDialog(true) },
+                onInsertGeneric = { viewModel.showGenericProductDialog(true) },
+                onWeighBulk = {
+                    val bulkProd = state.cartLines.firstOrNull { it.unit.code == "KG" }
+                    if (bulkProd != null) {
+                        viewModel.onScannerInputChanged(bulkProd.barcode)
+                        viewModel.onScannerSubmitted()
+                    } else {
+                        viewModel.showGenericProductDialog(true)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 footer = {
                     CartSummaryBar(

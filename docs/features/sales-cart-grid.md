@@ -28,8 +28,11 @@ Proveer a la pantalla de ventas de NexusPOS de una tabla de datos centralizada c
   - Alternancia sutil de color tipo cebra (`zebra striping`) para partidas inactivas pares/impares para máxima legibilidad.
 - **Scroll Virtualizado de Alto Rendimiento:**
   - Implementación con `LazyColumn` y claves únicas estables (`key = { _, item -> item.id }`) para admitir tickets con decenas de artículos sin degradación gráfica.
-- **Estado Vacío Elegante (Empty State):**
-  - Ilustración de carrito vacío con icono circular e instrucciones claras de captura rápida y atajos de teclado disponibles.
+- **Estado Vacío Elegante e Interactivo (Empty State):**
+  - Indicador de estado de terminal lista para captura de artículos (`TERMINAL LISTA PARA CAPTURA`).
+  - Ilustración compuesta con icono de carrito e insignia del escáner óptico USB activo.
+  - Tarjetas táctiles e interactivas de accesos rápidos para operaciones frecuentes (`[F10]` Catálogo, `[Ctrl+P]` Artículos Comunes, `[INS]` Varios / Libre, `[F9]` Báscula RS-232).
+  - Franja informativa inferior con tip operativo para cajeros (multiplicador con asterisco para captura rápida de múltiples piezas).
 
 ### Queda fuera (Fases futuras):
 - Edición inline directa con input en la celda de cantidad (Fase 2, actualmente lanza diálogo o foco de re-pesaje/edición).
@@ -104,7 +107,12 @@ fun CartGrid(
     onSelectItem: (lineId: String) -> Unit,
     onRemoveItem: (lineId: String) -> Unit,
     onEditQuantity: ((line: CartLine) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    onSearchCatalog: (() -> Unit)? = null,
+    onCommonArticles: (() -> Unit)? = null,
+    onInsertGeneric: (() -> Unit)? = null,
+    onWeighBulk: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    footer: @Composable (() -> Unit)? = null
 )
 ```
 

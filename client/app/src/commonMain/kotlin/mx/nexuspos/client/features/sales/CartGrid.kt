@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -38,6 +39,10 @@ fun CartGrid(
     onSelectItem: (lineId: String) -> Unit,
     onRemoveItem: (lineId: String) -> Unit,
     onEditQuantity: ((line: CartLine) -> Unit)? = null,
+    onSearchCatalog: (() -> Unit)? = null,
+    onCommonArticles: (() -> Unit)? = null,
+    onInsertGeneric: (() -> Unit)? = null,
+    onWeighBulk: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     footer: @Composable (() -> Unit)? = null
 ) {
@@ -60,7 +65,13 @@ fun CartGrid(
             // CUERPO SCROLLABLE VIRTUALIZADO (LazyColumn)
             // =========================================================================
             if (items.isEmpty()) {
-                CartGridEmptyState(modifier = Modifier.weight(1f))
+                CartGridEmptyState(
+                    onSearchCatalog = onSearchCatalog,
+                    onCommonArticles = onCommonArticles,
+                    onInsertGeneric = onInsertGeneric,
+                    onWeighBulk = onWeighBulk,
+                    modifier = Modifier.weight(1f)
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth()
@@ -229,7 +240,7 @@ private fun CartGridRow(
                 text = (index + 1).toString().padStart(2, '0'),
                 fontSize = 12.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline,
+                color = if (isSelected) MaterialTheme.colorScheme.secondary else NexusTheme.colors.textSecondary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.width(36.dp)
             )
@@ -266,7 +277,7 @@ private fun CartGridRow(
                     Text(
                         text = line.category,
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = NexusTheme.colors.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -314,7 +325,7 @@ private fun CartGridRow(
                     Text(
                         text = "/kg",
                         fontSize = 10.5.sp,
-                        color = MaterialTheme.colorScheme.outline
+                        color = NexusTheme.colors.textSecondary
                     )
                 }
             }
@@ -352,7 +363,7 @@ private fun CartGridRow(
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Editar Cantidad",
-                            tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                            tint = NexusTheme.colors.textSecondary,
                             modifier = Modifier.size(11.dp)
                         )
                     }
@@ -454,45 +465,286 @@ private fun CartGridRow(
 }
 
 /**
- * Vista sobria para cuando el ticket no tiene partidas agregadas.
+ * Vista interactiva y operativa de alto impacto para cuando el ticket no tiene partidas agregadas.
+ *
+ * Incluye:
+ * 1. Indicador de estado de terminal lista para captura de artículos.
+ * 2. Composición Hero con icono de carrito de compras y badge de escáner USB activo.
+ * 3. Instrucciones visuales claras de escaneo continuo.
+ * 4. Tarjetas táctiles de accesos rápidos ([F10] Catálogo, [Ctrl+P] Comunes, [INS] Varios, [F9] Báscula).
+ * 5. Barra de recomendación operativa para cajeros (multiplicación por asterisco).
  */
 @Composable
-private fun CartGridEmptyState(modifier: Modifier = Modifier) {
+private fun CartGridEmptyState(
+    onSearchCatalog: (() -> Unit)? = null,
+    onCommonArticles: (() -> Unit)? = null,
+    onInsertGeneric: (() -> Unit)? = null,
+    onWeighBulk: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
     Box(
-        modifier = modifier.fillMaxSize().padding(24.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
         ) {
+            // 1. Badge de Estado Operativo: Terminal Lista
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = CircleShape,
-                modifier = Modifier.size(64.dp)
+                color = NexusTheme.colors.surfaceGreen.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, NexusTheme.colors.borderGreen.copy(alpha = 0.8f))
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(NexusTheme.colors.actionPrimary, CircleShape)
+                    )
+                    Text(
+                        text = "TERMINAL LISTA PARA CAPTURA",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp,
+                        color = NexusTheme.colors.textGreen
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 2. Composición Hero: Carrito de compras con badge de escáner
+            Box(
+                modifier = Modifier.size(86.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = NexusTheme.colors.bgSurfaceSubtle,
+                    shape = RoundedCornerShape(22.dp),
+                    border = BorderStroke(1.5.dp, NexusTheme.colors.borderSubtle),
+                    modifier = Modifier.size(76.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.ShoppingCart,
+                            contentDescription = null,
+                            tint = NexusTheme.colors.accent,
+                            modifier = Modifier.size(38.dp)
+                        )
+                    }
+                }
+
+                // Insignia flotante del escáner en la esquina inferior derecha
+                Surface(
+                    color = NexusTheme.colors.actionPrimary,
+                    shape = CircleShape,
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface),
+                    modifier = Modifier
+                        .size(28.dp)
+                        .align(Alignment.BottomEnd)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = "Lector Activo",
+                            tint = NexusTheme.colors.actionPrimaryFg,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 3. Título y Subtítulo descriptivo
+            Text(
+                text = "Parrilla de Venta Vacía",
+                style = MaterialTheme.typography.titleLarge,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = NexusTheme.colors.textPrimary,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "Pase el producto frente al lector óptico USB, teclee el SKU en la barra de captura\no utilice los accesos rápidos de mostrador:",
+                style = MaterialTheme.typography.bodyMedium,
+                fontSize = 12.5.sp,
+                color = NexusTheme.colors.textSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 580.dp)
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 4. Tarjetas de Acciones Rápidas (Accesos directos interactivos)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                EmptyStateActionCard(
+                    shortcut = "F10",
+                    title = "Catálogo",
+                    description = "Buscar por nombre / SKU",
+                    icon = Icons.Default.Search,
+                    accentColor = NexusTheme.colors.accent,
+                    onClick = onSearchCatalog
+                )
+
+                EmptyStateActionCard(
+                    shortcut = "Ctrl+P",
+                    title = "Art. Comunes",
+                    description = "Bolsas, recargas y varios",
+                    icon = Icons.Default.Star,
+                    accentColor = NexusTheme.colors.warningText,
+                    onClick = onCommonArticles
+                )
+
+                EmptyStateActionCard(
+                    shortcut = "INS",
+                    title = "Varios / Libre",
+                    description = "Precio manual al instante",
+                    icon = Icons.Default.AddCircleOutline,
+                    accentColor = NexusTheme.colors.actionPrimary,
+                    onClick = onInsertGeneric
+                )
+
+                EmptyStateActionCard(
+                    shortcut = "F9",
+                    title = "Báscula RS-232",
+                    description = "Frutas, verduras y granel",
+                    icon = Icons.Default.Scale,
+                    accentColor = NexusTheme.colors.totalDisplay,
+                    onClick = onWeighBulk
+                )
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 5. Nota / Tip de operación para el cajero
+            Surface(
+                color = NexusTheme.colors.bgSurfaceSubtle,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.ShoppingCart,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(32.dp)
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "Tip",
+                        tint = NexusTheme.colors.accent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Tip de cajero:",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NexusTheme.colors.textPrimary
+                        )
+                        Text(
+                            text = "Para multiplicar piezas antes de escanear, escriba el multiplicador con asterisco (ej. 5*75010553) en la barra de captura.",
+                            fontSize = 11.5.sp,
+                            color = NexusTheme.colors.textSecondary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Tarjeta interactiva de acceso rápido en el Empty State del carrito.
+ */
+@Composable
+private fun EmptyStateActionCard(
+    shortcut: String,
+    title: String,
+    description: String,
+    icon: ImageVector,
+    accentColor: Color,
+    onClick: (() -> Unit)?
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
+        modifier = Modifier
+            .width(170.dp)
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    color = accentColor.copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = title,
+                            tint = accentColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                Surface(
+                    color = NexusTheme.colors.bgCanvas,
+                    shape = RoundedCornerShape(4.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle)
+                ) {
+                    Text(
+                        text = shortcut,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = accentColor,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
                     )
                 }
             }
 
             Text(
-                text = "Parrilla de Venta Vacía",
-                style = MaterialTheme.typography.titleMedium,
+                text = title,
+                fontSize = 12.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.outline
+                color = NexusTheme.colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
             Text(
-                text = "Escanee códigos de barras con el lector USB, teclee un SKU en la barra de captura\no utilice los atajos [INS] Varios y [Ctrl+P] Artículos Comunes.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-                textAlign = TextAlign.Center
+                text = description,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = NexusTheme.colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
