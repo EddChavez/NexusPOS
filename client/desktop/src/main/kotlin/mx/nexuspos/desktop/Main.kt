@@ -23,6 +23,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import mx.nexuspos.client.features.customers.CustomersScreen
+import mx.nexuspos.client.features.customers.CustomersViewModel
 import mx.nexuspos.client.features.footer.SystemFooter
 import mx.nexuspos.client.features.header.AppModule
 import mx.nexuspos.client.features.header.ScaleReading
@@ -37,6 +39,7 @@ import mx.nexuspos.desktop.hardware.KeyboardWedgeBarcodeInput
 fun main() = application {
     val windowState = rememberWindowState(width = 1280.dp, height = 820.dp)
     val viewModel = remember { SalesViewModel() }
+    val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
     val salesState by viewModel.uiState.collectAsState()
 
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
@@ -117,6 +120,9 @@ fun main() = application {
                     Key.Insert -> {
                         if (activeModule == AppModule.SALES) {
                             viewModel.showGenericProductDialog(true)
+                            true
+                        } else if (activeModule == AppModule.CUSTOMERS) {
+                            customersViewModel.openCreateDialog()
                             true
                         } else false
                     }
@@ -255,8 +261,10 @@ fun main() = application {
                             SalesScreen(viewModel = viewModel)
                         }
                         AppModule.CUSTOMERS -> {
-                            ModulePlaceholderScreen(
-                                module = AppModule.CUSTOMERS,
+                            CustomersScreen(
+                                viewModel = customersViewModel,
+                                cashSessionId = salesState.activeSession?.sessionId ?: "caja-1",
+                                cashierUserId = salesState.activeSession?.cashierId ?: "usr-cajero",
                                 onBackToSales = { activeModule = AppModule.SALES }
                             )
                         }

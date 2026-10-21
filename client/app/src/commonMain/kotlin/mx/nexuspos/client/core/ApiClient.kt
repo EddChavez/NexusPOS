@@ -13,9 +13,12 @@ import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.credit.CreateCustomerRequest
 import mx.nexuspos.contracts.credit.CreditMovementDto
 import mx.nexuspos.contracts.credit.CustomerDto
+import mx.nexuspos.contracts.credit.CustomerStatementDto
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
+import mx.nexuspos.contracts.credit.UpdateCustomerRequest
 import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.LoginResponse
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -132,11 +135,88 @@ class ApiClient(
         }
     }
 
-    suspend fun searchCustomers(query: String? = null): Result<List<CustomerDto>> {
+    suspend fun searchCustomers(query: String? = null, includeInactive: Boolean = false): Result<List<CustomerDto>> {
         return try {
             val res = http.get("$baseUrl/api/v1/customers") {
                 if (!query.isNullOrBlank()) parameter("query", query)
+                if (includeInactive) parameter("includeInactive", "true")
             }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getCustomer(id: String): Result<CustomerDto> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/customers/$id")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createCustomer(req: CreateCustomerRequest): Result<CustomerDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/customers") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateCustomer(id: String, req: UpdateCustomerRequest): Result<CustomerDto> {
+        return try {
+            val res = http.put("$baseUrl/api/v1/customers/$id") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deactivateCustomer(id: String): Result<CustomerDto> {
+        return try {
+            val res = http.delete("$baseUrl/api/v1/customers/$id")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getCustomerStatement(id: String): Result<CustomerStatementDto> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/customers/$id/statement")
             if (res.status.isSuccess()) {
                 Result.success(res.body())
             } else {

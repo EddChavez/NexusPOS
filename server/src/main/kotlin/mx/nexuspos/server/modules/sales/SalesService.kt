@@ -182,6 +182,8 @@ class SalesService(
 
             var customerName: String? = null
             var customerRemainingCreditCents: Long? = null
+            var supervisorAuditNote: String? = null
+            var finalCustomerBalance: Long? = null
 
             val creditPayment = request.payments.firstOrNull { it.method == "CREDIT" }
             if (creditPayment != null) {
@@ -189,7 +191,7 @@ class SalesService(
                     throw ValidationException("La venta a crédito requiere seleccionar un cliente")
                 }
                 val custStmt = conn.prepareStatement(
-                    "SELECT name, credit_enabled, credit_limit_cents, current_balance_cents FROM customers WHERE id = ? FOR UPDATE"
+                    "SELECT name, credit_enabled, has_credit_limit, credit_limit_cents, current_balance_cents FROM customers WHERE id = ? FOR UPDATE"
                 )
                 custStmt.setString(1, request.customerId)
                 val custRs = custStmt.executeQuery()
@@ -201,6 +203,7 @@ class SalesService(
 
                 customerName = custRs.getString("name")
                 val creditEnabled = custRs.getBoolean("credit_enabled")
+                val hasCreditLimit = custRs.getBoolean("has_credit_limit")
                 val creditLimit = custRs.getLong("credit_limit_cents")
                 val currentBalance = custRs.getLong("current_balance_cents")
                 custRs.close()
@@ -211,20 +214,49 @@ class SalesService(
                 }
 
                 val newBalance = currentBalance + creditPayment.amountCents
-                if (newBalance > creditLimit) {
-                    throw CreditLimitExceededException(
-                        "Límite de crédito excedido para '$customerName'. Límite: $${creditLimit / 100.0}, Saldo nuevo sería: $${newBalance / 100.0}"
+                if (hasCreditLimit && newBalance > creditLimit) {
+                    val supPin = request.supervisorAuthPin
+                    if (supPin.isNullOrBlank()) {
+                        throw CreditLimitExceededException(
+                            "Límite de crédito excedido para '$customerName'. Límite: $${creditLimit / 100.0}, Saldo nuevo sería: $${newBalance / 100.0}. Se requiere autorización de supervisor."
+                        )
+                    }
+
+                    // Verify supervisor pin in users table
+                    val supStmt = conn.prepareStatement(
+                        "SELECT name, pin_hash FROM users WHERE role IN ('ADMIN', 'SUPERVISOR') AND is_active = TRUE"
                     )
+                    val supRs = supStmt.executeQuery()
+                    var authorizedSupervisor: String? = null
+                    while (supRs.next()) {
+                        val hash = supRs.getString("pin_hash")
+                        if (Security.verifyPin(supPin, hash)) {
+                            authorizedSupervisor = supRs.getString("name")
+                            break
+                        }
+                    }
+                    supRs.close()
+                    supStmt.close()
+
+                    if (authorizedSupervisor == null) {
+                        throw ForbiddenException("PIN de supervisor inválido o no autorizado para autorizar sobregiro de crédito")
+                    }
+
+                    supervisorAuditNote = "Sobregiro autorizado por $authorizedSupervisor" +
+                        if (!request.supervisorAuthReason.isNullOrBlank()) " (${request.supervisorAuthReason})" else ""
                 }
 
-                customerRemainingCreditCents = (creditLimit - newBalance).coerceAtLeast(0L)
+                customerRemainingCreditCents = if (!hasCreditLimit) 99999900L else (creditLimit - newBalance).coerceAtLeast(0L)
+                finalCustomerBalance = newBalance
 
+                val nowCust = System.currentTimeMillis()
                 // Update customer balance
                 val updateCustStmt = conn.prepareStatement(
-                    "UPDATE customers SET current_balance_cents = ? WHERE id = ?"
+                    "UPDATE customers SET current_balance_cents = ?, updated_at = ? WHERE id = ?"
                 )
                 updateCustStmt.setLong(1, newBalance)
-                updateCustStmt.setString(2, request.customerId)
+                updateCustStmt.setLong(2, nowCust)
+                updateCustStmt.setString(3, request.customerId)
                 updateCustStmt.executeUpdate()
                 updateCustStmt.close()
             }
@@ -376,13 +408,18 @@ class SalesService(
                     VALUES (?, ?, 'CHARGE', ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent()
                 )
+                val chargeDesc = if (supervisorAuditNote != null) {
+                    "Cargo por venta folio #$nextFolio [$supervisorAuditNote]"
+                } else {
+                    "Cargo por venta folio #$nextFolio"
+                }
                 cmovStmt.setString(1, cmovId)
                 cmovStmt.setString(2, request.customerId)
                 cmovStmt.setLong(3, creditPayment.amountCents)
-                cmovStmt.setLong(4, (customerRemainingCreditCents ?: 0L))
+                cmovStmt.setLong(4, (finalCustomerBalance ?: 0L))
                 cmovStmt.setString(5, saleId)
                 cmovStmt.setString(6, request.cashSessionId)
-                cmovStmt.setString(7, "Cargo por venta folio #$nextFolio")
+                cmovStmt.setString(7, chargeDesc)
                 cmovStmt.setString(8, request.cashierUserId)
                 cmovStmt.setLong(9, now)
                 cmovStmt.executeUpdate()
@@ -569,13 +606,46 @@ class SalesService(
             // 2. Revert credit if applicable
             val creditPayment = sale.payments.firstOrNull { it.method == "CREDIT" }
             if (creditPayment != null) {
-                val custStmt = conn.prepareStatement(
-                    "UPDATE customers SET current_balance_cents = current_balance_cents - ? WHERE id = (SELECT customer_id FROM sales WHERE id = ?)"
+                val custSelectStmt = conn.prepareStatement(
+                    "SELECT id, current_balance_cents FROM customers WHERE id = (SELECT customer_id FROM sales WHERE id = ?) FOR UPDATE"
                 )
-                custStmt.setLong(1, creditPayment.amountCents)
-                custStmt.setString(2, saleId)
-                custStmt.executeUpdate()
-                custStmt.close()
+                custSelectStmt.setString(1, saleId)
+                val custRs = custSelectStmt.executeQuery()
+                if (custRs.next()) {
+                    val custId = custRs.getString("id")
+                    val currentBal = custRs.getLong("current_balance_cents")
+                    val newBal = (currentBal - creditPayment.amountCents).coerceAtLeast(0L)
+                    val nowCancel = System.currentTimeMillis()
+
+                    val updateCustStmt = conn.prepareStatement(
+                        "UPDATE customers SET current_balance_cents = ?, updated_at = ? WHERE id = ?"
+                    )
+                    updateCustStmt.setLong(1, newBal)
+                    updateCustStmt.setLong(2, nowCancel)
+                    updateCustStmt.setString(3, custId)
+                    updateCustStmt.executeUpdate()
+                    updateCustStmt.close()
+
+                    val revMovId = "cmov-" + UUID.randomUUID().toString().take(8)
+                    val revStmt = conn.prepareStatement(
+                        """
+                        INSERT INTO credit_movements (id, customer_id, type, amount_cents, balance_after_cents, sale_id, description, user_id, created_at)
+                        VALUES (?, ?, 'REVERSAL', ?, ?, ?, ?, ?, ?)
+                        """.trimIndent()
+                    )
+                    revStmt.setString(1, revMovId)
+                    revStmt.setString(2, custId)
+                    revStmt.setLong(3, creditPayment.amountCents)
+                    revStmt.setLong(4, newBal)
+                    revStmt.setString(5, saleId)
+                    revStmt.setString(6, "Cancelación de venta folio #${sale.folio}: ${request.reason}")
+                    revStmt.setString(7, request.authorizedByUserId ?: "admin")
+                    revStmt.setLong(8, nowCancel)
+                    revStmt.executeUpdate()
+                    revStmt.close()
+                }
+                custRs.close()
+                custSelectStmt.close()
             }
 
             // 3. Update Sale Status

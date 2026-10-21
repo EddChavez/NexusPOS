@@ -182,9 +182,23 @@ class IdentityService(private val db: DatabaseFactory) {
 
     private fun getPermissionsForRole(role: String): List<String> {
         return when (role) {
-            "ADMIN" -> listOf("SELL", "CREDIT", "DISCOUNT", "CANCEL_SALE", "REFUND", "CASH_IN_OUT", "VIEW_REPORTS", "MANAGE_CATALOG", "MANAGE_USERS", "SETTINGS")
-            "SUPERVISOR" -> listOf("SELL", "CREDIT", "DISCOUNT", "CANCEL_SALE", "REFUND", "CASH_IN_OUT", "VIEW_REPORTS", "MANAGE_CATALOG")
-            else -> listOf("SELL", "CREDIT", "OPEN_CLOSE_SESSION")
+            "ADMIN" -> listOf(
+                "SELL", "CREDIT", "DISCOUNT", "CANCEL_SALE", "REFUND", "CASH_IN_OUT", "VIEW_REPORTS", "MANAGE_CATALOG", "MANAGE_USERS", "SETTINGS",
+                "customers.view", "customers.create", "customers.update", "customers.deactivate",
+                "customers.credit.view", "customers.credit.configure", "customers.credit.charge", "customers.credit.payment", "customers.credit.reverse",
+                "customers.statement.view", "customers.statement.print", "customers.reports.view", "customers.export"
+            )
+            "SUPERVISOR" -> listOf(
+                "SELL", "CREDIT", "DISCOUNT", "CANCEL_SALE", "REFUND", "CASH_IN_OUT", "VIEW_REPORTS", "MANAGE_CATALOG",
+                "customers.view", "customers.create", "customers.update",
+                "customers.credit.view", "customers.credit.configure", "customers.credit.charge", "customers.credit.payment", "customers.credit.reverse",
+                "customers.statement.view", "customers.statement.print", "customers.reports.view"
+            )
+            else -> listOf(
+                "SELL", "CREDIT", "OPEN_CLOSE_SESSION",
+                "customers.view", "customers.credit.view", "customers.credit.charge", "customers.credit.payment",
+                "customers.statement.view", "customers.statement.print"
+            )
         }
     }
 }

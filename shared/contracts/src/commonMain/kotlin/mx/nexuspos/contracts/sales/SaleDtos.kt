@@ -27,6 +27,8 @@ data class CreateSaleRequest(
     val cashSessionId: String,
     val cashierUserId: String,
     val customerId: String? = null,
+    val supervisorAuthPin: String? = null,
+    val supervisorAuthReason: String? = null,
     val lines: List<SaleLineItemRequest>,
     val payments: List<SalePaymentRequest>,
     val expectedTotalCents: Long

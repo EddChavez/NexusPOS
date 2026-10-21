@@ -23,6 +23,7 @@ import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.credit.CreateCustomerRequest
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
+import mx.nexuspos.contracts.credit.UpdateCustomerRequest
 import mx.nexuspos.contracts.events.RealtimeEvent
 import mx.nexuspos.contracts.identity.AuthorizeRequest
 import mx.nexuspos.contracts.identity.LoginRequest
@@ -255,7 +256,8 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             // Customers & Credit
             get("/customers") {
                 val q = call.request.queryParameters["query"]
-                call.respond(creditService.searchCustomers(q))
+                val includeInactive = call.request.queryParameters["includeInactive"]?.toBooleanStrictOrNull() ?: false
+                call.respond(creditService.searchCustomers(q, includeInactive))
             }
 
             get("/customers/{id}") {
@@ -265,7 +267,29 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
 
             post("/customers") {
                 val req = call.receive<CreateCustomerRequest>()
-                call.respond(HttpStatusCode.Created, creditService.createCustomer(req))
+                val customer = creditService.createCustomer(req)
+                broadcastEventJson("customer.created", jsonConfig.encodeToString(customer))
+                call.respond(HttpStatusCode.Created, customer)
+            }
+
+            put("/customers/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
+                val req = call.receive<UpdateCustomerRequest>()
+                val updated = creditService.updateCustomer(id, req)
+                broadcastEventJson("customer.updated", jsonConfig.encodeToString(updated))
+                call.respond(updated)
+            }
+
+            delete("/customers/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
+                val deactivated = creditService.deactivateCustomer(id)
+                broadcastEventJson("customer.deactivated", jsonConfig.encodeToString(deactivated))
+                call.respond(deactivated)
+            }
+
+            get("/customers/{id}/statement") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
+                call.respond(creditService.getCustomerStatement(id))
             }
 
             post("/customers/{id}/credit/payments") {
