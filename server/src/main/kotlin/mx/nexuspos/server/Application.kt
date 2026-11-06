@@ -21,6 +21,10 @@ import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
+import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
+import mx.nexuspos.contracts.catalog.CreateProductRequest
+import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
+import mx.nexuspos.contracts.catalog.UpdateProductRequest
 import mx.nexuspos.contracts.credit.CreateCustomerRequest
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.credit.UpdateCustomerRequest
@@ -208,11 +212,69 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 call.respond(catalogService.getAllDepartments())
             }
 
+            post("/departments") {
+                val req = call.receive<CreateDepartmentRequest>()
+                val created = catalogService.createDepartment(req)
+                broadcastEventJson("department.created", jsonConfig.encodeToString(created))
+                call.respond(HttpStatusCode.Created, created)
+            }
+
+            put("/departments/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de departamento requerido")
+                val req = call.receive<UpdateDepartmentRequest>()
+                val updated = catalogService.updateDepartment(id, req)
+                broadcastEventJson("department.updated", jsonConfig.encodeToString(updated))
+                call.respond(updated)
+            }
+
+            delete("/departments/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de departamento requerido")
+                catalogService.deleteDepartment(id)
+                broadcastEventJson("department.deleted", jsonConfig.encodeToString(mapOf("id" to id)))
+                call.respond(HttpStatusCode.OK, mapOf("status" to "deleted", "id" to id))
+            }
+
             get("/products") {
                 val barcode = call.request.queryParameters["barcode"]
                 val query = call.request.queryParameters["query"]
-                val products = catalogService.searchProducts(barcode, query)
+                val departmentId = call.request.queryParameters["departmentId"]
+                val includeInactive = call.request.queryParameters["includeInactive"]?.toBooleanStrictOrNull() ?: false
+                val products = catalogService.searchProducts(barcode, query, departmentId, includeInactive)
                 call.respond(products)
+            }
+
+            get("/products/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
+                call.respond(catalogService.getProductById(id))
+            }
+
+            post("/products") {
+                val req = call.receive<CreateProductRequest>()
+                val product = catalogService.createProduct(req)
+                broadcastEventJson("product.created", jsonConfig.encodeToString(product))
+                call.respond(HttpStatusCode.Created, product)
+            }
+
+            put("/products/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
+                val req = call.receive<UpdateProductRequest>()
+                val updated = catalogService.updateProduct(id, req)
+                broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
+                call.respond(updated)
+            }
+
+            delete("/products/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
+                val deactivated = catalogService.deactivateProduct(id)
+                broadcastEventJson("product.deactivated", jsonConfig.encodeToString(deactivated))
+                call.respond(deactivated)
+            }
+
+            post("/products/{id}/reactivate") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
+                val reactivated = catalogService.reactivateProduct(id)
+                broadcastEventJson("product.updated", jsonConfig.encodeToString(reactivated))
+                call.respond(reactivated)
             }
 
             // Cash Sessions

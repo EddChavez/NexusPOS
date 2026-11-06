@@ -25,6 +25,8 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
+import mx.nexuspos.client.features.products.ProductsScreen
+import mx.nexuspos.client.features.products.ProductsViewModel
 import mx.nexuspos.client.features.footer.SystemFooter
 import mx.nexuspos.client.features.header.AppModule
 import mx.nexuspos.client.features.header.ScaleReading
@@ -40,6 +42,7 @@ fun main() = application {
     val windowState = rememberWindowState(width = 1280.dp, height = 820.dp)
     val viewModel = remember { SalesViewModel() }
     val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
+    val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
     val salesState by viewModel.uiState.collectAsState()
 
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
@@ -124,6 +127,9 @@ fun main() = application {
                         } else if (activeModule == AppModule.CUSTOMERS) {
                             customersViewModel.openCreateDialog()
                             true
+                        } else if (activeModule == AppModule.PRODUCTS) {
+                            productsViewModel.openCreateDialog()
+                            true
                         } else false
                     }
 
@@ -205,6 +211,18 @@ fun main() = application {
                             viewModel.showCashOutDialog(false)
                             viewModel.showSearchCatalogDialog(false)
                             true
+                        } else if (productsViewModel.uiState.value.showDepartmentsDialog) {
+                            productsViewModel.closeDepartmentsDialog()
+                            true
+                        } else if (productsViewModel.uiState.value.showFormDialog) {
+                            productsViewModel.closeFormDialog()
+                            true
+                        } else if (customersViewModel.uiState.value.showFormDialog) {
+                            customersViewModel.closeFormDialog()
+                            true
+                        } else if (customersViewModel.uiState.value.showPaymentDialog) {
+                            customersViewModel.closePaymentDialog()
+                            true
                         } else if (activeModule != AppModule.SALES) {
                             // Si estamos en otro módulo, Escape regresa a Ventas
                             activeModule = AppModule.SALES
@@ -269,8 +287,8 @@ fun main() = application {
                             )
                         }
                         AppModule.PRODUCTS -> {
-                            ModulePlaceholderScreen(
-                                module = AppModule.PRODUCTS,
+                            ProductsScreen(
+                                viewModel = productsViewModel,
                                 onBackToSales = { activeModule = AppModule.SALES }
                             )
                         }

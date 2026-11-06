@@ -139,6 +139,18 @@ class SalesViewModel(
         val unitPrice = Money.fromCents(pres.priceCents)
         val lineTotal = PricingRules.calculateLineTotal(unitPrice, qty)
 
+        val itemDescription = if (
+            pres.name.isNotBlank() &&
+            pres.name != "Pieza" &&
+            pres.name != "Base" &&
+            pres.name != prod.name &&
+            pres.factorMillis != 1000L
+        ) {
+            "${prod.name} (${pres.name})"
+        } else {
+            prod.name
+        }
+
         _uiState.update { state ->
             val existingIndex = state.cartLines.indexOfFirst { it.presentationId == pres.id }
             val updatedLines = if (existingIndex >= 0 && unit == ProductUnit.PIECE) {
@@ -155,8 +167,8 @@ class SalesViewModel(
                     productId = prod.id,
                     presentationId = pres.id,
                     barcode = pres.barcode,
-                    name = pres.name,
-                    category = prod.departmentName ?: "Abarrotes",
+                    name = itemDescription,
+                    category = prod.departmentName ?: "General",
                     unit = unit,
                     quantity = qty,
                     unitPrice = unitPrice,

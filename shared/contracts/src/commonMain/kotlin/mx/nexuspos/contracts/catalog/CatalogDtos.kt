@@ -9,6 +9,16 @@ data class DepartmentDto(
 )
 
 @Serializable
+data class CreateDepartmentRequest(
+    val name: String
+)
+
+@Serializable
+data class UpdateDepartmentRequest(
+    val name: String
+)
+
+@Serializable
 data class ProductPresentationDto(
     val id: String,
     val productId: String,
@@ -54,8 +64,24 @@ data class CreateProductRequest(
 
 @Serializable
 data class CreatePresentationRequest(
+    val id: String? = null,
     val barcode: String,
     val name: String,
-    val factorMillis: Long,
+    val factorMillis: Long = 1000L,
     val priceCents: Long
+)
+
+@Serializable
+data class UpdateProductRequest(
+    val sku: String,
+    val name: String,
+    val departmentId: String? = null,
+    val baseUnit: String = "PZA",
+    val costCents: Long = 0L,
+    val taxRate: Double = 0.0,
+    val usesInventory: Boolean = true,
+    val minStockMillis: Long = 0L,
+    val maxStockMillis: Long = 0L,
+    val isActive: Boolean = true,
+    val presentations: List<CreatePresentationRequest> = emptyList()
 )

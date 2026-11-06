@@ -12,7 +12,12 @@ import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
+import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
+import mx.nexuspos.contracts.catalog.CreateProductRequest
+import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
+import mx.nexuspos.contracts.catalog.UpdateProductRequest
 import mx.nexuspos.contracts.credit.CreateCustomerRequest
 import mx.nexuspos.contracts.credit.CreditMovementDto
 import mx.nexuspos.contracts.credit.CustomerDto
@@ -66,11 +71,18 @@ class ApiClient(
         }
     }
 
-    suspend fun searchProducts(barcode: String? = null, query: String? = null): Result<List<ProductDto>> {
+    suspend fun searchProducts(
+        barcode: String? = null,
+        query: String? = null,
+        departmentId: String? = null,
+        includeInactive: Boolean = false
+    ): Result<List<ProductDto>> {
         return try {
             val res = http.get("$baseUrl/api/v1/products") {
                 if (!barcode.isNullOrBlank()) parameter("barcode", barcode)
                 if (!query.isNullOrBlank()) parameter("query", query)
+                if (!departmentId.isNullOrBlank()) parameter("departmentId", departmentId)
+                if (includeInactive) parameter("includeInactive", "true")
             }
             if (res.status.isSuccess()) {
                 Result.success(res.body())
@@ -82,6 +94,145 @@ class ApiClient(
             Result.failure(e)
         }
     }
+
+    suspend fun getProduct(id: String): Result<ProductDto> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/products/$id")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createProduct(req: CreateProductRequest): Result<ProductDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/products") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateProduct(id: String, req: UpdateProductRequest): Result<ProductDto> {
+        return try {
+            val res = http.put("$baseUrl/api/v1/products/$id") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deactivateProduct(id: String): Result<ProductDto> {
+        return try {
+            val res = http.delete("$baseUrl/api/v1/products/$id")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun reactivateProduct(id: String): Result<ProductDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/products/$id/reactivate")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getDepartments(): Result<List<DepartmentDto>> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/departments")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createDepartment(req: CreateDepartmentRequest): Result<DepartmentDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/departments") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateDepartment(id: String, req: UpdateDepartmentRequest): Result<DepartmentDto> {
+        return try {
+            val res = http.put("$baseUrl/api/v1/departments/$id") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteDepartment(id: String): Result<Boolean> {
+        return try {
+            val res = http.delete("$baseUrl/api/v1/departments/$id")
+            if (res.status.isSuccess()) {
+                Result.success(true)
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
 
     suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> {
         return try {
