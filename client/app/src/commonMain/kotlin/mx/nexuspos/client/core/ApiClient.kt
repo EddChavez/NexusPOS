@@ -26,6 +26,9 @@ import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.credit.UpdateCustomerRequest
 import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.LoginResponse
+import mx.nexuspos.contracts.inventory.InventorySummaryDto
+import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
+import mx.nexuspos.contracts.inventory.StockMovementDto
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
@@ -233,6 +236,58 @@ class ApiClient(
         }
     }
 
+    suspend fun getInventorySummary(): Result<InventorySummaryDto> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/inventory/summary")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getStockMovements(
+        productId: String? = null,
+        type: String? = null,
+        limit: Int = 100
+    ): Result<List<StockMovementDto>> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/inventory/movements") {
+                if (!productId.isNullOrBlank()) parameter("productId", productId)
+                if (!type.isNullOrBlank()) parameter("type", type)
+                parameter("limit", limit)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun registerStockMovement(req: RegisterStockMovementRequest): Result<StockMovementDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/inventory/movements") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> {
         return try {

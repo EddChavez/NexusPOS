@@ -32,6 +32,7 @@ import mx.nexuspos.contracts.events.RealtimeEvent
 import mx.nexuspos.contracts.identity.AuthorizeRequest
 import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.PairingClaimRequest
+import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.system.SettingsDto
@@ -39,6 +40,7 @@ import mx.nexuspos.server.modules.cash.CashSessionService
 import mx.nexuspos.server.modules.catalog.CatalogService
 import mx.nexuspos.server.modules.credit.CreditService
 import mx.nexuspos.server.modules.identity.IdentityService
+import mx.nexuspos.server.modules.inventory.InventoryService
 import mx.nexuspos.server.modules.sales.SalesService
 import mx.nexuspos.server.modules.system.SettingsService
 import mx.nexuspos.server.persistence.DatabaseFactory
@@ -59,6 +61,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     // Initialize Services
     val identityService = IdentityService(dbFactory)
     val catalogService = CatalogService(dbFactory)
+    val inventoryService = InventoryService(dbFactory)
     val cashService = CashSessionService(dbFactory)
     val creditService = CreditService(dbFactory)
     val settingsService = SettingsService(dbFactory)
@@ -275,6 +278,26 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val reactivated = catalogService.reactivateProduct(id)
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(reactivated))
                 call.respond(reactivated)
+            }
+
+            // Inventory
+            get("/inventory/summary") {
+                call.respond(inventoryService.getInventorySummary())
+            }
+
+            get("/inventory/movements") {
+                val productId = call.request.queryParameters["productId"]
+                val type = call.request.queryParameters["type"]
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
+                call.respond(inventoryService.getStockMovements(productId, type, limit))
+            }
+
+            post("/inventory/movements") {
+                val req = call.receive<RegisterStockMovementRequest>()
+                val movement = inventoryService.registerMovement(req)
+                broadcastEventJson("inventory.movement.created", jsonConfig.encodeToString(movement))
+                broadcastEventJson("inventory.updated", jsonConfig.encodeToString(mapOf("productId" to req.productId)))
+                call.respond(HttpStatusCode.Created, movement)
             }
 
             // Cash Sessions

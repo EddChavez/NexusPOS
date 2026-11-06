@@ -25,6 +25,8 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
+import mx.nexuspos.client.features.inventory.InventoryScreen
+import mx.nexuspos.client.features.inventory.InventoryViewModel
 import mx.nexuspos.client.features.products.ProductsScreen
 import mx.nexuspos.client.features.products.ProductsViewModel
 import mx.nexuspos.client.features.footer.SystemFooter
@@ -43,6 +45,7 @@ fun main() = application {
     val viewModel = remember { SalesViewModel() }
     val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
     val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
+    val inventoryViewModel = remember { InventoryViewModel(viewModel.apiClient) }
     val salesState by viewModel.uiState.collectAsState()
 
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
@@ -130,6 +133,12 @@ fun main() = application {
                         } else if (activeModule == AppModule.PRODUCTS) {
                             productsViewModel.openCreateDialog()
                             true
+                        } else if (activeModule == AppModule.INVENTORY) {
+                            val sel = inventoryViewModel.uiState.value.selectedProduct
+                            if (sel != null) {
+                                inventoryViewModel.openMovementDialog(sel)
+                                true
+                            } else false
                         } else false
                     }
 
@@ -210,6 +219,9 @@ fun main() = application {
                             viewModel.showCashInDialog(false)
                             viewModel.showCashOutDialog(false)
                             viewModel.showSearchCatalogDialog(false)
+                            true
+                        } else if (inventoryViewModel.uiState.value.showMovementDialog) {
+                            inventoryViewModel.closeMovementDialog()
                             true
                         } else if (productsViewModel.uiState.value.showDepartmentsDialog) {
                             productsViewModel.closeDepartmentsDialog()
@@ -293,8 +305,8 @@ fun main() = application {
                             )
                         }
                         AppModule.INVENTORY -> {
-                            ModulePlaceholderScreen(
-                                module = AppModule.INVENTORY,
+                            InventoryScreen(
+                                viewModel = inventoryViewModel,
                                 onBackToSales = { activeModule = AppModule.SALES }
                             )
                         }
