@@ -57,7 +57,51 @@ Obtiene las políticas y configuración actual de la tienda.
   ```
 
 #### `PUT /api/v1/system/settings`
-Actualiza la configuración (requiere rol `ADMIN`).
+Actualiza toda la configuración de la tienda (nombre, dirección, teléfono, RFC, leyenda del ticket, política de stock y símbolo de moneda).
+- **Cuerpo de Solicitud y Respuesta 200 OK:** Mismo esquema que `GET /api/v1/system/settings`.
+
+---
+
+### A.2 Gestión de Usuarios
+
+#### `GET /api/v1/users`
+Lista todos los usuarios del sistema. Acepta `?includeInactive=true` para incluir usuarios desactivados.
+
+- **Respuesta 200 OK:**
+  ```json
+  [
+    { "id": "usr-a1b2c3", "name": "Administrador", "role": "ADMIN", "isActive": true },
+    { "id": "usr-d4e5f6", "name": "Juan Pérez",    "role": "CASHIER", "isActive": true }
+  ]
+  ```
+
+#### `POST /api/v1/users`
+Crea un nuevo usuario con PIN cifrado en BCrypt.
+- **Cuerpo:**
+  ```json
+  { "name": "María García", "role": "SUPERVISOR", "pin": "5678" }
+  ```
+- **201 Created:** `UserDto` creado.
+- **400 Bad Request:** PIN inválido (no es `^\d{4}$`).
+- **409 Conflict:** `PIN_ALREADY_IN_USE`.
+
+#### `GET /api/v1/users/{id}`
+Obtiene un usuario por su ID.
+- **200 OK:** `UserDto`. **404 Not Found:** No existe.
+
+#### `PUT /api/v1/users/{id}`
+Actualiza nombre, rol y/o PIN. Si `pin` es `null`, se conserva el PIN actual.
+- **200 OK:** `UserDto` actualizado.
+- **422 Unprocessable Entity:** `LAST_ADMIN_CANNOT_BE_DEMOTED` al degradar al único admin.
+
+#### `DELETE /api/v1/users/{id}`
+Desactivación lógica (`isActive = false`). No borra el registro.
+- **200 OK:** `UserDto` con `isActive=false`.
+- **422 Unprocessable Entity:** `LAST_ADMIN_CANNOT_BE_DEACTIVATED`.
+
+#### `POST /api/v1/users/{id}/reactivate`
+Reactiva un usuario desactivado.
+- **200 OK:** `UserDto` con `isActive=true`.
 
 ---
 

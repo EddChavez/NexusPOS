@@ -26,7 +26,8 @@ docs/
 │   ├── catalog-inventory.md           # Catálogo, productos, departamentos, presentaciones y peso
 │   ├── inventory-kardex.md            # Control de existencias, valuación financiera, Kardex y ajustes
 │   ├── authentication.md              # Login por PIN, cambio de cajero y estado LAN
-│   └── system-status-footer.md        # Barra inferior de estado, LAN, báscula y reloj en tiempo real
+│   ├── system-status-footer.md        # Barra inferior de estado, LAN, báscula y reloj en tiempo real
+│   └── settings-configuration.md     # Configuración de tienda, ticket, política de stock y usuarios/PINs
 ├── api/
 │   └── endpoints.md                   # Contratos REST /api/v1, DTOs, Idempotency-Key y WebSocket
 └── testing/
