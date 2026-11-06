@@ -550,7 +550,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getSettings(): Result<SettingsDto> {
+    open suspend fun getSettings(): Result<SettingsDto> {
         return try {
             val res = http.get("$baseUrl/api/v1/system/settings")
             if (res.status.isSuccess()) {
@@ -564,7 +564,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun updateSettings(settings: SettingsDto): Result<SettingsDto> {
+    open suspend fun updateSettings(settings: SettingsDto): Result<SettingsDto> {
         return try {
             val res = http.put("$baseUrl/api/v1/system/settings") {
                 contentType(ContentType.Application.Json)

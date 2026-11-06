@@ -315,9 +315,23 @@ class SalesViewModel(
     }
 
     var receiptFormatter: ((SaleResponse, Boolean) -> String)? = null
+    var onSaleCompleted: ((SaleResponse) -> Unit)? = null
+    var onOpenCashDrawer: (() -> Unit)? = null
+    var onPrintPhysicalReceipt: ((SaleResponse) -> Unit)? = null
 
     fun openCashDrawer() {
+        onOpenCashDrawer?.invoke()
         _uiState.update { it.copy(successMessage = "Comando de apertura enviado al cajón de dinero.") }
+    }
+
+    fun printPhysicalTicket(sale: SaleResponse) {
+        onPrintPhysicalReceipt?.invoke(sale)
+        _uiState.update {
+            it.copy(
+                reprintTicketPreview = null,
+                successMessage = "Comando de impresión para folio #${sale.folio} enviado a la impresora física."
+            )
+        }
     }
 
     fun reprintLastTicket() {
@@ -682,6 +696,7 @@ class SalesViewModel(
             )
 
             apiClient.completeSale(saleReq).onSuccess { sale ->
+                onSaleCompleted?.invoke(sale)
                 _uiState.update { state ->
                     val clearedTickets = state.tickets.map { t ->
                         if (t.id == state.activeTicketId) {
@@ -761,6 +776,7 @@ class SalesViewModel(
             )
 
             apiClient.completeSale(saleReq).onSuccess { sale ->
+                onSaleCompleted?.invoke(sale)
                 _uiState.update { s ->
                     val clearedTickets = s.tickets.map { t ->
                         if (t.id == s.activeTicketId) {

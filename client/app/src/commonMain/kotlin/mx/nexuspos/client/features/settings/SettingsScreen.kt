@@ -80,6 +80,7 @@ fun SettingsScreen(
             when (state.selectedTab) {
                 SettingsTab.STORE_TICKET -> StoreTicketTab(state = state, viewModel = viewModel)
                 SettingsTab.POLICIES -> PoliciesTab(state = state, viewModel = viewModel)
+                SettingsTab.PRINTER -> PrinterTab(state = state, viewModel = viewModel)
                 SettingsTab.USERS -> UsersTab(state = state, viewModel = viewModel)
             }
         }
@@ -131,6 +132,7 @@ private fun SettingsTopToolbar(
                     val (label, icon) = when (tab) {
                         SettingsTab.STORE_TICKET -> "Tienda & Ticket" to Icons.Default.Store
                         SettingsTab.POLICIES -> "Políticas" to Icons.Default.Policy
+                        SettingsTab.PRINTER -> "Impresora" to Icons.Default.Print
                         SettingsTab.USERS -> "Usuarios" to Icons.Default.Group
                     }
                     FilterChip(
@@ -527,6 +529,332 @@ private fun PolicyExplanationCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isActive) textColor.copy(alpha = 0.85f) else NexusTheme.colors.textSecondary
             )
+        }
+    }
+}
+
+// =====================================================
+// TAB: Impresora de Tickets (Hardware ESC/POS)
+// =====================================================
+
+@Composable
+private fun PrinterTab(state: SettingsUiState, viewModel: SettingsViewModel) {
+    var expandedPrinterMenu by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        contentAlignment = Alignment.TopStart
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 760.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Configuración de Impresora de Tickets (ESC/POS)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = NexusTheme.colors.textPrimary
+            )
+
+            // Section 1: Modo de Conexión
+            Surface(
+                color = NexusTheme.colors.bgSurfaceSubtle,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Tipo de Conexión de Impresora",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NexusTheme.colors.textPrimary
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // NONE
+                        FilterChip(
+                            selected = state.printerConnectionType == "NONE",
+                            onClick = { viewModel.onPrinterConnectionTypeChanged("NONE") },
+                            label = { Text("Desactivada") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                        )
+                        // USB_OS
+                        FilterChip(
+                            selected = state.printerConnectionType == "USB_OS",
+                            onClick = { viewModel.onPrinterConnectionTypeChanged("USB_OS") },
+                            label = { Text("USB / Sistema Operativo") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                        )
+                        // ETHERNET_TCP
+                        FilterChip(
+                            selected = state.printerConnectionType == "ETHERNET_TCP",
+                            onClick = { viewModel.onPrinterConnectionTypeChanged("ETHERNET_TCP") },
+                            label = { Text("Red Ethernet / WiFi (TCP)") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                        )
+                    }
+
+                    when (state.printerConnectionType) {
+                        "USB_OS" -> {
+                            Divider(color = NexusTheme.colors.borderSubtle)
+                            Text(
+                                text = "Seleccione la impresora térmica detectada en el sistema operativo:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NexusTheme.colors.textSecondary
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    OutlinedTextField(
+                                        value = state.osPrinterName.ifBlank { "Predeterminada del SO (Automático)" },
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text("Impresora del Sistema") },
+                                        trailingIcon = {
+                                            IconButton(onClick = { expandedPrinterMenu = true }) {
+                                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    DropdownMenu(
+                                        expanded = expandedPrinterMenu,
+                                        onDismissRequest = { expandedPrinterMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Predeterminada del SO (Automático)") },
+                                            onClick = {
+                                                viewModel.onOsPrinterNameChanged("")
+                                                expandedPrinterMenu = false
+                                            }
+                                        )
+                                        state.availableOsPrinters.forEach { p ->
+                                            DropdownMenuItem(
+                                                text = { Text(p) },
+                                                onClick = {
+                                                    viewModel.onOsPrinterNameChanged(p)
+                                                    expandedPrinterMenu = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                OutlinedButton(
+                                    onClick = viewModel::refreshAvailableOsPrinters,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(52.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Detectar")
+                                }
+                            }
+                        }
+                        "ETHERNET_TCP" -> {
+                            Divider(color = NexusTheme.colors.borderSubtle)
+                            Text(
+                                text = "Parámetros de red para impresora térmica (Puerto estándar 9100):",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NexusTheme.colors.textSecondary
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = state.tcpHost,
+                                    onValueChange = viewModel::onTcpHostChanged,
+                                    label = { Text("Dirección IP / Host") },
+                                    placeholder = { Text("192.168.1.200") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(2f)
+                                )
+                                OutlinedTextField(
+                                    value = state.tcpPort,
+                                    onValueChange = viewModel::onTcpPortChanged,
+                                    label = { Text("Puerto") },
+                                    placeholder = { Text("9100") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                        else -> {
+                            Text(
+                                text = "La impresión física está desactivada. Los tickets se visualizarán solo en pantalla.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NexusTheme.colors.textSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Section 2: Formato y Ancho de Papel
+            Surface(
+                color = NexusTheme.colors.bgSurfaceSubtle,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Ancho de Papel Térmico",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NexusTheme.colors.textPrimary
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = state.paperWidth == "80mm",
+                            onClick = { viewModel.onPaperWidthChanged("80mm") },
+                            label = { Text("80 mm (Estándar - 42 columnas)") }
+                        )
+                        FilterChip(
+                            selected = state.paperWidth == "58mm",
+                            onClick = { viewModel.onPaperWidthChanged("58mm") },
+                            label = { Text("58 mm (Compacto - 32 columnas)") }
+                        )
+                    }
+                }
+            }
+
+            // Section 3: Comportamiento Automático
+            Surface(
+                color = NexusTheme.colors.bgSurfaceSubtle,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "Automatización al Cobrar",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NexusTheme.colors.textPrimary
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Imprimir ticket automáticamente",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NexusTheme.colors.textPrimary
+                            )
+                            Text(
+                                text = "Envía el ticket a imprimir en cuanto se finaliza el cobro (efectivo o fiado).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NexusTheme.colors.textSecondary
+                            )
+                        }
+                        Switch(
+                            checked = state.autoPrintOnSale,
+                            onCheckedChange = viewModel::onAutoPrintOnSaleChanged,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = NexusTheme.colors.textGreen,
+                                checkedTrackColor = NexusTheme.colors.surfaceGreen
+                            )
+                        )
+                    }
+
+                    Divider(color = NexusTheme.colors.borderSubtle)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Abrir cajón de dinero automáticamente",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NexusTheme.colors.textPrimary
+                            )
+                            Text(
+                                text = "Envía pulso ESC/POS (Pin 2 y 5) para abrir cajón en ventas en efectivo.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NexusTheme.colors.textSecondary
+                            )
+                        }
+                        Switch(
+                            checked = state.openDrawerOnCashSale,
+                            onCheckedChange = viewModel::onOpenDrawerOnCashSaleChanged,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = NexusTheme.colors.textGreen,
+                                checkedTrackColor = NexusTheme.colors.surfaceGreen
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Section 4: Botones de Prueba y Guardar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = viewModel::testPrinter,
+                    enabled = state.printerConnectionType != "NONE" && !state.isTestingPrinter,
+                    modifier = Modifier.height(44.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (state.isTestingPrinter) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                    } else {
+                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("Probar Impresión")
+                }
+
+                OutlinedButton(
+                    onClick = viewModel::testCashDrawer,
+                    enabled = state.printerConnectionType != "NONE",
+                    modifier = Modifier.height(44.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Probar Cajón")
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                Button(
+                    onClick = viewModel::savePrinterConfig,
+                    colors = ButtonDefaults.buttonColors(containerColor = NexusTheme.colors.actionPrimary),
+                    modifier = Modifier.height(44.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Guardar Configuración", fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }

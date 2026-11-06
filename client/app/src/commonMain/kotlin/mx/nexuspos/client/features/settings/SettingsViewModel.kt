@@ -14,12 +14,29 @@ import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.contracts.system.SettingsDto
 
+data class PrinterUiConfig(
+    val connectionType: String = "NONE",
+    val osPrinterName: String = "",
+    val tcpHost: String = "192.168.1.200",
+    val tcpPort: Int = 9100,
+    val paperWidth: String = "80mm",
+    val autoPrintOnSale: Boolean = true,
+    val openDrawerOnCashSale: Boolean = true
+)
+
 class SettingsViewModel(
     private val apiClient: ApiClient,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) {
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    // Hardware printer hooks wired by desktop launcher
+    var printerConfigLoader: (() -> PrinterUiConfig)? = null
+    var printerConfigSaver: ((PrinterUiConfig) -> Unit)? = null
+    var osPrintersProvider: (() -> List<String>)? = null
+    var testPrintAction: ((PrinterUiConfig) -> Result<Unit>)? = null
+    var testDrawerAction: ((PrinterUiConfig) -> Result<Unit>)? = null
 
     init {
         loadAll()
@@ -68,6 +85,9 @@ class SettingsViewModel(
 
     fun selectTab(tab: SettingsTab) {
         _uiState.update { it.copy(selectedTab = tab) }
+        if (tab == SettingsTab.PRINTER) {
+            refreshAvailableOsPrinters()
+        }
     }
 
     // --- Store / Ticket field updates ---
@@ -260,6 +280,103 @@ class SettingsViewModel(
             }.onFailure { err ->
                 _uiState.update { it.copy(errorBanner = err.message) }
             }
+        }
+    }
+
+    // --- Hardware / Printer settings ---
+
+    fun loadPrinterConfig() {
+        val loaded = printerConfigLoader?.invoke() ?: PrinterUiConfig()
+        val osPrinters = osPrintersProvider?.invoke() ?: emptyList()
+        _uiState.update {
+            it.copy(
+                printerConnectionType = loaded.connectionType,
+                osPrinterName = loaded.osPrinterName,
+                availableOsPrinters = osPrinters,
+                tcpHost = loaded.tcpHost,
+                tcpPort = loaded.tcpPort.toString(),
+                paperWidth = loaded.paperWidth,
+                autoPrintOnSale = loaded.autoPrintOnSale,
+                openDrawerOnCashSale = loaded.openDrawerOnCashSale
+            )
+        }
+    }
+
+    fun onPrinterConnectionTypeChanged(v: String) = _uiState.update { it.copy(printerConnectionType = v) }
+    fun onOsPrinterNameChanged(v: String) = _uiState.update { it.copy(osPrinterName = v) }
+    fun onTcpHostChanged(v: String) = _uiState.update { it.copy(tcpHost = v) }
+    fun onTcpPortChanged(v: String) = _uiState.update { it.copy(tcpPort = v) }
+    fun onPaperWidthChanged(v: String) = _uiState.update { it.copy(paperWidth = v) }
+    fun onAutoPrintOnSaleChanged(v: Boolean) = _uiState.update { it.copy(autoPrintOnSale = v) }
+    fun onOpenDrawerOnCashSaleChanged(v: Boolean) = _uiState.update { it.copy(openDrawerOnCashSale = v) }
+
+    fun refreshAvailableOsPrinters() {
+        val printers = osPrintersProvider?.invoke() ?: emptyList()
+        _uiState.update { it.copy(availableOsPrinters = printers) }
+    }
+
+    fun getCurrentPrinterConfig(): PrinterUiConfig {
+        val s = _uiState.value
+        return PrinterUiConfig(
+            connectionType = s.printerConnectionType,
+            osPrinterName = s.osPrinterName,
+            tcpHost = s.tcpHost.trim(),
+            tcpPort = s.tcpPort.toIntOrNull() ?: 9100,
+            paperWidth = s.paperWidth,
+            autoPrintOnSale = s.autoPrintOnSale,
+            openDrawerOnCashSale = s.openDrawerOnCashSale
+        )
+    }
+
+    fun savePrinterConfig() {
+        val cfg = getCurrentPrinterConfig()
+        printerConfigSaver?.invoke(cfg)
+        _uiState.update {
+            it.copy(
+                successBanner = "Configuración de impresora guardada correctamente.",
+                errorBanner = null
+            )
+        }
+        autoDismissBanner()
+    }
+
+    fun testPrinter() {
+        val s = _uiState.value
+        if (s.printerConnectionType == "NONE") {
+            _uiState.update { it.copy(errorBanner = "La impresora está desactivada (NONE). Seleccione USB o Red Ethernet antes de probar.") }
+            return
+        }
+        val cfg = getCurrentPrinterConfig()
+        _uiState.update { it.copy(isTestingPrinter = true, errorBanner = null) }
+        scope.launch {
+            val res = testPrintAction?.invoke(cfg) ?: Result.failure(IllegalStateException("Servicio de impresión no disponible"))
+            _uiState.update { state ->
+                state.copy(
+                    isTestingPrinter = false,
+                    successBanner = if (res.isSuccess) "Ticket de prueba enviado exitosamente a la impresora." else null,
+                    errorBanner = res.exceptionOrNull()?.message
+                )
+            }
+            if (res.isSuccess) autoDismissBanner()
+        }
+    }
+
+    fun testCashDrawer() {
+        val s = _uiState.value
+        if (s.printerConnectionType == "NONE") {
+            _uiState.update { it.copy(errorBanner = "La impresora está desactivada (NONE). Seleccione USB o Red Ethernet para enviar el pulso del cajón.") }
+            return
+        }
+        val cfg = getCurrentPrinterConfig()
+        scope.launch {
+            val res = testDrawerAction?.invoke(cfg) ?: Result.failure(IllegalStateException("Servicio de hardware no disponible"))
+            _uiState.update { state ->
+                state.copy(
+                    successBanner = if (res.isSuccess) "Comando de apertura de cajón enviado exitosamente." else null,
+                    errorBanner = res.exceptionOrNull()?.message
+                )
+            }
+            if (res.isSuccess) autoDismissBanner()
         }
     }
 

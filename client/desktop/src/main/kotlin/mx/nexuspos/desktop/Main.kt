@@ -23,6 +23,9 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import mx.nexuspos.client.features.auth.AuthViewModel
 import mx.nexuspos.client.features.auth.LoginScreen
 import mx.nexuspos.client.features.auth.SupervisorAction
@@ -33,6 +36,7 @@ import mx.nexuspos.client.features.inventory.InventoryScreen
 import mx.nexuspos.client.features.inventory.InventoryViewModel
 import mx.nexuspos.client.features.products.ProductsScreen
 import mx.nexuspos.client.features.products.ProductsViewModel
+import mx.nexuspos.client.features.settings.PrinterUiConfig
 import mx.nexuspos.client.features.settings.SettingsScreen
 import mx.nexuspos.client.features.settings.SettingsTab
 import mx.nexuspos.client.features.settings.SettingsViewModel
@@ -45,8 +49,14 @@ import mx.nexuspos.client.features.header.TopHeaderUiState
 import mx.nexuspos.client.features.sales.SalesScreen
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.client.theme.NexusTheme
+import mx.nexuspos.desktop.hardware.DefaultPrinterDispatcher
 import mx.nexuspos.desktop.hardware.EscPosReceiptPrinter
 import mx.nexuspos.desktop.hardware.KeyboardWedgeBarcodeInput
+import mx.nexuspos.desktop.hardware.PaperWidth
+import mx.nexuspos.desktop.hardware.PrinterConfig
+import mx.nexuspos.desktop.hardware.PrinterConfigRepository
+import mx.nexuspos.desktop.hardware.PrinterConnectionType
+import mx.nexuspos.desktop.hardware.PrinterDispatcher
 
 fun main() = application {
     val windowState = rememberWindowState(width = 1280.dp, height = 820.dp)
@@ -59,15 +69,112 @@ fun main() = application {
     val salesState by viewModel.uiState.collectAsState()
     val authState by authViewModel.uiState.collectAsState()
     val supervisorState by authViewModel.supervisorState.collectAsState()
-    val receiptPrinter = remember { EscPosReceiptPrinter() }
+    val printerRepo = remember { PrinterConfigRepository() }
+    val printerDispatcher: PrinterDispatcher = remember { DefaultPrinterDispatcher() }
+    var printerConfig by remember { mutableStateOf(printerRepo.load()) }
 
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
     var scaleReading by remember { mutableStateOf(ScaleReading("0.000 kg", ScaleStatus.STABLE)) }
 
-    // Wire auth and printer callbacks
+    // Wire auth and hardware printer callbacks
     LaunchedEffect(Unit) {
+        // 1. SettingsViewModel printer bridge
+        settingsViewModel.printerConfigLoader = {
+            printerConfig = printerRepo.load()
+            PrinterUiConfig(
+                connectionType = printerConfig.connectionType.name,
+                osPrinterName = printerConfig.osPrinterName,
+                tcpHost = printerConfig.tcpHost,
+                tcpPort = printerConfig.tcpPort,
+                paperWidth = if (printerConfig.paperWidth == PaperWidth.MM_58) "58mm" else "80mm",
+                autoPrintOnSale = printerConfig.autoPrintOnSale,
+                openDrawerOnCashSale = printerConfig.openDrawerOnCashSale
+            )
+        }
+
+        settingsViewModel.printerConfigSaver = { uiCfg ->
+            val newCfg = PrinterConfig(
+                connectionType = try { PrinterConnectionType.valueOf(uiCfg.connectionType) } catch (e: Exception) { PrinterConnectionType.NONE },
+                osPrinterName = uiCfg.osPrinterName,
+                tcpHost = uiCfg.tcpHost,
+                tcpPort = uiCfg.tcpPort,
+                paperWidth = PaperWidth.fromString(uiCfg.paperWidth),
+                autoPrintOnSale = uiCfg.autoPrintOnSale,
+                openDrawerOnCashSale = uiCfg.openDrawerOnCashSale
+            )
+            printerRepo.save(newCfg)
+            printerConfig = newCfg
+        }
+
+        settingsViewModel.osPrintersProvider = {
+            printerDispatcher.getAvailableOsPrinters()
+        }
+
+        settingsViewModel.testPrintAction = { uiCfg ->
+            val testCfg = PrinterConfig(
+                connectionType = try { PrinterConnectionType.valueOf(uiCfg.connectionType) } catch (e: Exception) { PrinterConnectionType.NONE },
+                osPrinterName = uiCfg.osPrinterName,
+                tcpHost = uiCfg.tcpHost,
+                tcpPort = uiCfg.tcpPort,
+                paperWidth = PaperWidth.fromString(uiCfg.paperWidth)
+            )
+            printerDispatcher.printTestReceipt(
+                storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" },
+                config = testCfg
+            )
+        }
+
+        settingsViewModel.testDrawerAction = { uiCfg ->
+            val testCfg = PrinterConfig(
+                connectionType = try { PrinterConnectionType.valueOf(uiCfg.connectionType) } catch (e: Exception) { PrinterConnectionType.NONE },
+                osPrinterName = uiCfg.osPrinterName,
+                tcpHost = uiCfg.tcpHost,
+                tcpPort = uiCfg.tcpPort
+            )
+            printerDispatcher.openCashDrawer(testCfg)
+        }
+
+        settingsViewModel.loadPrinterConfig()
+
+        // 2. Receipt formatting hook
         viewModel.receiptFormatter = { sale, isReprint ->
-            receiptPrinter.formatSaleReceiptText(sale, isReprint = isReprint)
+            val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
+            printer.formatSaleReceiptText(sale, isReprint = isReprint)
+        }
+
+        // 3. Sales auto-print and cash drawer hooks
+        viewModel.onSaleCompleted = { sale ->
+            CoroutineScope(Dispatchers.IO).launch {
+                if (printerConfig.autoPrintOnSale && printerConfig.connectionType != PrinterConnectionType.NONE) {
+                    printerDispatcher.printSaleReceipt(
+                        sale = sale,
+                        settings = null,
+                        config = printerConfig,
+                        isReprint = false
+                    )
+                }
+                val isCash = sale.payments.any { it.method == "CASH" }
+                if (isCash && printerConfig.openDrawerOnCashSale && printerConfig.connectionType != PrinterConnectionType.NONE) {
+                    printerDispatcher.openCashDrawer(printerConfig)
+                }
+            }
+        }
+
+        viewModel.onOpenCashDrawer = {
+            CoroutineScope(Dispatchers.IO).launch {
+                printerDispatcher.openCashDrawer(printerConfig)
+            }
+        }
+
+        viewModel.onPrintPhysicalReceipt = { sale ->
+            CoroutineScope(Dispatchers.IO).launch {
+                printerDispatcher.printSaleReceipt(
+                    sale = sale,
+                    settings = null,
+                    config = printerConfig,
+                    isReprint = true
+                )
+            }
         }
 
         authViewModel.onLoginSuccess = { user ->

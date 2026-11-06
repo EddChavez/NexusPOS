@@ -16,9 +16,14 @@ import java.time.format.DateTimeFormatter
  * Formats sale receipts, reprints, and cash cut summaries.
  */
 class EscPosReceiptPrinter(
-    private val columnWidth: Int = 42, // Standard 80mm = 42-48 cols, 58mm = 32 cols
+    val columnWidth: Int = 42, // Standard 80mm = 42-48 cols, 58mm = 32 cols
     private val charset: Charset = Charset.forName("CP437")
 ) {
+
+    constructor(paperWidth: PaperWidth, charset: Charset = Charset.forName("CP437")) : this(
+        columnWidth = paperWidth.columns,
+        charset = charset
+    )
 
     private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")
         .withZone(ZoneId.systemDefault())
@@ -33,6 +38,10 @@ class EscPosReceiptPrinter(
         val BOLD_ON = byteArrayOf(ESC, 0x45, 0x01)
         val BOLD_OFF = byteArrayOf(ESC, 0x45, 0x00)
         val CUT_PAPER = byteArrayOf(GS, 0x56, 0x41, 0x10) // GS V A 16 (Feed and cut)
+
+        // ESC/POS Cash Drawer pulse commands (Pin 2 and Pin 5)
+        val DRAWER_KICK_PIN2 = byteArrayOf(ESC, 0x70, 0x00, 0x19, 0xFA.toByte())
+        val DRAWER_KICK_PIN5 = byteArrayOf(ESC, 0x70, 0x01, 0x19, 0xFA.toByte())
     }
 
     private fun formatTimestamp(epochMs: Long): String {
@@ -178,13 +187,82 @@ class EscPosReceiptPrinter(
     /**
      * Converts formatted text to ESC/POS byte sequence.
      */
-    fun generateEscPosBytes(text: String): ByteArray {
+    fun generateEscPosBytes(
+        text: String,
+        cutPaper: Boolean = true,
+        openDrawer: Boolean = false
+    ): ByteArray {
         val out = ByteArrayOutputStream()
         out.write(INIT)
+        if (openDrawer) {
+            out.write(generateDrawerKickBytes())
+        }
         out.write(text.toByteArray(charset))
         out.write(byteArrayOf(ESC, 0x64, 0x03)) // feed 3 lines
-        out.write(CUT_PAPER)
+        if (cutPaper) {
+            out.write(CUT_PAPER)
+        }
         return out.toByteArray()
+    }
+
+    /**
+     * Generates cash drawer opening pulse bytes (compatible with RJ11 Pin 2 and Pin 5).
+     */
+    fun generateDrawerKickBytes(): ByteArray {
+        val out = ByteArrayOutputStream()
+        out.write(INIT)
+        out.write(DRAWER_KICK_PIN2)
+        out.write(DRAWER_KICK_PIN5)
+        return out.toByteArray()
+    }
+
+    /**
+     * Formats a test receipt to verify thermal printer communication and paper width.
+     */
+    fun generateTestReceiptText(
+        storeName: String = "NEXUS POS",
+        config: PrinterConfig? = null
+    ): String {
+        val sb = StringBuilder()
+        val sep = "=".repeat(columnWidth)
+        val thinSep = "-".repeat(columnWidth)
+
+        sb.appendLine(centerText(storeName))
+        sb.appendLine(centerText("*** PRUEBA DE IMPRESIÓN ***"))
+        sb.appendLine(sep)
+        sb.appendLine("Fecha: ${formatTimestamp(System.currentTimeMillis())}")
+        if (config != null) {
+            sb.appendLine("Tipo: ${config.connectionType.name}")
+            if (config.connectionType == PrinterConnectionType.USB_OS) {
+                sb.appendLine("Impresora: ${config.osPrinterName.ifBlank { "Predeterminada SO" }}")
+            } else if (config.connectionType == PrinterConnectionType.ETHERNET_TCP) {
+                sb.appendLine("IP / Red: ${config.tcpHost}:${config.tcpPort}")
+            }
+            sb.appendLine("Ancho: ${config.paperWidth.label}")
+        }
+        sb.appendLine(thinSep)
+        sb.appendLine(centerText("COMUNICACIÓN ESC/POS EXITOSA"))
+        sb.appendLine("Prueba de caracteres:")
+        sb.appendLine("1234567890 - ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        sb.appendLine("Simbolos: $ € £ ¥ # & @ % * + - /")
+        sb.appendLine(thinSep)
+        sb.appendLine(centerText("NexusPOS LAN-First Engine"))
+        sb.appendLine()
+        sb.appendLine()
+
+        return sb.toString()
+    }
+
+    /**
+     * Generates complete ESC/POS bytes for a test receipt.
+     */
+    fun generateTestReceiptBytes(
+        storeName: String = "NEXUS POS",
+        config: PrinterConfig? = null,
+        cutPaper: Boolean = true
+    ): ByteArray {
+        val text = generateTestReceiptText(storeName, config)
+        return generateEscPosBytes(text, cutPaper = cutPaper, openDrawer = false)
     }
 
     private fun centerText(text: String): String {

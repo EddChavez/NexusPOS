@@ -260,7 +260,14 @@ fun SalesScreen(
             TicketReceiptPreviewDialog(
                 receiptText = receiptText,
                 onDismiss = { viewModel.closeReprintPreview() },
-                onPrintPhysical = { viewModel.closeReprintPreview() }
+                onPrintPhysical = {
+                    val saleToPrint = state.selectedShiftSale ?: state.lastCompletedSale
+                    if (saleToPrint != null) {
+                        viewModel.printPhysicalTicket(saleToPrint)
+                    } else {
+                        viewModel.closeReprintPreview()
+                    }
+                }
             )
         }
     }
