@@ -112,6 +112,10 @@ fun SupervisorAuthDialog(
                         "Ajuste Manual de Inventario",
                         "Producto: ${target.product.name} (Stock: ${(target.product.currentStockMillis / 1000.0)})"
                     )
+                    is SupervisorAction.CancelSale -> Pair(
+                        "Cancelación de Venta Folio #${target.folio}",
+                        "Motivo: ${target.reason}. Esta acción revertirá inventario, caja y crédito de forma atómica."
+                    )
                     null -> Pair("Acción Protegida", "Requiere PIN de Encargado o Administrador.")
                 }
 

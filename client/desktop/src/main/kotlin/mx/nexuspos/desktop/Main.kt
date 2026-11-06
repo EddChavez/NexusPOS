@@ -45,6 +45,7 @@ import mx.nexuspos.client.features.header.TopHeaderUiState
 import mx.nexuspos.client.features.sales.SalesScreen
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.client.theme.NexusTheme
+import mx.nexuspos.desktop.hardware.EscPosReceiptPrinter
 import mx.nexuspos.desktop.hardware.KeyboardWedgeBarcodeInput
 
 fun main() = application {
@@ -58,12 +59,17 @@ fun main() = application {
     val salesState by viewModel.uiState.collectAsState()
     val authState by authViewModel.uiState.collectAsState()
     val supervisorState by authViewModel.supervisorState.collectAsState()
+    val receiptPrinter = remember { EscPosReceiptPrinter() }
 
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
     var scaleReading by remember { mutableStateOf(ScaleReading("0.000 kg", ScaleStatus.STABLE)) }
 
-    // Wire auth callbacks
+    // Wire auth and printer callbacks
     LaunchedEffect(Unit) {
+        viewModel.receiptFormatter = { sale, isReprint ->
+            receiptPrinter.formatSaleReceiptText(sale, isReprint = isReprint)
+        }
+
         authViewModel.onLoginSuccess = { user ->
             viewModel.setActiveCashier(
                 userId = user.userId,
@@ -79,6 +85,9 @@ fun main() = application {
                 }
                 is SupervisorAction.AdjustInventory -> {
                     inventoryViewModel.openMovementDialog(action.product)
+                }
+                is SupervisorAction.CancelSale -> {
+                    viewModel.executeCancelSale(action.saleId, action.reason, supervisorUserId = "usr-admin")
                 }
             }
         }
@@ -238,6 +247,13 @@ fun main() = application {
                         } else false
                     }
 
+                    Key.H -> {
+                        if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
+                            viewModel.openDailySalesAndReturns()
+                            true
+                        } else false
+                    }
+
                     Key.F10 -> {
                         if (activeModule == AppModule.SALES) {
                             viewModel.showSearchCatalogDialog(true)
@@ -296,7 +312,10 @@ fun main() = application {
                                 salesState.isShowingCommonArticlesDialog ||
                                 salesState.isShowingCashInDialog ||
                                 salesState.isShowingCashOutDialog ||
-                                salesState.isShowingSearchCatalogDialog
+                                salesState.isShowingSearchCatalogDialog ||
+                                salesState.isShowingSalesHistory ||
+                                salesState.isShowingCancelReasonDialog ||
+                                salesState.reprintTicketPreview != null
 
                         if (hasOpenDialogs) {
                             viewModel.showCashPaymentDialog(false)
@@ -308,6 +327,9 @@ fun main() = application {
                             viewModel.showCashInDialog(false)
                             viewModel.showCashOutDialog(false)
                             viewModel.showSearchCatalogDialog(false)
+                            viewModel.closeSalesHistoryDialog()
+                            viewModel.dismissCancelReasonDialog()
+                            viewModel.closeReprintPreview()
                             true
                         } else if (inventoryViewModel.uiState.value.showMovementDialog) {
                             inventoryViewModel.closeMovementDialog()
@@ -385,7 +407,18 @@ fun main() = application {
                     ) {
                         when (activeModule) {
                             AppModule.SALES, AppModule.CASH_CUT -> {
-                                SalesScreen(viewModel = viewModel)
+                                SalesScreen(
+                                    viewModel = viewModel,
+                                    onRequestCancelSale = { sale, reason ->
+                                        if (salesState.activeCashierRole == "CASHIER") {
+                                            authViewModel.requestSupervisorElevation(
+                                                SupervisorAction.CancelSale(sale.id, sale.folio, reason)
+                                            )
+                                        } else {
+                                            viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
+                                        }
+                                    }
+                                )
                             }
                             AppModule.CUSTOMERS -> {
                                 CustomersScreen(

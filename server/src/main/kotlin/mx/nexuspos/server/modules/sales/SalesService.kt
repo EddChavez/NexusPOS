@@ -648,13 +648,186 @@ class SalesService(
                 custSelectStmt.close()
             }
 
-            // 3. Update Sale Status
+            // 3. Revert cash from session if cash was paid
+            val cashPaidCents = sale.payments.filter { it.method == "CASH" }.sumOf { it.amountCents }
+            if (cashPaidCents > 0L) {
+                val updateCashStmt = conn.prepareStatement(
+                    "UPDATE cash_sessions SET expected_cash_cents = expected_cash_cents - ? WHERE id = ?"
+                )
+                updateCashStmt.setLong(1, cashPaidCents)
+                updateCashStmt.setString(2, sale.cashSessionId)
+                updateCashStmt.executeUpdate()
+                updateCashStmt.close()
+            }
+
+            // 4. Update Sale Status
             val updateSaleStmt = conn.prepareStatement("UPDATE sales SET status = 'CANCELLED' WHERE id = ?")
             updateSaleStmt.setString(1, saleId)
             updateSaleStmt.executeUpdate()
             updateSaleStmt.close()
 
             sale.copy(status = "CANCELLED")
+        }
+    }
+
+    fun getSales(
+        sessionId: String? = null,
+        startDate: Long? = null,
+        endDate: Long? = null,
+        folio: Long? = null,
+        status: String? = null,
+        limit: Int = 100
+    ): List<SaleResponse> {
+        return db.inTransaction { conn ->
+            val sql = StringBuilder(
+                """
+                SELECT s.id, s.folio, s.cash_session_id, s.user_id, u.name as cashier_name,
+                       s.customer_id, c.name as customer_name, c.credit_limit_cents, c.current_balance_cents,
+                       s.status, s.subtotal_cents, s.tax_cents, s.total_cents, s.created_at
+                FROM sales s
+                JOIN users u ON s.user_id = u.id
+                LEFT JOIN customers c ON s.customer_id = c.id
+                WHERE 1=1
+                """.trimIndent()
+            )
+
+            val params = mutableListOf<Any>()
+            if (!sessionId.isNullOrBlank()) {
+                sql.append(" AND s.cash_session_id = ?")
+                params.add(sessionId)
+            }
+            if (folio != null) {
+                sql.append(" AND s.folio = ?")
+                params.add(folio)
+            }
+            if (!status.isNullOrBlank()) {
+                sql.append(" AND s.status = ?")
+                params.add(status.uppercase())
+            }
+            if (startDate != null) {
+                sql.append(" AND s.created_at >= ?")
+                params.add(startDate)
+            }
+            if (endDate != null) {
+                sql.append(" AND s.created_at <= ?")
+                params.add(endDate)
+            }
+
+            sql.append(" ORDER BY s.created_at DESC LIMIT ?")
+            params.add(limit.coerceIn(1, 500))
+
+            val stmt = conn.prepareStatement(sql.toString())
+            for ((index, param) in params.withIndex()) {
+                when (param) {
+                    is String -> stmt.setString(index + 1, param)
+                    is Long -> stmt.setLong(index + 1, param)
+                    is Int -> stmt.setInt(index + 1, param)
+                }
+            }
+
+            val rs = stmt.executeQuery()
+            data class SaleHeader(
+                val id: String,
+                val folio: Long,
+                val sessionId: String,
+                val cashierName: String,
+                val customerName: String?,
+                val remainingCredit: Long?,
+                val status: String,
+                val subtotal: Long,
+                val tax: Long,
+                val total: Long,
+                val createdAt: Long
+            )
+
+            val headers = mutableListOf<SaleHeader>()
+            while (rs.next()) {
+                val customerName = rs.getString("customer_name")
+                val limitCredit = rs.getLong("credit_limit_cents")
+                val balanceCredit = rs.getLong("current_balance_cents")
+                val remCredit = if (customerName != null) (limitCredit - balanceCredit).coerceAtLeast(0L) else null
+
+                headers.add(
+                    SaleHeader(
+                        id = rs.getString("id"),
+                        folio = rs.getLong("folio"),
+                        sessionId = rs.getString("cash_session_id"),
+                        cashierName = rs.getString("cashier_name"),
+                        customerName = customerName,
+                        remainingCredit = remCredit,
+                        status = rs.getString("status"),
+                        subtotal = rs.getLong("subtotal_cents"),
+                        tax = rs.getLong("tax_cents"),
+                        total = rs.getLong("total_cents"),
+                        createdAt = rs.getLong("created_at")
+                    )
+                )
+            }
+            rs.close()
+            stmt.close()
+
+            headers.map { h ->
+                val lineStmt = conn.prepareStatement(
+                    "SELECT id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents FROM sale_lines WHERE sale_id = ?"
+                )
+                lineStmt.setString(1, h.id)
+                val lineRs = lineStmt.executeQuery()
+                val lines = mutableListOf<SaleLineItemResponse>()
+                while (lineRs.next()) {
+                    lines.add(
+                        SaleLineItemResponse(
+                            id = lineRs.getString("id"),
+                            productId = lineRs.getString("product_id"),
+                            presentationId = lineRs.getString("presentation_id"),
+                            description = lineRs.getString("description"),
+                            quantityMillis = lineRs.getLong("quantity_millis"),
+                            unitPriceCents = lineRs.getLong("unit_price_cents"),
+                            taxRate = lineRs.getDouble("tax_rate"),
+                            taxCents = lineRs.getLong("tax_cents"),
+                            totalCents = lineRs.getLong("total_cents")
+                        )
+                    )
+                }
+                lineRs.close()
+                lineStmt.close()
+
+                val payStmt = conn.prepareStatement(
+                    "SELECT id, method, amount_cents, received_cents, change_cents, reference FROM sale_payments WHERE sale_id = ?"
+                )
+                payStmt.setString(1, h.id)
+                val payRs = payStmt.executeQuery()
+                val payments = mutableListOf<SalePaymentResponse>()
+                while (payRs.next()) {
+                    payments.add(
+                        SalePaymentResponse(
+                            id = payRs.getString("id"),
+                            method = payRs.getString("method"),
+                            amountCents = payRs.getLong("amount_cents"),
+                            receivedCents = payRs.getLong("received_cents"),
+                            changeCents = payRs.getLong("change_cents"),
+                            reference = payRs.getString("reference")
+                        )
+                    )
+                }
+                payRs.close()
+                payStmt.close()
+
+                SaleResponse(
+                    id = h.id,
+                    folio = h.folio,
+                    cashSessionId = h.sessionId,
+                    cashierName = h.cashierName,
+                    customerName = h.customerName,
+                    customerRemainingCreditCents = h.remainingCredit,
+                    status = h.status,
+                    subtotalCents = h.subtotal,
+                    taxCents = h.tax,
+                    totalCents = h.total,
+                    lines = lines,
+                    payments = payments,
+                    createdAt = h.createdAt
+                )
+            }
         }
     }
 }

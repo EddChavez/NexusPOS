@@ -23,11 +23,13 @@ import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.cash.CashSessionDialog
 import mx.nexuspos.client.features.credit.CustomerSelectionDialog
 import mx.nexuspos.client.ui.components.FeedbackMessageHost
+import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.core.ProductUnit
 
 @Composable
 fun SalesScreen(
     viewModel: SalesViewModel = remember { SalesViewModel() },
+    onRequestCancelSale: ((sale: SaleResponse, reason: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -217,6 +219,48 @@ fun SalesScreen(
                         Text("Entendido [Enter]")
                     }
                 }
+            )
+        }
+
+        if (state.isShowingSalesHistory) {
+            SalesHistoryDialog(
+                sales = state.shiftSales,
+                selectedSale = state.selectedShiftSale,
+                isLoading = state.isLoadingShiftSales,
+                searchFolio = state.salesHistorySearchFolio,
+                statusFilter = state.salesHistoryStatusFilter,
+                cashSessionId = state.activeSession?.sessionId,
+                onSearchFolioChanged = { viewModel.onSalesSearchFolioChanged(it) },
+                onStatusFilterChanged = { viewModel.onSalesStatusFilterChanged(it) },
+                onSelectSale = { viewModel.selectShiftSale(it) },
+                onReload = { viewModel.loadShiftSales() },
+                onReprintTicket = { viewModel.reprintTicket(it) },
+                onCancelSale = { viewModel.startCancelSaleFlow(it) },
+                onDismiss = { viewModel.closeSalesHistoryDialog() }
+            )
+        }
+
+        state.salePendingCancel?.let { sale ->
+            if (state.isShowingCancelReasonDialog) {
+                CancelSaleReasonDialog(
+                    sale = sale,
+                    onConfirm = { reason ->
+                        if (onRequestCancelSale != null) {
+                            onRequestCancelSale(sale, reason)
+                        } else {
+                            viewModel.executeCancelSale(sale.id, reason)
+                        }
+                    },
+                    onDismiss = { viewModel.dismissCancelReasonDialog() }
+                )
+            }
+        }
+
+        state.reprintTicketPreview?.let { receiptText ->
+            TicketReceiptPreviewDialog(
+                receiptText = receiptText,
+                onDismiss = { viewModel.closeReprintPreview() },
+                onPrintPhysical = { viewModel.closeReprintPreview() }
             )
         }
     }

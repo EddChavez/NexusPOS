@@ -162,6 +162,7 @@ class AuthViewModel(
         val actionName = when (target) {
             is SupervisorAction.AccessSettings -> "SETTINGS"
             is SupervisorAction.AdjustInventory -> "ADJUST_INVENTORY"
+            is SupervisorAction.CancelSale -> "CANCEL_SALE"
         }
 
         scope.launch {

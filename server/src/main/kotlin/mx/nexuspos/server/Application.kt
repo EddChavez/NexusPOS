@@ -446,6 +446,24 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             }
 
             // Sales
+            get("/sales") {
+                val sessionId = call.request.queryParameters["sessionId"]
+                val folio = call.request.queryParameters["folio"]?.toLongOrNull()
+                val status = call.request.queryParameters["status"]
+                val startDate = call.request.queryParameters["startDate"]?.toLongOrNull()
+                val endDate = call.request.queryParameters["endDate"]?.toLongOrNull()
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
+                val sales = salesService.getSales(
+                    sessionId = sessionId,
+                    startDate = startDate,
+                    endDate = endDate,
+                    folio = folio,
+                    status = status,
+                    limit = limit
+                )
+                call.respond(sales)
+            }
+
             post("/sales") {
                 val req = call.receive<CreateSaleRequest>()
                 val sale = salesService.completeSale(req)

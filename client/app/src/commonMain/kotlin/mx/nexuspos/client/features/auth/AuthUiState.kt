@@ -14,6 +14,7 @@ data class AuthUiState(
 sealed interface SupervisorAction {
     data object AccessSettings : SupervisorAction
     data class AdjustInventory(val product: ProductDto) : SupervisorAction
+    data class CancelSale(val saleId: String, val folio: Long, val reason: String) : SupervisorAction
 }
 
 data class SupervisorAuthState(

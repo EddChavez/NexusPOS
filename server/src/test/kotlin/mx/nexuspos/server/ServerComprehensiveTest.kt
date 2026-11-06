@@ -17,6 +17,7 @@ import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.LoginResponse
+import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.SaleLineItemRequest
 import mx.nexuspos.contracts.sales.SalePaymentRequest
@@ -359,5 +360,86 @@ class ServerComprehensiveTest {
         }
         // Should be rejected with 422 Unprocessable Entity
         assertEquals(HttpStatusCode.UnprocessableEntity, excessiveSaleRes.status)
+    }
+
+    @Test
+    fun testSalesHistoryAndCancellationFlow() = testApplication {
+        val testDb = createTestDb()
+        application {
+            nexusModule(testDb)
+        }
+        val client = createClient {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+        }
+
+        // 1. Open Session with $100 fund
+        val session = client.post("/api/v1/cash-sessions") {
+            contentType(ContentType.Application.Json)
+            setBody(OpenSessionRequest(registerId = "caja-1", userId = "usr-cajero", initialFundCents = 10000L))
+        }.body<CashSessionSummary>()
+
+        // 2. Fetch Coca-Cola presentation
+        val prods = client.get("/api/v1/products?barcode=7501055300078").body<List<ProductDto>>()
+        val prod = prods.first()
+        val pres = prod.presentations.first()
+
+        // 3. Complete sale ($37.00 cash)
+        val sale = client.post("/api/v1/sales") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                CreateSaleRequest(
+                    idempotencyKey = UUID.randomUUID().toString(),
+                    cashSessionId = session.sessionId,
+                    cashierUserId = "usr-cajero",
+                    lines = listOf(
+                        SaleLineItemRequest(
+                            productId = prod.id,
+                            presentationId = pres.id,
+                            description = pres.name,
+                            quantityMillis = 2000L,
+                            expectedUnitPriceCents = 1850L,
+                            expectedTotalCents = 3700L
+                        )
+                    ),
+                    payments = listOf(SalePaymentRequest(method = "CASH", amountCents = 3700L)),
+                    expectedTotalCents = 3700L
+                )
+            )
+        }.body<SaleResponse>()
+
+        assertEquals("COMPLETED", sale.status)
+
+        // 4. Query GET /api/v1/sales by sessionId
+        val sessionSales = client.get("/api/v1/sales?sessionId=${session.sessionId}").body<List<SaleResponse>>()
+        assertEquals(1, sessionSales.size)
+        assertEquals(sale.id, sessionSales.first().id)
+        assertEquals(sale.folio, sessionSales.first().folio)
+        assertEquals(1, sessionSales.first().lines.size)
+
+        // 5. Query GET /api/v1/sales by folio
+        val folioSales = client.get("/api/v1/sales?folio=${sale.folio}").body<List<SaleResponse>>()
+        assertEquals(1, folioSales.size)
+        assertEquals(sale.folio, folioSales.first().folio)
+
+        // 6. Cancel the sale via POST /api/v1/sales/{id}/cancel
+        val cancelRes = client.post("/api/v1/sales/${sale.id}/cancel") {
+            contentType(ContentType.Application.Json)
+            setBody(CancelSaleRequest(reason = "Error de captura de cajero", authorizedByUserId = "usr-admin"))
+        }
+        assertEquals(HttpStatusCode.OK, cancelRes.status)
+        val cancelledSale = cancelRes.body<SaleResponse>()
+        assertEquals("CANCELLED", cancelledSale.status)
+
+        // 7. Verify GET /api/v1/sales?status=CANCELLED
+        val cancelledList = client.get("/api/v1/sales?sessionId=${session.sessionId}&status=CANCELLED").body<List<SaleResponse>>()
+        assertEquals(1, cancelledList.size)
+        assertEquals("CANCELLED", cancelledList.first().status)
+
+        // 8. Verify cash session expected cash reverted
+        val summary = client.get("/api/v1/cash-sessions/${session.sessionId}/summary").body<CashSessionSummary>()
+        assertEquals(0L, summary.salesCashCents, "Las ventas en efectivo deben descontar la venta cancelada")
+        assertEquals(10000L, summary.expectedCashCents, "El efectivo esperado debe regresar al fondo inicial de $100.00")
     }
 }

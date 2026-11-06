@@ -34,6 +34,7 @@ import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.inventory.StockMovementDto
+import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
@@ -311,7 +312,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> {
+    open suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> {
         return try {
             val res = http.get("$baseUrl/api/v1/cash-sessions/current") {
                 parameter("registerId", registerId)
@@ -478,6 +479,65 @@ open class ApiClient(
             val res = http.post("$baseUrl/api/v1/sales") {
                 contentType(ContentType.Application.Json)
                 setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getSales(
+        sessionId: String? = null,
+        folio: Long? = null,
+        status: String? = null,
+        startDate: Long? = null,
+        endDate: Long? = null,
+        limit: Int = 100
+    ): Result<List<SaleResponse>> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/sales") {
+                if (!sessionId.isNullOrBlank()) parameter("sessionId", sessionId)
+                if (folio != null) parameter("folio", folio)
+                if (!status.isNullOrBlank()) parameter("status", status)
+                if (startDate != null) parameter("startDate", startDate)
+                if (endDate != null) parameter("endDate", endDate)
+                parameter("limit", limit)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getSale(id: String): Result<SaleResponse> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/sales/$id")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun cancelSale(id: String, reason: String, authorizedByUserId: String? = null): Result<SaleResponse> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/sales/$id/cancel") {
+                contentType(ContentType.Application.Json)
+                setBody(CancelSaleRequest(reason = reason, authorizedByUserId = authorizedByUserId))
             }
             if (res.status.isSuccess()) {
                 Result.success(res.body())

@@ -17,6 +17,7 @@ import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.SaleLineItemRequest
 import mx.nexuspos.contracts.sales.SalePaymentRequest
+import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.PricingRules
 import mx.nexuspos.core.ProductUnit
@@ -313,6 +314,8 @@ class SalesViewModel(
         _uiState.update { it.copy(successMessage = "Ticket anterior puesto en espera. Nuevo ticket listo.") }
     }
 
+    var receiptFormatter: ((SaleResponse, Boolean) -> String)? = null
+
     fun openCashDrawer() {
         _uiState.update { it.copy(successMessage = "Comando de apertura enviado al cajón de dinero.") }
     }
@@ -320,14 +323,142 @@ class SalesViewModel(
     fun reprintLastTicket() {
         val lastSale = _uiState.value.lastCompletedSale
         if (lastSale != null) {
-            _uiState.update { it.copy(successMessage = "Reimprimiendo ticket #${lastSale.folio}...") }
+            reprintTicket(lastSale)
         } else {
             _uiState.update { it.copy(errorMessage = "No hay ninguna venta completada recientemente para reimprimir.") }
         }
     }
 
     fun openDailySalesAndReturns() {
-        _uiState.update { it.copy(successMessage = "Consultando registro de ventas y devoluciones del turno...") }
+        _uiState.update { it.copy(isShowingSalesHistory = true) }
+        loadShiftSales()
+    }
+
+    fun closeSalesHistoryDialog() {
+        _uiState.update { it.copy(isShowingSalesHistory = false, selectedShiftSale = null) }
+    }
+
+    fun loadShiftSales(sessionId: String? = _uiState.value.activeSession?.sessionId) {
+        _uiState.update { it.copy(isLoadingShiftSales = true) }
+        scope.launch {
+            val res = apiClient.getSales(sessionId = sessionId, limit = 200)
+            res.onSuccess { sales ->
+                _uiState.update {
+                    it.copy(
+                        shiftSales = sales,
+                        selectedShiftSale = it.selectedShiftSale?.let { sel -> sales.firstOrNull { s -> s.id == sel.id } } ?: sales.firstOrNull(),
+                        isLoadingShiftSales = false
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingShiftSales = false,
+                        errorMessage = "Error al cargar ventas del turno: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun selectShiftSale(sale: SaleResponse?) {
+        _uiState.update { it.copy(selectedShiftSale = sale) }
+    }
+
+    fun onSalesSearchFolioChanged(query: String) {
+        _uiState.update { it.copy(salesHistorySearchFolio = query) }
+    }
+
+    fun onSalesStatusFilterChanged(status: String?) {
+        _uiState.update { it.copy(salesHistoryStatusFilter = status) }
+    }
+
+    fun reprintTicket(sale: SaleResponse) {
+        val formatted = receiptFormatter?.invoke(sale, true) ?: defaultFormatReceipt(sale, true)
+        _uiState.update {
+            it.copy(
+                reprintTicketPreview = formatted,
+                successMessage = "Ticket #${sale.folio} listo para reimpresión (*** COPIA DE REIMPRESIÓN ***)"
+            )
+        }
+    }
+
+    fun closeReprintPreview() {
+        _uiState.update { it.copy(reprintTicketPreview = null) }
+    }
+
+    fun startCancelSaleFlow(sale: SaleResponse) {
+        if (sale.status == "CANCELLED") {
+            _uiState.update { it.copy(errorMessage = "El ticket #${sale.folio} ya se encuentra cancelado.") }
+            return
+        }
+        _uiState.update { it.copy(isShowingCancelReasonDialog = true, salePendingCancel = sale) }
+    }
+
+    fun dismissCancelReasonDialog() {
+        _uiState.update { it.copy(isShowingCancelReasonDialog = false, salePendingCancel = null) }
+    }
+
+    fun executeCancelSale(saleId: String, reason: String, supervisorUserId: String? = null) {
+        scope.launch {
+            val res = apiClient.cancelSale(saleId, reason, supervisorUserId)
+            res.onSuccess { cancelledSale ->
+                _uiState.update { state ->
+                    val updatedList = state.shiftSales.map { if (it.id == cancelledSale.id) cancelledSale else it }
+                    state.copy(
+                        shiftSales = updatedList,
+                        selectedShiftSale = if (state.selectedShiftSale?.id == cancelledSale.id) cancelledSale else state.selectedShiftSale,
+                        isShowingCancelReasonDialog = false,
+                        salePendingCancel = null,
+                        successMessage = "Venta #${cancelledSale.folio} cancelada exitosamente. Stock y caja revertidos."
+                    )
+                }
+                loadActiveSession()
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isShowingCancelReasonDialog = false,
+                        errorMessage = "Error al cancelar la venta: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun defaultFormatReceipt(sale: SaleResponse, isReprint: Boolean = false): String {
+        val sb = StringBuilder()
+        val sep = "=".repeat(40)
+        val thinSep = "-".repeat(40)
+        sb.appendLine("           NEXUS POS           ")
+        sb.appendLine("     Abarrotes & Miscelánea    ")
+        sb.appendLine(sep)
+        if (isReprint) {
+            sb.appendLine("   *** COPIA DE REIMPRESIÓN ***   ")
+            sb.appendLine(thinSep)
+        }
+        sb.appendLine("Folio: #${sale.folio}")
+        sb.appendLine("Cajero: ${sale.cashierName}")
+        if (sale.customerName != null) {
+            sb.appendLine("Cliente: ${sale.customerName}")
+        }
+        sb.appendLine("Estatus: ${sale.status}")
+        sb.appendLine(thinSep)
+        for (line in sale.lines) {
+            val qty = (line.quantityMillis / 1000.0).toString().removeSuffix(".0")
+            sb.appendLine("$qty x ${line.description}")
+            sb.appendLine("         ${Money(line.totalCents).format()}")
+        }
+        sb.appendLine(sep)
+        sb.appendLine("SUBTOTAL: ${Money(sale.subtotalCents).format()}")
+        sb.appendLine("IVA:      ${Money(sale.taxCents).format()}")
+        sb.appendLine("TOTAL:    ${Money(sale.totalCents).format()}")
+        sb.appendLine(thinSep)
+        for (p in sale.payments) {
+            sb.appendLine("Pago (${p.method}): ${Money(p.amountCents).format()}")
+        }
+        sb.appendLine(sep)
+        sb.appendLine("     ¡Gracias por su compra!    ")
+        return sb.toString()
     }
 
     fun closeTicket(ticketId: String) {
