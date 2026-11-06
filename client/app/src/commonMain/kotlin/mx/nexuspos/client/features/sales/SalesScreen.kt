@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.cash.CashSessionDialog
 import mx.nexuspos.client.features.credit.CustomerSelectionDialog
+import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.core.ProductUnit
 
 @Composable
@@ -70,43 +71,12 @@ fun SalesScreen(
             )
 
             // Alerts / Messages
-            state.errorMessage?.let { msg ->
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(msg, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { viewModel.clearMessages() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = MaterialTheme.colorScheme.onErrorContainer)
-                        }
-                    }
-                }
-            }
-
-            state.successMessage?.let { msg ->
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(msg, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { viewModel.clearMessages() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                        }
-                    }
-                }
-            }
+            FeedbackMessageHost(
+                errorMessage = state.errorMessage,
+                successMessage = state.successMessage,
+                onDismissError = viewModel::clearMessages,
+                onDismissSuccess = viewModel::clearMessages
+            )
 
             // Parrilla de Productos en Venta (Data Grid Central - Scroll Independiente con LazyColumn)
             CartGrid(

@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.theme.NexusTheme
+import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.identity.UserDto
 
 @Composable
@@ -61,57 +62,13 @@ fun SettingsScreen(
             onBackToSales = onBackToSales
         )
 
-        // Banners
-        if (state.errorBanner != null) {
-            Surface(
-                color = NexusTheme.colors.dangerBg,
-                border = BorderStroke(1.dp, NexusTheme.colors.dangerBorder),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = state.errorBanner ?: "",
-                        color = NexusTheme.colors.dangerText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = viewModel::clearBanners, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = NexusTheme.colors.dangerText)
-                    }
-                }
-            }
-        }
-
-        if (state.successBanner != null) {
-            Surface(
-                color = NexusTheme.colors.surfaceGreen,
-                border = BorderStroke(1.dp, NexusTheme.colors.borderGreen),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = state.successBanner ?: "",
-                        color = NexusTheme.colors.textGreen,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = viewModel::clearBanners, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = NexusTheme.colors.textGreen)
-                    }
-                }
-            }
-        }
+        // Banners de notificación unificados
+        FeedbackMessageHost(
+            errorMessage = state.errorBanner,
+            successMessage = state.successBanner,
+            onDismissError = viewModel::clearBanners,
+            onDismissSuccess = viewModel::clearBanners
+        )
 
         // Tab content
         Surface(

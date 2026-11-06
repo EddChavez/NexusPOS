@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.theme.NexusTheme
+import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.credit.CreditMovementDto
 import mx.nexuspos.contracts.credit.CustomerDto
 import java.text.SimpleDateFormat
@@ -74,55 +75,13 @@ fun CustomersScreen(
             onBackToSales = onBackToSales
         )
 
-        // Banners de éxito / error
-        if (state.errorMessage != null) {
-            Surface(
-                color = NexusTheme.colors.dangerBg,
-                border = BorderStroke(1.dp, NexusTheme.colors.dangerBorder),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = state.errorMessage ?: "",
-                        color = NexusTheme.colors.dangerText,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    IconButton(onClick = { viewModel.dismissMessages() }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = NexusTheme.colors.dangerText)
-                    }
-                }
-            }
-        }
-
-        if (state.successMessage != null) {
-            Surface(
-                color = NexusTheme.colors.surfaceGreen,
-                border = BorderStroke(1.dp, NexusTheme.colors.borderGreen),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = state.successMessage ?: "",
-                        color = NexusTheme.colors.textGreen,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
-                    )
-                    IconButton(onClick = { viewModel.dismissMessages() }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = NexusTheme.colors.textGreen)
-                    }
-                }
-            }
-        }
+        // Banners de notificación unificados
+        FeedbackMessageHost(
+            errorMessage = state.errorMessage,
+            successMessage = state.successMessage,
+            onDismissError = viewModel::dismissMessages,
+            onDismissSuccess = viewModel::dismissMessages
+        )
 
         // MAIN SPLIT CONTENT
         Row(
