@@ -90,24 +90,75 @@ Elevación temporal de privilegios para autorizar acciones sensibles en caja.
 
 ---
 
-### C. Catálogo de Productos y Búsqueda
+### C. Catálogo de Productos y Departamentos
 
-#### `GET /api/v1/catalog/search?q={query}`
-Búsqueda ultrarrápida por código de barras exacto o texto parcial en nombre.
+#### `GET /api/v1/departments`
+Lista todos los departamentos y categorías registrados en la tienda.
+- **Respuesta 200 OK:**
+  ```json
+  [
+    {
+      "id": "dept-1",
+      "name": "Abarrotes"
+    },
+    {
+      "id": "dept-2",
+      "name": "Bebidas y Refrescos"
+    }
+  ]
+  ```
+
+#### `POST /api/v1/departments`
+Crea un nuevo departamento.
+- **Cuerpo de Solicitud:**
+  ```json
+  {
+    "name": "Lácteos y Quesos"
+  }
+  ```
+- **Respuesta 201 Created:** `{"id": "dept-3", "name": "Lácteos y Quesos"}`
+
+#### `PUT /api/v1/departments/{id}`
+Modifica el nombre de un departamento existente.
+- **Cuerpo de Solicitud:**
+  ```json
+  {
+    "name": "Lácteos, Embutidos y Salchichonería"
+  }
+  ```
+
+#### `DELETE /api/v1/departments/{id}`
+Elimina un departamento. Los productos vinculados se reasignan automáticamente al departamento general (`null`).
+- **Respuesta 200 OK:** `{"status": "deleted", "id": "dept-3"}`
+
+#### `GET /api/v1/products`
+Búsqueda y listado de productos con soporte para filtros por texto, código de barras, departamento e inclusión de inactivos.
+- **Query Params:**
+  - `barcode`: Código de barras exacto.
+  - `query`: Texto de búsqueda en nombre.
+  - `departmentId`: Identificador del departamento.
+  - `includeInactive`: `true` para incluir productos descontinuados o dados de baja.
 - **Respuesta 200 OK:**
   ```json
   [
     {
       "id": "prod-coca-600",
+      "sku": "SKU-COCA600",
       "name": "Coca-Cola Original 600ml",
-      "unit": "PIECE",
+      "departmentId": "dept-2",
+      "baseUnit": "PZA",
+      "costCents": 1400,
       "taxRate": 0.16,
+      "usesInventory": true,
+      "minStockMillis": 10000,
+      "maxStockMillis": 50000,
+      "isActive": true,
       "stockMillis": 24000,
       "presentations": [
         {
           "id": "pres-coca-600",
           "barcode": "7501055310884",
-          "name": "Coca-Cola 600ml PZA",
+          "name": "Pieza",
           "priceCents": 1900,
           "factorMillis": 1000
         }
@@ -115,6 +166,48 @@ Búsqueda ultrarrápida por código de barras exacto o texto parcial en nombre.
     }
   ]
   ```
+
+#### `GET /api/v1/products/{id}`
+Obtiene el detalle completo de un producto por su identificador único.
+
+#### `POST /api/v1/products`
+Crea un nuevo producto en el catálogo. Si el SKU se envía vacío, el servidor genera uno único automáticamente.
+- **Cuerpo de Solicitud:**
+  ```json
+  {
+    "sku": "",
+    "name": "Sabritas Sal 45g",
+    "departmentId": "dept-1",
+    "baseUnit": "PZA",
+    "costCents": 1200,
+    "taxRate": 0.08,
+    "usesInventory": true,
+    "minStockMillis": 5000,
+    "maxStockMillis": 30000,
+    "isActive": true,
+    "presentations": [
+      {
+        "barcode": "7501011115555",
+        "name": "Bolsa 45g",
+        "factorMillis": 1000,
+        "priceCents": 1800
+      }
+    ]
+  }
+  ```
+- **Respuesta 201 Created:** Objeto `ProductDto` con SKU generado (ej. `"SKU-8F2B1C"`).
+
+#### `PUT /api/v1/products/{id}`
+Actualiza los datos maestros y presentaciones de un producto.
+- **Cuerpo de Solicitud:** Objeto `UpdateProductRequest`.
+
+#### `DELETE /api/v1/products/{id}`
+Realiza la desactivación lógica (*soft-delete*) de un producto, marcando `isActive = false`.
+- **Respuesta 200 OK:** Objeto `ProductDto` actualizado con `isActive: false`.
+
+#### `POST /api/v1/products/{id}/reactivate`
+Reactiva un producto previamente desactivado, habilitando su venta nuevamente.
+- **Respuesta 200 OK:** Objeto `ProductDto` actualizado con `isActive: true`.
 
 ---
 
@@ -244,17 +337,102 @@ Registra un abono en efectivo a la cuenta de crédito.
 
 ---
 
+### G. Inventario, Kardex y Ajustes
+
+#### `GET /api/v1/inventory/summary`
+Retorna el resumen consolidado de existencias, productos con bajo stock y valuación monetaria global al costo y a precio de venta.
+- **Respuesta 200 OK:**
+  ```json
+  {
+    "totalProducts": 142,
+    "lowStockCount": 8,
+    "totalValuationCostCents": 18542000,
+    "totalValuationSaleCents": 26895000,
+    "items": [
+      {
+        "id": "prod-coca-600",
+        "sku": "SKU-COCA600",
+        "name": "Coca-Cola Original 600ml",
+        "departmentId": "dept-2",
+        "departmentName": "Bebidas",
+        "baseUnit": "PZA",
+        "costCents": 1400,
+        "priceCents": 1900,
+        "stockMillis": 24000,
+        "minStockMillis": 10000,
+        "maxStockMillis": 50000,
+        "isLowStock": false
+      }
+    ]
+  }
+  ```
+
+#### `GET /api/v1/inventory/movements`
+Obtiene el historial de auditoría de movimientos del Kardex con soporte para filtros por producto, tipo de movimiento y límite de registros.
+- **Query Params:**
+  - `productId`: Filtra los movimientos de un artículo específico.
+  - `type`: `PURCHASE`, `SALE`, `ADJUSTMENT` o `RETURN`.
+  - `limit`: Cantidad máxima de registros a devolver (por defecto `100`).
+- **Respuesta 200 OK:**
+  ```json
+  [
+    {
+      "id": "mov-001",
+      "productId": "prod-coca-600",
+      "productName": "Coca-Cola Original 600ml",
+      "type": "PURCHASE",
+      "quantityMillis": 24000,
+      "previousStockMillis": 0,
+      "resultingStockMillis": 24000,
+      "costCents": 1400,
+      "reference": "FAC-PROV-9821",
+      "notes": "Recepción de pedido semanal Femsa",
+      "createdAt": 1713139200000
+    }
+  ]
+  ```
+
+#### `POST /api/v1/inventory/movements`
+Registra un nuevo movimiento de inventario (compra, ajuste físico por merma o corrección de conteo). Ejecuta una transacción atómica que actualiza la existencia en la tabla de productos y almacena la auditoría en el Kardex.
+- **Cuerpo de Solicitud:**
+  ```json
+  {
+    "productId": "prod-coca-600",
+    "type": "ADJUSTMENT",
+    "quantityMillis": -2000,
+    "costCents": 1400,
+    "reference": "CONTEO-FISICO-SEM12",
+    "notes": "Ajuste por 2 botellas rotas en almacén"
+  }
+  ```
+- **Respuesta 201 Created:** Objeto `StockMovementDto` generado.
+
+---
+
 ## 3. Canal de Eventos en Tiempo Real (WebSocket)
 
 - **URL:** `ws://<server-ip>:8080/ws/events`
 - **Mensaje de Evento (JSON):**
   ```json
   {
-    "type": "SALE_COMPLETED",
+    "type": "inventory.movement.created",
     "timestamp": 1713139200000,
-    "payload": "{\"folio\": 101, \"totalCents\": 3500, \"cashier\": \"Don Pepe\"}"
+    "payload": "{\"id\":\"mov-001\",\"productId\":\"prod-coca-600\",\"type\":\"PURCHASE\"}"
   }
   ```
+
+### Tipos de Eventos Transmitidos:
+| Evento | Descripción | Payload |
+| :--- | :--- | :--- |
+| `product.created` | Alta de nuevo artículo en el catálogo | `ProductDto` |
+| `product.updated` | Modificación de datos maestros o presentaciones | `ProductDto` |
+| `product.deactivated` | Baja lógica de producto | `ProductDto` |
+| `department.created` | Creación de nuevo departamento | `DepartmentDto` |
+| `department.updated` | Renombrado de departamento | `DepartmentDto` |
+| `department.deleted` | Eliminación de departamento y reasignación | `{"id": "..."}` |
+| `inventory.movement.created` | Registro de movimiento en Kardex | `StockMovementDto` |
+| `inventory.updated` | Notificación de cambio de existencias | `{"productId": "..."}` |
+| `SALE_COMPLETED` | Venta finalizada con éxito en alguna caja | Ticket y folio |
 
 ---
 

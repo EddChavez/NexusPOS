@@ -23,7 +23,8 @@ docs/
 │   ├── sales.md                       # Venta, carrito, cobro atómico, folio e impresión ESC/POS
 │   ├── cash-session.md                # Sesiones de caja, fondo inicial, movimientos y arqueo (RN-CAJ-04)
 │   ├── credit-fiado.md                # Crédito/Fiado a clientes, límites, saldo y abonos
-│   ├── catalog-inventory.md           # Catálogo, presentaciones, granel/peso y stock negativo configurable
+│   ├── catalog-inventory.md           # Catálogo, productos, departamentos, presentaciones y peso
+│   ├── inventory-kardex.md            # Control de existencias, valuación financiera, Kardex y ajustes
 │   ├── authentication.md              # Login por PIN, cambio de cajero y estado LAN
 │   └── system-status-footer.md        # Barra inferior de estado, LAN, báscula y reloj en tiempo real
 ├── api/
