@@ -32,12 +32,14 @@ data class TopHeaderUiState(
     val scaleReading: ScaleReading = ScaleReading(),
     val connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
     val registerId: String = "01",
-    val cashierName: String = "Don Pepe"
+    val cashierName: String = "Don Pepe",
+    val cashierRole: String = "CASHIER"
 )
 
 sealed interface TopHeaderEvent {
     data class SelectModule(val module: AppModule) : TopHeaderEvent
     data object Logout : TopHeaderEvent
+    data object SwitchCashier : TopHeaderEvent
     data object ClickScale : TopHeaderEvent
     data object ClickConnection : TopHeaderEvent
 }

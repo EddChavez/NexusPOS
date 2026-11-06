@@ -24,6 +24,8 @@ import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.credit.CustomerStatementDto
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.credit.UpdateCustomerRequest
+import mx.nexuspos.contracts.identity.AuthorizeRequest
+import mx.nexuspos.contracts.identity.AuthorizeResponse
 import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.LoginResponse
 import mx.nexuspos.contracts.identity.CreateUserRequest
@@ -36,7 +38,7 @@ import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
 
-class ApiClient(
+open class ApiClient(
     var baseUrl: String = "http://localhost:8080",
     client: HttpClient? = null
 ) {
@@ -51,7 +53,7 @@ class ApiClient(
         }
     }
 
-    suspend fun checkHealth(): Boolean {
+    open suspend fun checkHealth(): Boolean {
         return try {
             val res = http.get("$baseUrl/health")
             res.status.isSuccess()
@@ -60,11 +62,28 @@ class ApiClient(
         }
     }
 
-    suspend fun login(pin: String): Result<LoginResponse> {
+    open suspend fun login(pin: String): Result<LoginResponse> {
         return try {
             val res = http.post("$baseUrl/api/v1/auth/login") {
                 contentType(ContentType.Application.Json)
                 setBody(LoginRequest(pin = pin))
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun authorizeSupervisor(pin: String, action: String = "AUTHORIZE"): Result<AuthorizeResponse> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/auth/authorize") {
+                contentType(ContentType.Application.Json)
+                setBody(AuthorizeRequest(pin = pin, action = action))
             }
             if (res.status.isSuccess()) {
                 Result.success(res.body())

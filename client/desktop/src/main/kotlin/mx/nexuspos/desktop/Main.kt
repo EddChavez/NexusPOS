@@ -23,6 +23,10 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import mx.nexuspos.client.features.auth.AuthViewModel
+import mx.nexuspos.client.features.auth.LoginScreen
+import mx.nexuspos.client.features.auth.SupervisorAction
+import mx.nexuspos.client.features.auth.SupervisorAuthDialog
 import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
 import mx.nexuspos.client.features.inventory.InventoryScreen
@@ -46,16 +50,41 @@ import mx.nexuspos.desktop.hardware.KeyboardWedgeBarcodeInput
 fun main() = application {
     val windowState = rememberWindowState(width = 1280.dp, height = 820.dp)
     val viewModel = remember { SalesViewModel() }
+    val authViewModel = remember { AuthViewModel(viewModel.apiClient) }
     val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
     val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
     val inventoryViewModel = remember { InventoryViewModel(viewModel.apiClient) }
     val settingsViewModel = remember { SettingsViewModel(viewModel.apiClient) }
     val salesState by viewModel.uiState.collectAsState()
+    val authState by authViewModel.uiState.collectAsState()
+    val supervisorState by authViewModel.supervisorState.collectAsState()
 
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
     var scaleReading by remember { mutableStateOf(ScaleReading("0.000 kg", ScaleStatus.STABLE)) }
 
-    val headerState = remember(activeModule, scaleReading, salesState.connectionState, salesState.activeCashierName) {
+    // Wire auth callbacks
+    LaunchedEffect(Unit) {
+        authViewModel.onLoginSuccess = { user ->
+            viewModel.setActiveCashier(
+                userId = user.userId,
+                name = user.name,
+                role = user.role,
+                permissions = user.permissions
+            )
+        }
+        authViewModel.onSupervisorSuccess = { action ->
+            when (action) {
+                is SupervisorAction.AccessSettings -> {
+                    activeModule = AppModule.SETTINGS
+                }
+                is SupervisorAction.AdjustInventory -> {
+                    inventoryViewModel.openMovementDialog(action.product)
+                }
+            }
+        }
+    }
+
+    val headerState = remember(activeModule, scaleReading, salesState.connectionState, salesState.activeCashierName, salesState.activeCashierRole) {
         TopHeaderUiState(
             brandTitle = "NexusPOS",
             brandSubtitle = "Abarrotes & Miscelánea",
@@ -63,14 +92,15 @@ fun main() = application {
             scaleReading = scaleReading,
             connectionState = salesState.connectionState,
             registerId = "01",
-            cashierName = salesState.activeCashierName
+            cashierName = salesState.activeCashierName,
+            cashierRole = salesState.activeCashierRole
         )
     }
 
     // Hardware Keyboard Wedge Barcode Scanner Adapter
     val barcodeWedge = remember {
         KeyboardWedgeBarcodeInput { scannedCode ->
-            if (activeModule == AppModule.SALES) {
+            if (authState.isAuthenticated && activeModule == AppModule.SALES) {
                 viewModel.onScannerInputChanged(scannedCode)
                 viewModel.onScannerSubmitted()
             }
@@ -82,12 +112,55 @@ fun main() = application {
         title = "NexusPOS - Terminal de Punto de Venta (LAN-First)",
         state = windowState,
         onKeyEvent = { keyEvent ->
-            // First check if this is an incoming barcode scan from USB hardware scanner
-            if (barcodeWedge.onKeyEvent(keyEvent)) {
+            // 1. First check if terminal is locked (Login Screen input)
+            if (!authState.isAuthenticated) {
+                if (keyEvent.type == KeyEventType.KeyDown) {
+                    when (keyEvent.key) {
+                        Key.Zero, Key.NumPad0 -> { authViewModel.onDigit('0'); true }
+                        Key.One, Key.NumPad1 -> { authViewModel.onDigit('1'); true }
+                        Key.Two, Key.NumPad2 -> { authViewModel.onDigit('2'); true }
+                        Key.Three, Key.NumPad3 -> { authViewModel.onDigit('3'); true }
+                        Key.Four, Key.NumPad4 -> { authViewModel.onDigit('4'); true }
+                        Key.Five, Key.NumPad5 -> { authViewModel.onDigit('5'); true }
+                        Key.Six, Key.NumPad6 -> { authViewModel.onDigit('6'); true }
+                        Key.Seven, Key.NumPad7 -> { authViewModel.onDigit('7'); true }
+                        Key.Eight, Key.NumPad8 -> { authViewModel.onDigit('8'); true }
+                        Key.Nine, Key.NumPad9 -> { authViewModel.onDigit('9'); true }
+                        Key.Backspace -> { authViewModel.onBackspace(); true }
+                        Key.Enter, Key.NumPadEnter -> { authViewModel.submitLogin(); true }
+                        Key.Escape -> { authViewModel.onClear(); true }
+                        else -> false
+                    }
+                } else false
+            } else if (supervisorState.isVisible) {
+                // 2. Supervisor authorization elevation dialog input
+                if (keyEvent.type == KeyEventType.KeyDown) {
+                    when (keyEvent.key) {
+                        Key.Zero, Key.NumPad0 -> { authViewModel.onSupervisorDigit('0'); true }
+                        Key.One, Key.NumPad1 -> { authViewModel.onSupervisorDigit('1'); true }
+                        Key.Two, Key.NumPad2 -> { authViewModel.onSupervisorDigit('2'); true }
+                        Key.Three, Key.NumPad3 -> { authViewModel.onSupervisorDigit('3'); true }
+                        Key.Four, Key.NumPad4 -> { authViewModel.onSupervisorDigit('4'); true }
+                        Key.Five, Key.NumPad5 -> { authViewModel.onSupervisorDigit('5'); true }
+                        Key.Six, Key.NumPad6 -> { authViewModel.onSupervisorDigit('6'); true }
+                        Key.Seven, Key.NumPad7 -> { authViewModel.onSupervisorDigit('7'); true }
+                        Key.Eight, Key.NumPad8 -> { authViewModel.onSupervisorDigit('8'); true }
+                        Key.Nine, Key.NumPad9 -> { authViewModel.onSupervisorDigit('9'); true }
+                        Key.Backspace -> { authViewModel.onSupervisorBackspace(); true }
+                        Key.Enter, Key.NumPadEnter -> { authViewModel.submitSupervisorElevation(); true }
+                        Key.Escape -> { authViewModel.cancelSupervisorElevation(); true }
+                        else -> false
+                    }
+                } else false
+            } else if (barcodeWedge.onKeyEvent(keyEvent)) {
+                // 3. Incoming barcode scan from USB hardware scanner
                 true
             } else if (keyEvent.type == KeyEventType.KeyDown) {
-                // Function Key Shortcuts
-                when (keyEvent.key) {
+                // 4. Quick Cashier Switch shortcut Ctrl+L or Cmd+L
+                if ((keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.L) {
+                    authViewModel.lockTerminal()
+                    true
+                } else when (keyEvent.key) {
                     // Global Module Navigation Shortcuts F1 - F6
                     Key.F1 -> {
                         activeModule = AppModule.SALES
@@ -106,7 +179,11 @@ fun main() = application {
                         true
                     }
                     Key.F5 -> {
-                        activeModule = AppModule.SETTINGS
+                        if (salesState.activeCashierRole == "CASHIER") {
+                            authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
+                        } else {
+                            activeModule = AppModule.SETTINGS
+                        }
                         true
                     }
                     Key.F6 -> {
@@ -140,7 +217,11 @@ fun main() = application {
                         } else if (activeModule == AppModule.INVENTORY) {
                             val sel = inventoryViewModel.uiState.value.selectedProduct
                             if (sel != null) {
-                                inventoryViewModel.openMovementDialog(sel)
+                                if (salesState.activeCashierRole == "CASHIER") {
+                                    authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(sel))
+                                } else {
+                                    inventoryViewModel.openMovementDialog(sel)
+                                }
                                 true
                             } else false
                         } else if (activeModule == AppModule.SETTINGS &&
@@ -262,69 +343,93 @@ fun main() = application {
         }
     ) {
         NexusTheme {
-            Scaffold(
-                containerColor = MaterialTheme.colorScheme.background,
-                topBar = {
-                    TopHeader(
-                        state = headerState,
-                        onModuleSelected = { selected ->
-                            activeModule = selected
-                            if (selected == AppModule.CASH_CUT) {
-                                viewModel.showSessionDialog(true)
+            if (!authState.isAuthenticated) {
+                LoginScreen(
+                    viewModel = authViewModel,
+                    connectionState = salesState.connectionState,
+                    registerId = "01"
+                )
+            } else {
+                Scaffold(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    topBar = {
+                        TopHeader(
+                            state = headerState,
+                            onModuleSelected = { selected ->
+                                if (selected == AppModule.SETTINGS && salesState.activeCashierRole == "CASHIER") {
+                                    authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
+                                } else {
+                                    activeModule = selected
+                                    if (selected == AppModule.CASH_CUT) {
+                                        viewModel.showSessionDialog(true)
+                                    }
+                                }
+                            },
+                            onLogout = { authViewModel.lockTerminal() },
+                            onSwitchCashier = { authViewModel.lockTerminal() }
+                        )
+                    },
+                    bottomBar = {
+                        SystemFooter(
+                            networkStatus = salesState.connectionState,
+                            scaleReading = scaleReading,
+                            versionText = "NexusPOS v2.4 Desktop • © 2026"
+                        )
+                    }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .background(MaterialTheme.colorScheme.background)
+                    ) {
+                        when (activeModule) {
+                            AppModule.SALES, AppModule.CASH_CUT -> {
+                                SalesScreen(viewModel = viewModel)
                             }
-                        },
-                        onLogout = {
-                            // Acción de Salir [Esc]
-                            if (activeModule != AppModule.SALES) {
-                                activeModule = AppModule.SALES
-                            } else {
-                                viewModel.showSessionDialog(true)
+                            AppModule.CUSTOMERS -> {
+                                CustomersScreen(
+                                    viewModel = customersViewModel,
+                                    cashSessionId = salesState.activeSession?.sessionId ?: "caja-1",
+                                    cashierUserId = salesState.activeCashierId,
+                                    onBackToSales = { activeModule = AppModule.SALES }
+                                )
+                            }
+                            AppModule.PRODUCTS -> {
+                                ProductsScreen(
+                                    viewModel = productsViewModel,
+                                    onBackToSales = { activeModule = AppModule.SALES }
+                                )
+                            }
+                            AppModule.INVENTORY -> {
+                                InventoryScreen(
+                                    viewModel = inventoryViewModel,
+                                    onRequestAdjustStock = { product ->
+                                        if (salesState.activeCashierRole == "CASHIER") {
+                                            authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(product))
+                                        } else {
+                                            inventoryViewModel.openMovementDialog(product)
+                                        }
+                                    },
+                                    onBackToSales = { activeModule = AppModule.SALES }
+                                )
+                            }
+                            AppModule.SETTINGS -> {
+                                SettingsScreen(
+                                    viewModel = settingsViewModel,
+                                    onBackToSales = { activeModule = AppModule.SALES }
+                                )
                             }
                         }
-                    )
-                },
-                bottomBar = {
-                    SystemFooter(
-                        networkStatus = salesState.connectionState,
-                        scaleReading = scaleReading,
-                        versionText = "NexusPOS v2.4 Desktop • © 2026"
-                    )
-                }
-            ) { innerPadding ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .background(MaterialTheme.colorScheme.background)
-                ) {
-                    when (activeModule) {
-                        AppModule.SALES, AppModule.CASH_CUT -> {
-                            SalesScreen(viewModel = viewModel)
-                        }
-                        AppModule.CUSTOMERS -> {
-                            CustomersScreen(
-                                viewModel = customersViewModel,
-                                cashSessionId = salesState.activeSession?.sessionId ?: "caja-1",
-                                cashierUserId = salesState.activeSession?.cashierId ?: "usr-cajero",
-                                onBackToSales = { activeModule = AppModule.SALES }
-                            )
-                        }
-                        AppModule.PRODUCTS -> {
-                            ProductsScreen(
-                                viewModel = productsViewModel,
-                                onBackToSales = { activeModule = AppModule.SALES }
-                            )
-                        }
-                        AppModule.INVENTORY -> {
-                            InventoryScreen(
-                                viewModel = inventoryViewModel,
-                                onBackToSales = { activeModule = AppModule.SALES }
-                            )
-                        }
-                        AppModule.SETTINGS -> {
-                            SettingsScreen(
-                                viewModel = settingsViewModel,
-                                onBackToSales = { activeModule = AppModule.SALES }
+
+                        // Supervisor authorization modal when needed
+                        if (supervisorState.isVisible) {
+                            SupervisorAuthDialog(
+                                state = supervisorState,
+                                onDigit = { authViewModel.onSupervisorDigit(it) },
+                                onBackspace = { authViewModel.onSupervisorBackspace() },
+                                onSubmit = { authViewModel.submitSupervisorElevation() },
+                                onDismiss = { authViewModel.cancelSupervisorElevation() }
                             )
                         }
                     }

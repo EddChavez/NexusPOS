@@ -35,9 +35,11 @@ import java.util.Locale
 @Composable
 fun InventoryScreen(
     viewModel: InventoryViewModel,
+    onRequestAdjustStock: ((ProductDto) -> Unit)? = null,
     onBackToSales: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
+    val handleAdjustStock = onRequestAdjustStock ?: { prod -> viewModel.openMovementDialog(prod) }
 
     // Diálogo de Movimiento de Stock
     if (state.showMovementDialog && state.productForMovement != null) {
@@ -100,7 +102,7 @@ fun InventoryScreen(
 
             if (state.activeTab == InventoryTab.STOCK_TABLE && state.selectedProduct != null) {
                 Button(
-                    onClick = { viewModel.openMovementDialog(state.selectedProduct!!) },
+                    onClick = { handleAdjustStock(state.selectedProduct!!) },
                     colors = ButtonDefaults.buttonColors(containerColor = NexusTheme.colors.actionPrimary),
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -126,7 +128,7 @@ fun InventoryScreen(
                     onDepartmentSelected = { viewModel.onDepartmentSelected(it) },
                     onFilterSelected = { viewModel.onStockFilterSelected(it) },
                     onSelectProduct = { viewModel.selectProduct(it) },
-                    onAdjustStock = { viewModel.openMovementDialog(it) },
+                    onAdjustStock = { handleAdjustStock(it) },
                     modifier = Modifier.fillMaxWidth().weight(1f)
                 )
             }

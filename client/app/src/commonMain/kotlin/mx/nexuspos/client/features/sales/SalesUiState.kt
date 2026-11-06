@@ -51,6 +51,8 @@ data class SalesUiState(
     val activeSession: CashSessionSummary? = null,
     val activeCashierName: String = "Cajero Principal",
     val activeCashierId: String = "usr-cajero",
+    val activeCashierRole: String = "CASHIER",
+    val activeCashierPermissions: List<String> = emptyList(),
     val selectedCustomer: CustomerDto? = null,
     val scannerInput: String = "",
     val scannerStatus: ScannerStatus = ScannerStatus.READY,

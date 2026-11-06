@@ -249,6 +249,12 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 call.respond(res)
             }
 
+            post("/auth/authorize-supervisor") {
+                val req = call.receive<AuthorizeRequest>()
+                val res = identityService.authorizeSupervisor(req)
+                call.respond(res)
+            }
+
             post("/pairing/codes") {
                 val res = identityService.createPairingCode()
                 call.respond(HttpStatusCode.Created, res)

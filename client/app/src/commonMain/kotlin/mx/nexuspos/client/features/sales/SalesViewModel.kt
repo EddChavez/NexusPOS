@@ -57,6 +57,17 @@ class SalesViewModel(
         }
     }
 
+    fun setActiveCashier(userId: String, name: String, role: String, permissions: List<String> = emptyList()) {
+        _uiState.update {
+            it.copy(
+                activeCashierId = userId,
+                activeCashierName = name,
+                activeCashierRole = role,
+                activeCashierPermissions = permissions
+            )
+        }
+    }
+
     fun onScannerInputChanged(value: String) {
         _uiState.update { it.copy(scannerInput = value) }
     }

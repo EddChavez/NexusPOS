@@ -27,6 +27,7 @@ fun TopHeader(
     state: TopHeaderUiState,
     onModuleSelected: (AppModule) -> Unit,
     onLogout: () -> Unit,
+    onSwitchCashier: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -62,7 +63,8 @@ fun TopHeader(
             // 3. MONITOR DE PERIFÉRICOS, RED Y SESIÓN (DERECHA)
             RightStatusSection(
                 state = state,
-                onLogout = onLogout
+                onLogout = onLogout,
+                onSwitchCashier = onSwitchCashier
             )
         }
     }
@@ -157,23 +159,43 @@ private fun ModuleNavigationSection(
 private fun RightStatusSection(
     state: TopHeaderUiState,
     onLogout: () -> Unit,
+    onSwitchCashier: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Identificador de Sesión (Caja y Cajero)
+        // Identificador de Sesión (Caja, Cajero y Rol)
         SessionIdentifierWidget(
             registerId = state.registerId,
-            cashierName = state.cashierName
+            cashierName = state.cashierName,
+            cashierRole = state.cashierRole,
+            onClick = onSwitchCashier
         )
+
+        // Botón de Bloqueo / Cambio de Cajero [Ctrl+L]
+        Button(
+            onClick = { onSwitchCashier?.invoke() },
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        ) {
+            Text(
+                text = "🔒 Cambiar Cajero [Ctrl+L]",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp
+            )
+        }
 
         // Botón de Salir con Atajo (Acción destructiva / Salir)
         OutlinedButton(
             onClick = onLogout,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
             shape = RoundedCornerShape(8.dp),
             border = BorderStroke(1.dp, NexusTheme.colors.dangerBorder),
             colors = ButtonDefaults.outlinedButtonColors(
@@ -195,13 +217,24 @@ private fun RightStatusSection(
 private fun SessionIdentifierWidget(
     registerId: String,
     cashierName: String,
+    cashierRole: String = "CASHIER",
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val (roleLabel, roleBg, roleText) = when (cashierRole.uppercase()) {
+        "ADMIN" -> Triple("ADMIN", Color(0xFF7C3AED), Color.White)
+        "SUPERVISOR" -> Triple("SUPERVISOR", Color(0xFF0284C7), Color.White)
+        else -> Triple("CAJERO", Color(0xFF0D9488), Color.White)
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
-        modifier = modifier
+        modifier = modifier.then(
+            if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable { onClick() }
+            else Modifier
+        )
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -225,6 +258,19 @@ private fun SessionIdentifierWidget(
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            Surface(
+                color = roleBg,
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.padding(start = 2.dp)
+            ) {
+                Text(
+                    text = roleLabel,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 10.sp,
+                    color = roleText,
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                )
+            }
         }
     }
 }
