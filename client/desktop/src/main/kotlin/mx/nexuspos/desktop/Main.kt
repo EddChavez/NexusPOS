@@ -29,6 +29,9 @@ import mx.nexuspos.client.features.inventory.InventoryScreen
 import mx.nexuspos.client.features.inventory.InventoryViewModel
 import mx.nexuspos.client.features.products.ProductsScreen
 import mx.nexuspos.client.features.products.ProductsViewModel
+import mx.nexuspos.client.features.settings.SettingsScreen
+import mx.nexuspos.client.features.settings.SettingsTab
+import mx.nexuspos.client.features.settings.SettingsViewModel
 import mx.nexuspos.client.features.footer.SystemFooter
 import mx.nexuspos.client.features.header.AppModule
 import mx.nexuspos.client.features.header.ScaleReading
@@ -46,6 +49,7 @@ fun main() = application {
     val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
     val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
     val inventoryViewModel = remember { InventoryViewModel(viewModel.apiClient) }
+    val settingsViewModel = remember { SettingsViewModel(viewModel.apiClient) }
     val salesState by viewModel.uiState.collectAsState()
 
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
@@ -139,6 +143,10 @@ fun main() = application {
                                 inventoryViewModel.openMovementDialog(sel)
                                 true
                             } else false
+                        } else if (activeModule == AppModule.SETTINGS &&
+                            settingsViewModel.uiState.value.selectedTab == SettingsTab.USERS) {
+                            settingsViewModel.openCreateUserDialog()
+                            true
                         } else false
                     }
 
@@ -222,6 +230,9 @@ fun main() = application {
                             true
                         } else if (inventoryViewModel.uiState.value.showMovementDialog) {
                             inventoryViewModel.closeMovementDialog()
+                            true
+                        } else if (settingsViewModel.uiState.value.showUserDialog) {
+                            settingsViewModel.closeUserDialog()
                             true
                         } else if (productsViewModel.uiState.value.showDepartmentsDialog) {
                             productsViewModel.closeDepartmentsDialog()
@@ -311,8 +322,8 @@ fun main() = application {
                             )
                         }
                         AppModule.SETTINGS -> {
-                            ModulePlaceholderScreen(
-                                module = AppModule.SETTINGS,
+                            SettingsScreen(
+                                viewModel = settingsViewModel,
                                 onBackToSales = { activeModule = AppModule.SALES }
                             )
                         }

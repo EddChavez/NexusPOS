@@ -30,8 +30,11 @@ import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.credit.UpdateCustomerRequest
 import mx.nexuspos.contracts.events.RealtimeEvent
 import mx.nexuspos.contracts.identity.AuthorizeRequest
+import mx.nexuspos.contracts.identity.CreateUserRequest
 import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.PairingClaimRequest
+import mx.nexuspos.contracts.identity.UpdateUserRequest
+import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -184,6 +187,53 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val updated = settingsService.updateSettings(req)
                 broadcastEventJson("settings.changed", jsonConfig.encodeToString(updated))
                 call.respond(updated)
+            }
+
+            put("/system/settings") {
+                val req = call.receive<SettingsDto>()
+                val updated = settingsService.updateSettings(req)
+                broadcastEventJson("settings.changed", jsonConfig.encodeToString(updated))
+                call.respond(updated)
+            }
+
+            // Users Management
+            get("/users") {
+                val includeInactive = call.request.queryParameters["includeInactive"]?.toBooleanStrictOrNull() ?: true
+                call.respond(identityService.getAllUsers(includeInactive))
+            }
+
+            get("/users/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de usuario requerido")
+                call.respond(identityService.getUserById(id))
+            }
+
+            post("/users") {
+                val req = call.receive<CreateUserRequest>()
+                val user = identityService.createUser(req)
+                broadcastEventJson("user.created", jsonConfig.encodeToString(user))
+                call.respond(HttpStatusCode.Created, user)
+            }
+
+            put("/users/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de usuario requerido")
+                val req = call.receive<UpdateUserRequest>()
+                val updated = identityService.updateUser(id, req)
+                broadcastEventJson("user.updated", jsonConfig.encodeToString(updated))
+                call.respond(updated)
+            }
+
+            delete("/users/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de usuario requerido")
+                val deactivated = identityService.deactivateUser(id)
+                broadcastEventJson("user.deactivated", jsonConfig.encodeToString(deactivated))
+                call.respond(deactivated)
+            }
+
+            post("/users/{id}/reactivate") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de usuario requerido")
+                val reactivated = identityService.reactivateUser(id)
+                broadcastEventJson("user.updated", jsonConfig.encodeToString(reactivated))
+                call.respond(reactivated)
             }
 
             // Identity & Auth

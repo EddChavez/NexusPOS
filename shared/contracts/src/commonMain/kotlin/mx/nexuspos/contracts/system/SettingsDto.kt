@@ -7,6 +7,7 @@ data class SettingsDto(
     val storeName: String = "Mi Tiendita",
     val storeAddress: String = "Conocido, Local 1",
     val storePhone: String = "555-123-4567",
+    val storeTaxId: String = "",
     val ticketHeader: String = "¡Gracias por su compra!",
     val ticketFooter: String = "Conserve su ticket para cualquier aclaración.",
     val allowNegativeStock: Boolean = true,

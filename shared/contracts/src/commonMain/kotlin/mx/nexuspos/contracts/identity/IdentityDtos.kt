@@ -48,3 +48,26 @@ data class PairingClaimResponse(
     val deviceToken: String,
     val deviceId: String
 )
+
+@Serializable
+data class UserDto(
+    val id: String,
+    val name: String,
+    val role: String, // CASHIER, SUPERVISOR, ADMIN
+    val isActive: Boolean
+)
+
+@Serializable
+data class CreateUserRequest(
+    val name: String,
+    val role: String,
+    val pin: String
+)
+
+@Serializable
+data class UpdateUserRequest(
+    val name: String,
+    val role: String,
+    val pin: String? = null
+)
+

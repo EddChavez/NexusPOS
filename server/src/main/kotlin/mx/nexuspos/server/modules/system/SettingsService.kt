@@ -13,18 +13,22 @@ class SettingsService(private val db: DatabaseFactory) {
             var storeName = "Mi Tiendita de Abarrotes"
             var storeAddress = "Av. Principal #100"
             var storePhone = "555-987-6543"
+            var storeTaxId = ""
             var ticketHeader = "¡Gracias por su compra!"
             var ticketFooter = "Conserve su ticket para cualquier aclaración."
             var allowNegativeStock = true
+            var currencySymbol = "$"
 
             while (rs.next()) {
                 when (rs.getString("setting_key")) {
                     "store_name" -> storeName = rs.getString("setting_value")
                     "store_address" -> storeAddress = rs.getString("setting_value")
                     "store_phone" -> storePhone = rs.getString("setting_value")
+                    "store_tax_id" -> storeTaxId = rs.getString("setting_value")
                     "ticket_header" -> ticketHeader = rs.getString("setting_value")
                     "ticket_footer" -> ticketFooter = rs.getString("setting_value")
                     "allow_negative_stock" -> allowNegativeStock = rs.getString("setting_value").toBoolean()
+                    "currency_symbol" -> currencySymbol = rs.getString("setting_value")
                 }
             }
             rs.close()
@@ -34,9 +38,11 @@ class SettingsService(private val db: DatabaseFactory) {
                 storeName = storeName,
                 storeAddress = storeAddress,
                 storePhone = storePhone,
+                storeTaxId = storeTaxId,
                 ticketHeader = ticketHeader,
                 ticketFooter = ticketFooter,
-                allowNegativeStock = allowNegativeStock
+                allowNegativeStock = allowNegativeStock,
+                currencySymbol = currencySymbol
             )
         }
     }
@@ -50,9 +56,11 @@ class SettingsService(private val db: DatabaseFactory) {
                 "store_name" to settings.storeName,
                 "store_address" to settings.storeAddress,
                 "store_phone" to settings.storePhone,
+                "store_tax_id" to settings.storeTaxId,
                 "ticket_header" to settings.ticketHeader,
                 "ticket_footer" to settings.ticketFooter,
-                "allow_negative_stock" to settings.allowNegativeStock.toString()
+                "allow_negative_stock" to settings.allowNegativeStock.toString(),
+                "currency_symbol" to settings.currencySymbol
             )
             for ((k, v) in map) {
                 updateStmt.setString(1, v)

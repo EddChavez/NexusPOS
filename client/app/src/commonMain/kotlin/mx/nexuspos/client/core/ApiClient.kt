@@ -26,6 +26,9 @@ import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.credit.UpdateCustomerRequest
 import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.LoginResponse
+import mx.nexuspos.contracts.identity.CreateUserRequest
+import mx.nexuspos.contracts.identity.UpdateUserRequest
+import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.inventory.StockMovementDto
@@ -471,6 +474,101 @@ class ApiClient(
     suspend fun getSettings(): Result<SettingsDto> {
         return try {
             val res = http.get("$baseUrl/api/v1/system/settings")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateSettings(settings: SettingsDto): Result<SettingsDto> {
+        return try {
+            val res = http.put("$baseUrl/api/v1/system/settings") {
+                contentType(ContentType.Application.Json)
+                setBody(settings)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getUsers(includeInactive: Boolean = true): Result<List<UserDto>> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/users") {
+                parameter("includeInactive", includeInactive)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createUser(req: CreateUserRequest): Result<UserDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/users") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateUser(id: String, req: UpdateUserRequest): Result<UserDto> {
+        return try {
+            val res = http.put("$baseUrl/api/v1/users/$id") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deactivateUser(id: String): Result<UserDto> {
+        return try {
+            val res = http.delete("$baseUrl/api/v1/users/$id")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun reactivateUser(id: String): Result<UserDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/users/$id/reactivate")
             if (res.status.isSuccess()) {
                 Result.success(res.body())
             } else {
