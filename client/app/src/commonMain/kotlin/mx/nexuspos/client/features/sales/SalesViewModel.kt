@@ -47,9 +47,9 @@ class SalesViewModel(
         }
     }
 
-    fun loadActiveSession() {
+    fun loadActiveSession(registerId: String = "caja-1") {
         scope.launch {
-            val res = apiClient.getCurrentSession("caja-1")
+            val res = apiClient.getCurrentSession(registerId)
             res.onSuccess { session ->
                 _uiState.update { it.copy(activeSession = session) }
             }.onFailure {

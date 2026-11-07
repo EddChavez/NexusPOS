@@ -27,8 +27,26 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "mx.nexuspos.desktop"
-            packageVersion = "2.0.0"
+            packageName = "NexusPOS"
+            packageVersion = "1.0.0"
+            description = "NexusPOS - Terminal de Punto de Venta"
+            copyright = "© 2026 NexusPOS"
+            vendor = "OzafryDev"
+
+            windows {
+                menuGroup = "NexusPOS"
+                shortcut = true
+                dirChooser = true
+            }
+
+            macOS {
+                bundleID = "mx.nexuspos.desktop"
+                dockName = "NexusPOS"
+            }
+
+            linux {
+                shortcut = true
+            }
         }
     }
 }

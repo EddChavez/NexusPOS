@@ -38,7 +38,10 @@ import mx.nexuspos.client.features.inventory.InventoryScreen
 import mx.nexuspos.client.features.inventory.InventoryViewModel
 import mx.nexuspos.client.features.products.ProductsScreen
 import mx.nexuspos.client.features.products.ProductsViewModel
+import mx.nexuspos.client.core.ApiClient
+import mx.nexuspos.client.features.settings.NetworkUiConfig
 import mx.nexuspos.client.features.settings.PrinterUiConfig
+import mx.nexuspos.client.features.settings.ServerConnectionDialog
 import mx.nexuspos.client.features.settings.SettingsScreen
 import mx.nexuspos.client.features.settings.SettingsTab
 import mx.nexuspos.client.features.settings.SettingsViewModel
@@ -51,6 +54,8 @@ import mx.nexuspos.client.features.header.TopHeaderUiState
 import mx.nexuspos.client.features.sales.SalesScreen
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.client.theme.NexusTheme
+import mx.nexuspos.desktop.config.AppConfig
+import mx.nexuspos.desktop.config.AppConfigRepository
 import mx.nexuspos.desktop.hardware.DefaultPrinterDispatcher
 import mx.nexuspos.desktop.hardware.EscPosReceiptPrinter
 import mx.nexuspos.desktop.hardware.KeyboardWedgeBarcodeInput
@@ -62,13 +67,17 @@ import mx.nexuspos.desktop.hardware.PrinterDispatcher
 
 fun main() = application {
     val windowState = rememberWindowState(width = 1280.dp, height = 820.dp)
+    val appConfigRepo = remember { AppConfigRepository() }
+    var appConfig by remember { mutableStateOf(appConfigRepo.load()) }
+    var isShowingServerDialog by remember { mutableStateOf(false) }
+
     val viewModel = remember { SalesViewModel() }
     val authViewModel = remember { AuthViewModel(viewModel.apiClient) }
     val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
     val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
     val inventoryViewModel = remember { InventoryViewModel(viewModel.apiClient) }
     val settingsViewModel = remember { SettingsViewModel(viewModel.apiClient) }
-    val cashCutViewModel = remember { CashCutViewModel(viewModel.apiClient) }
+    val cashCutViewModel = remember { CashCutViewModel(viewModel.apiClient, registerId = appConfig.registerId) }
     val salesState by viewModel.uiState.collectAsState()
     val authState by authViewModel.uiState.collectAsState()
     val supervisorState by authViewModel.supervisorState.collectAsState()
@@ -81,7 +90,56 @@ fun main() = application {
 
     // Wire auth and hardware printer callbacks
     LaunchedEffect(Unit) {
-        // 1. SettingsViewModel printer bridge
+        // 0. Base URL and server health check
+        viewModel.apiClient.baseUrl = appConfig.baseUrl
+        val isHealthy = viewModel.apiClient.checkHealth()
+        if (!isHealthy) {
+            isShowingServerDialog = true
+        } else {
+            viewModel.loadActiveSession(appConfig.registerId)
+        }
+
+        // 1. SettingsViewModel network & server LAN bridge
+        settingsViewModel.networkConfigLoader = {
+            appConfig = appConfigRepo.load()
+            NetworkUiConfig(
+                serverHost = appConfig.serverHost,
+                serverPort = appConfig.serverPort,
+                serverScheme = appConfig.serverScheme,
+                registerId = appConfig.registerId,
+                registerName = appConfig.registerName
+            )
+        }
+
+        settingsViewModel.networkConfigSaver = { netCfg ->
+            val newCfg = AppConfig(
+                serverHost = netCfg.serverHost,
+                serverPort = netCfg.serverPort,
+                serverScheme = netCfg.serverScheme,
+                registerId = netCfg.registerId,
+                registerName = netCfg.registerName,
+                connectTimeoutMs = appConfig.connectTimeoutMs
+            )
+            appConfigRepo.save(newCfg)
+            appConfig = newCfg
+            viewModel.apiClient.baseUrl = newCfg.baseUrl
+            viewModel.checkServerConnection()
+            viewModel.loadActiveSession(newCfg.registerId)
+            cashCutViewModel.loadCurrentSession(newCfg.registerId)
+        }
+
+        settingsViewModel.testNetworkAction = { host, port ->
+            val testClient = ApiClient(baseUrl = "http://$host:$port")
+            val ok = testClient.checkHealth()
+            if (ok) {
+                Result.success("Servidor responde OK (HTTP 200 /health)")
+            } else {
+                Result.failure(Exception("Host inaccesible en http://$host:$port"))
+            }
+        }
+        settingsViewModel.loadNetworkConfig()
+
+        // 2. SettingsViewModel printer bridge
         settingsViewModel.printerConfigLoader = {
             printerConfig = printerRepo.load()
             PrinterUiConfig(
@@ -236,14 +294,14 @@ fun main() = application {
         }
     }
 
-    val headerState = remember(activeModule, scaleReading, salesState.connectionState, salesState.activeCashierName, salesState.activeCashierRole) {
+    val headerState = remember(activeModule, scaleReading, salesState.connectionState, salesState.activeCashierName, salesState.activeCashierRole, appConfig.registerId) {
         TopHeaderUiState(
             brandTitle = "NexusPOS",
             brandSubtitle = "Abarrotes & Miscelánea",
             activeModule = activeModule,
             scaleReading = scaleReading,
             connectionState = salesState.connectionState,
-            registerId = "01",
+            registerId = appConfig.registerId,
             cashierName = salesState.activeCashierName,
             cashierRole = salesState.activeCashierRole
         )
@@ -512,7 +570,8 @@ fun main() = application {
                 LoginScreen(
                     viewModel = authViewModel,
                     connectionState = salesState.connectionState,
-                    registerId = "01"
+                    registerId = appConfig.registerId,
+                    onConfigureServerConnection = { isShowingServerDialog = true }
                 )
             } else {
                 Scaffold(
@@ -618,6 +677,40 @@ fun main() = application {
                     }
                 }
             }
+
+            // Server LAN Connection configuration dialog
+            ServerConnectionDialog(
+                isOpen = isShowingServerDialog,
+                initialHost = appConfig.serverHost,
+                initialPort = appConfig.serverPort,
+                initialRegisterId = appConfig.registerId,
+                initialRegisterName = appConfig.registerName,
+                onTestConnection = { host, port ->
+                    val testClient = ApiClient(baseUrl = "http://$host:$port")
+                    val ok = testClient.checkHealth()
+                    if (ok) {
+                        Result.success("Servidor NexusPOS responde OK (HTTP 200 /health)")
+                    } else {
+                        Result.failure(Exception("Host inaccesible en http://$host:$port"))
+                    }
+                },
+                onSaveAndConnect = { host, port, regId, regName ->
+                    val newCfg = AppConfig(
+                        serverHost = host,
+                        serverPort = port,
+                        serverScheme = "http",
+                        registerId = regId,
+                        registerName = regName
+                    )
+                    appConfigRepo.save(newCfg)
+                    appConfig = newCfg
+                    viewModel.apiClient.baseUrl = newCfg.baseUrl
+                    viewModel.checkServerConnection()
+                    viewModel.loadActiveSession(regId)
+                    cashCutViewModel.loadCurrentSession(regId)
+                },
+                onDismiss = { isShowingServerDialog = false }
+            )
         }
     }
 }

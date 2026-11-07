@@ -81,6 +81,7 @@ fun SettingsScreen(
                 SettingsTab.STORE_TICKET -> StoreTicketTab(state = state, viewModel = viewModel)
                 SettingsTab.POLICIES -> PoliciesTab(state = state, viewModel = viewModel)
                 SettingsTab.PRINTER -> PrinterTab(state = state, viewModel = viewModel)
+                SettingsTab.NETWORK -> NetworkTab(state = state, viewModel = viewModel)
                 SettingsTab.USERS -> UsersTab(state = state, viewModel = viewModel)
             }
         }
@@ -133,6 +134,7 @@ private fun SettingsTopToolbar(
                         SettingsTab.STORE_TICKET -> "Tienda & Ticket" to Icons.Default.Store
                         SettingsTab.POLICIES -> "Políticas" to Icons.Default.Policy
                         SettingsTab.PRINTER -> "Impresora" to Icons.Default.Print
+                        SettingsTab.NETWORK -> "Red / Servidor" to Icons.Default.Wifi
                         SettingsTab.USERS -> "Usuarios" to Icons.Default.Group
                     }
                     FilterChip(
@@ -854,6 +856,218 @@ private fun PrinterTab(state: SettingsUiState, viewModel: SettingsViewModel) {
                     Spacer(Modifier.width(6.dp))
                     Text("Guardar Configuración", fontWeight = FontWeight.Bold)
                 }
+            }
+        }
+    }
+}
+
+// =====================================================
+// TAB: Red y Servidor Central (LAN)
+// =====================================================
+
+@Composable
+private fun NetworkTab(state: SettingsUiState, viewModel: SettingsViewModel) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Section 1: Servidor Central NexusPOS
+        Card(
+            colors = CardDefaults.cardColors(containerColor = NexusTheme.colors.bgCanvas),
+            border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Dns, contentDescription = null, tint = NexusTheme.colors.accent, modifier = Modifier.size(18.dp))
+                    Text(
+                        "Servidor Central NexusPOS (LAN)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NexusTheme.colors.textPrimary
+                    )
+                }
+
+                Text(
+                    "Dirección de red del servidor al que se conectará esta terminal de punto de venta. Para cajas secundarias en la red local, ingrese la IP de la máquina principal (ej. 192.168.1.50).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NexusTheme.colors.textSecondary
+                )
+
+                // Presets
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Atajos:", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.onServerHostChanged("localhost")
+                            viewModel.onServerPortChanged("8080")
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Localhost (127.0.0.1)", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (!state.serverHost.startsWith("192.168.")) {
+                                viewModel.onServerHostChanged("192.168.1.")
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("IP LAN (192.168.x.x)", fontSize = 11.sp)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = state.serverHost,
+                        onValueChange = viewModel::onServerHostChanged,
+                        label = { Text("IP o Hostname del Servidor") },
+                        placeholder = { Text("192.168.1.100") },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Language, contentDescription = null) },
+                        modifier = Modifier.weight(0.7f)
+                    )
+
+                    OutlinedTextField(
+                        value = state.serverPort,
+                        onValueChange = viewModel::onServerPortChanged,
+                        label = { Text("Puerto") },
+                        placeholder = { Text("8080") },
+                        singleLine = true,
+                        modifier = Modifier.weight(0.3f)
+                    )
+                }
+            }
+        }
+
+        // Section 2: Identificación de la Terminal
+        Card(
+            colors = CardDefaults.cardColors(containerColor = NexusTheme.colors.bgCanvas),
+            border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.PointOfSale, contentDescription = null, tint = NexusTheme.colors.accent, modifier = Modifier.size(18.dp))
+                    Text(
+                        "Identificación de Esta Terminal / Caja",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NexusTheme.colors.textPrimary
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = state.registerId,
+                        onValueChange = viewModel::onRegisterIdChanged,
+                        label = { Text("Identificador de Caja") },
+                        placeholder = { Text("caja-1") },
+                        singleLine = true,
+                        modifier = Modifier.weight(0.35f)
+                    )
+
+                    OutlinedTextField(
+                        value = state.registerName,
+                        onValueChange = viewModel::onRegisterNameChanged,
+                        label = { Text("Nombre Descriptivo de Terminal") },
+                        placeholder = { Text("Caja Principal Mostrador") },
+                        singleLine = true,
+                        modifier = Modifier.weight(0.65f)
+                    )
+                }
+            }
+        }
+
+        // Section 3: Diagnóstico / Resultado de Prueba
+        state.networkTestResult?.let { msg ->
+            Surface(
+                color = if (state.isNetworkTestSuccess) Color(0xFF059669).copy(alpha = 0.12f) else Color(0xFFDC2626).copy(alpha = 0.12f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, if (state.isNetworkTestSuccess) Color(0xFF059669).copy(alpha = 0.4f) else Color(0xFFDC2626).copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    Icon(
+                        imageVector = if (state.isNetworkTestSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                        contentDescription = null,
+                        tint = if (state.isNetworkTestSuccess) Color(0xFF059669) else Color(0xFFDC2626)
+                    )
+                    Text(
+                        text = msg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (state.isNetworkTestSuccess) Color(0xFF059669) else Color(0xFFDC2626),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Section 4: Botones de Acción
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = viewModel::testNetwork,
+                enabled = state.serverHost.isNotBlank() && !state.isTestingNetwork,
+                modifier = Modifier.height(44.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                if (state.isTestingNetwork) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Probando Conexión...")
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Probar Conexión")
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Button(
+                onClick = viewModel::saveNetworkConfig,
+                colors = ButtonDefaults.buttonColors(containerColor = NexusTheme.colors.actionPrimary),
+                modifier = Modifier.height(44.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Guardar Configuración de Red", fontWeight = FontWeight.Bold)
             }
         }
     }

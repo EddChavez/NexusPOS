@@ -2,7 +2,7 @@ package mx.nexuspos.client.features.settings
 
 import mx.nexuspos.contracts.identity.UserDto
 
-enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, USERS }
+enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, NETWORK, USERS }
 
 data class SettingsUiState(
     val isLoading: Boolean = true,
@@ -39,6 +39,15 @@ data class SettingsUiState(
     val autoPrintOnSale: Boolean = true,
     val openDrawerOnCashSale: Boolean = true,
     val isTestingPrinter: Boolean = false,
+    // Network / Server LAN settings
+    val serverHost: String = "localhost",
+    val serverPort: String = "8080",
+    val serverScheme: String = "http",
+    val registerId: String = "caja-1",
+    val registerName: String = "Caja Principal",
+    val isTestingNetwork: Boolean = false,
+    val networkTestResult: String? = null,
+    val isNetworkTestSuccess: Boolean = false,
     // Feedback
     val isSaving: Boolean = false,
     val successBanner: String? = null,

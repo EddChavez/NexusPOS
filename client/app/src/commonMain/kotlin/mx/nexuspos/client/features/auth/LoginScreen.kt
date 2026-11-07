@@ -36,6 +36,7 @@ fun LoginScreen(
     viewModel: AuthViewModel,
     connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
     registerId: String = "01",
+    onConfigureServerConnection: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -105,7 +106,13 @@ fun LoginScreen(
                     Surface(
                         color = if (isConnected) Color(0xFF059669).copy(alpha = 0.12f) else Color(0xFFDC2626).copy(alpha = 0.12f),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.padding(top = 4.dp)
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .then(
+                                if (onConfigureServerConnection != null) {
+                                    Modifier.clip(RoundedCornerShape(12.dp)).clickable { onConfigureServerConnection() }
+                                } else Modifier
+                            )
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -119,7 +126,11 @@ fun LoginScreen(
                                 modifier = Modifier.size(14.dp)
                             )
                             Text(
-                                text = if (isConnected) "Servidor Central Conectado" else "Sin Conexión al Servidor",
+                                text = if (isConnected) {
+                                    "Servidor Central Conectado"
+                                } else {
+                                    "Sin Conexión al Servidor (clic para configurar)"
+                                },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isConnected) Color(0xFF059669) else Color(0xFFDC2626)

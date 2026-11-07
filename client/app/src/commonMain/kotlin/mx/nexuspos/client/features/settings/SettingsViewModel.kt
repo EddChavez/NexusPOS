@@ -24,6 +24,14 @@ data class PrinterUiConfig(
     val openDrawerOnCashSale: Boolean = true
 )
 
+data class NetworkUiConfig(
+    val serverHost: String = "localhost",
+    val serverPort: Int = 8080,
+    val serverScheme: String = "http",
+    val registerId: String = "caja-1",
+    val registerName: String = "Caja Principal"
+)
+
 class SettingsViewModel(
     private val apiClient: ApiClient,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
@@ -37,6 +45,11 @@ class SettingsViewModel(
     var osPrintersProvider: (() -> List<String>)? = null
     var testPrintAction: ((PrinterUiConfig) -> Result<Unit>)? = null
     var testDrawerAction: ((PrinterUiConfig) -> Result<Unit>)? = null
+
+    // Network / Server LAN hooks wired by desktop launcher
+    var networkConfigLoader: (() -> NetworkUiConfig)? = null
+    var networkConfigSaver: ((NetworkUiConfig) -> Unit)? = null
+    var testNetworkAction: (suspend (host: String, port: Int) -> Result<String>)? = null
 
     init {
         loadAll()
@@ -87,6 +100,8 @@ class SettingsViewModel(
         _uiState.update { it.copy(selectedTab = tab) }
         if (tab == SettingsTab.PRINTER) {
             refreshAvailableOsPrinters()
+        } else if (tab == SettingsTab.NETWORK) {
+            loadNetworkConfig()
         }
     }
 
@@ -377,6 +392,77 @@ class SettingsViewModel(
                 )
             }
             if (res.isSuccess) autoDismissBanner()
+        }
+    }
+
+    // --- Network / Server LAN settings ---
+
+    fun loadNetworkConfig() {
+        val loaded = networkConfigLoader?.invoke() ?: NetworkUiConfig()
+        _uiState.update {
+            it.copy(
+                serverHost = loaded.serverHost,
+                serverPort = loaded.serverPort.toString(),
+                serverScheme = loaded.serverScheme,
+                registerId = loaded.registerId,
+                registerName = loaded.registerName,
+                networkTestResult = null
+            )
+        }
+    }
+
+    fun onServerHostChanged(v: String) = _uiState.update { it.copy(serverHost = v.trim(), networkTestResult = null) }
+    fun onServerPortChanged(v: String) = _uiState.update { it.copy(serverPort = v.filter { ch -> ch.isDigit() }, networkTestResult = null) }
+    fun onServerSchemeChanged(v: String) = _uiState.update { it.copy(serverScheme = v.trim(), networkTestResult = null) }
+    fun onRegisterIdChanged(v: String) = _uiState.update { it.copy(registerId = v.trim()) }
+    fun onRegisterNameChanged(v: String) = _uiState.update { it.copy(registerName = v) }
+
+    fun getCurrentNetworkConfig(): NetworkUiConfig {
+        val s = _uiState.value
+        return NetworkUiConfig(
+            serverHost = s.serverHost.ifBlank { "localhost" },
+            serverPort = s.serverPort.toIntOrNull() ?: 8080,
+            serverScheme = s.serverScheme.ifBlank { "http" },
+            registerId = s.registerId.ifBlank { "caja-1" },
+            registerName = s.registerName.ifBlank { "Caja Principal" }
+        )
+    }
+
+    fun saveNetworkConfig() {
+        val cfg = getCurrentNetworkConfig()
+        networkConfigSaver?.invoke(cfg)
+        _uiState.update {
+            it.copy(
+                successBanner = "Configuración de red y servidor guardada correctamente.",
+                errorBanner = null
+            )
+        }
+        autoDismissBanner()
+    }
+
+    fun testNetwork() {
+        val s = _uiState.value
+        val host = s.serverHost.trim()
+        val port = s.serverPort.toIntOrNull() ?: 8080
+        if (host.isBlank()) {
+            _uiState.update { it.copy(errorBanner = "Debe ingresar una IP o Host de servidor válido.") }
+            return
+        }
+        _uiState.update { it.copy(isTestingNetwork = true, networkTestResult = null, errorBanner = null) }
+        scope.launch {
+            val res = testNetworkAction?.invoke(host, port)
+                ?: Result.failure(IllegalStateException("Acción de prueba de red no configurada"))
+            _uiState.update { state ->
+                state.copy(
+                    isTestingNetwork = false,
+                    isNetworkTestSuccess = res.isSuccess,
+                    networkTestResult = if (res.isSuccess) {
+                        "Conexión exitosa con el servidor (${res.getOrNull() ?: "OK"})"
+                    } else {
+                        "Error de conexión: ${res.exceptionOrNull()?.message ?: "Host inaccesible"}"
+                    }
+                )
+            }
         }
     }
 
