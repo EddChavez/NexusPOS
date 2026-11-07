@@ -1,6 +1,7 @@
 package mx.nexuspos.desktop.hardware
 
 import mx.nexuspos.contracts.cash.CashSessionSummary
+import mx.nexuspos.contracts.cash.DailyFinancialReportDto
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.core.Money
@@ -140,21 +141,28 @@ class EscPosReceiptPrinter(
     }
 
     /**
-     * Formats cash cut summary text.
+     * Formats cash cut summary text (Corte X = Arqueo Informativo, Corte Z = Cierre Oficial).
      */
     fun formatCashCutText(
         session: CashSessionSummary,
-        settings: SettingsDto? = null
+        settings: SettingsDto? = null,
+        isFinalZCut: Boolean = false
     ): String {
         val sb = StringBuilder()
         val sep = "=".repeat(columnWidth)
         val thinSep = "-".repeat(columnWidth)
 
         sb.appendLine(centerText(settings?.storeName ?: "NEXUS POS"))
-        sb.appendLine(centerText("*** CORTE DE CAJA (TURNO) ***"))
+        if (isFinalZCut) {
+            sb.appendLine(centerText("*** CORTE Z (CIERRE OFICIAL) ***"))
+        } else {
+            sb.appendLine(centerText("*** CORTE X (ARQUEO PARCIAL) ***"))
+        }
         sb.appendLine(sep)
         sb.appendLine("Sesión ID: #${session.sessionId}")
+        sb.appendLine("Caja: ${session.registerName.ifBlank { "Caja ${session.registerId}" }}")
         sb.appendLine("Cajero: ${session.cashierName}")
+        sb.appendLine("Estado: ${if (isFinalZCut) "TURNO CERRADO" else "EN CURSO / ABIERTO"}")
         sb.appendLine("Apertura: ${formatTimestamp(session.openedAt)}")
         session.closedAt?.let { sb.appendLine("Cierre: ${formatTimestamp(it)}") }
         sb.appendLine(thinSep)
@@ -169,19 +177,96 @@ class EscPosReceiptPrinter(
 
         session.countedCashCents?.let { counted ->
             sb.appendLine(formatRow("Efectivo Contado:", Money(counted).format()))
-            val diffCents = session.differenceCents ?: 0L
-            val diffStr = if (diffCents >= 0L) "+${Money(diffCents).format()}" else "-${Money(-diffCents).format()}"
+            val diffCents = session.differenceCents ?: (counted - session.expectedCashCents)
+            val diffStr = when {
+                diffCents == 0L -> "Exacto ($0.00)"
+                diffCents > 0L -> "+${Money(diffCents).format()} (Sobrante)"
+                else -> "-${Money(-diffCents).format()} (Faltante)"
+            }
             sb.appendLine(formatRow("DIFERENCIA (Arqueo):", diffStr))
         }
 
+        if (isFinalZCut) {
+            sb.appendLine(sep)
+            sb.appendLine()
+            sb.appendLine(centerText("Firma del Cajero: __________________"))
+            sb.appendLine()
+            sb.appendLine(centerText("Firma Supervisor: __________________"))
+            sb.appendLine()
+        } else {
+            sb.appendLine(thinSep)
+            sb.appendLine(centerText("Nota: Arqueo parcial, no sustituye al Corte Z"))
+            sb.appendLine()
+        }
+
+        return sb.toString()
+    }
+
+    /**
+     * Formats consolidated daily financial report into plain text for thermal printing.
+     */
+    fun formatDailyReportText(
+        report: DailyFinancialReportDto,
+        settings: SettingsDto? = null
+    ): String {
+        val sb = StringBuilder()
+        val sep = "=".repeat(columnWidth)
+        val thinSep = "-".repeat(columnWidth)
+
+        sb.appendLine(centerText(settings?.storeName ?: "NEXUS POS"))
+        sb.appendLine(centerText("*** REPORTE DIARIO CONSOLIDADO ***"))
+        sb.appendLine(sep)
+        sb.appendLine("Fecha: ${formatTimestamp(report.dateEpochMs).take(10)}")
+        sb.appendLine("Turnos incluidos: ${report.activeSessionsCount}")
+        sb.appendLine(thinSep)
+
+        // Ventas por método
+        sb.appendLine(centerText("-- DESGLOSE DE VENTAS --"))
+        sb.appendLine(formatRow("Ventas en Efectivo:", Money(report.salesCashCents).format()))
+        sb.appendLine(formatRow("Ventas a Crédito (Fiado):", Money(report.salesCreditCents).format()))
+        if (report.salesOtherCents > 0L) {
+            sb.appendLine(formatRow("Otras Formas de Pago:", Money(report.salesOtherCents).format()))
+        }
+        sb.appendLine(thinSep)
+        sb.appendLine(formatRow("TOTAL VENTAS BRUTAS:", Money(report.totalSalesCents).format()))
+        sb.appendLine(thinSep)
+
+        // Movimientos y Cobranza
+        sb.appendLine(centerText("-- CAJA Y MOVIMIENTOS --"))
+        sb.appendLine(formatRow("(+) Cobranza Fiado:", Money(report.creditPaymentsCashCents).format()))
+        sb.appendLine(formatRow("(+) Entradas de Caja:", Money(report.cashInCents).format()))
+        sb.appendLine(formatRow("(-) Retiros de Caja:", Money(report.cashOutCents).format()))
+        sb.appendLine(thinSep)
+
+        // Tickets
+        sb.appendLine(centerText("-- TICKETS EMITIDOS --"))
+        sb.appendLine(formatRow("Tickets Completados:", "${report.completedTicketsCount}"))
+        sb.appendLine(formatRow("Tickets Cancelados:", "${report.cancelledTicketsCount} (${Money(report.cancelledAmountCents).format()})"))
+        sb.appendLine(formatRow("Total Operaciones:", "${report.totalTicketsCount}"))
+        sb.appendLine(thinSep)
+
+        // Rentabilidad
+        sb.appendLine(centerText("-- GANANCIA BRUTA ESTIMADA --"))
+        sb.appendLine(formatRow("Costo Reposición:", Money(report.totalCostCents).format()))
+        sb.appendLine(formatRow("GANANCIA BRUTA:", Money(report.estimatedGrossProfitCents).format()))
+        sb.appendLine(formatRow("Margen de Utilidad:", "${report.profitMarginPercent}%"))
         sb.appendLine(sep)
         sb.appendLine()
-        sb.appendLine(centerText("Firma del Cajero: __________________"))
-        sb.appendLine()
-        sb.appendLine(centerText("Firma Supervisor: __________________"))
         sb.appendLine()
 
         return sb.toString()
+    }
+
+    /**
+     * Generates ESC/POS bytes for daily financial report.
+     */
+    fun generateDailyReportBytes(
+        report: DailyFinancialReportDto,
+        settings: SettingsDto? = null,
+        cutPaper: Boolean = true
+    ): ByteArray {
+        val text = formatDailyReportText(report, settings)
+        return generateEscPosBytes(text, cutPaper = cutPaper, openDrawer = false)
     }
 
     /**

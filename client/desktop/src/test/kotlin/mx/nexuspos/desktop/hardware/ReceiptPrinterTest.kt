@@ -175,9 +175,9 @@ class ReceiptPrinterTest {
             status = "CLOSED"
         )
 
-        val text = printer.formatCashCutText(cut)
+        val text = printer.formatCashCutText(cut, isFinalZCut = true)
 
-        assertTrue(text.contains("CORTE DE CAJA (TURNO)"))
+        assertTrue(text.contains("CORTE Z (CIERRE OFICIAL)"))
         assertTrue(text.contains("Fondo Inicial:"))
         assertTrue(text.contains("$500.00"))
         assertTrue(text.contains("Ventas en Efectivo:"))

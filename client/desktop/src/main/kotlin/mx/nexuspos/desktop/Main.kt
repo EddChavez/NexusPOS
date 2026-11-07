@@ -30,6 +30,8 @@ import mx.nexuspos.client.features.auth.AuthViewModel
 import mx.nexuspos.client.features.auth.LoginScreen
 import mx.nexuspos.client.features.auth.SupervisorAction
 import mx.nexuspos.client.features.auth.SupervisorAuthDialog
+import mx.nexuspos.client.features.cash.CashCutScreen
+import mx.nexuspos.client.features.cash.CashCutViewModel
 import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
 import mx.nexuspos.client.features.inventory.InventoryScreen
@@ -66,6 +68,7 @@ fun main() = application {
     val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
     val inventoryViewModel = remember { InventoryViewModel(viewModel.apiClient) }
     val settingsViewModel = remember { SettingsViewModel(viewModel.apiClient) }
+    val cashCutViewModel = remember { CashCutViewModel(viewModel.apiClient) }
     val salesState by viewModel.uiState.collectAsState()
     val authState by authViewModel.uiState.collectAsState()
     val supervisorState by authViewModel.supervisorState.collectAsState()
@@ -198,6 +201,39 @@ fun main() = application {
                 }
             }
         }
+
+        // 4. Cash Cut & Shift reports hooks
+        cashCutViewModel.cashCutFormatter = { session, isFinal ->
+            val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
+            printer.formatCashCutText(session, isFinalZCut = isFinal)
+        }
+
+        cashCutViewModel.dailyReportFormatter = { report ->
+            val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
+            printer.formatDailyReportText(report)
+        }
+
+        cashCutViewModel.onPrintCashCut = { session, isFinal ->
+            CoroutineScope(Dispatchers.IO).launch {
+                printerDispatcher.printCashCut(session, null, printerConfig, isFinalZCut = isFinal)
+            }
+        }
+
+        cashCutViewModel.onPrintDailyReport = { report ->
+            CoroutineScope(Dispatchers.IO).launch {
+                printerDispatcher.printDailyReport(report, null, printerConfig)
+            }
+        }
+
+        cashCutViewModel.onOpenCashDrawer = {
+            CoroutineScope(Dispatchers.IO).launch {
+                printerDispatcher.openCashDrawer(printerConfig)
+            }
+        }
+
+        cashCutViewModel.onSessionClosedCallback = {
+            viewModel.loadActiveSession()
+        }
     }
 
     val headerState = remember(activeModule, scaleReading, salesState.connectionState, salesState.activeCashierName, salesState.activeCashierRole) {
@@ -305,7 +341,7 @@ fun main() = application {
                     Key.F6 -> {
                         // Acceso rápido a Cortes de Turno
                         activeModule = AppModule.CASH_CUT
-                        viewModel.showSessionDialog(true)
+                        cashCutViewModel.loadCurrentSession()
                         true
                     }
 
@@ -490,7 +526,7 @@ fun main() = application {
                                 } else {
                                     activeModule = selected
                                     if (selected == AppModule.CASH_CUT) {
-                                        viewModel.showSessionDialog(true)
+                                        cashCutViewModel.loadCurrentSession()
                                     }
                                 }
                             },
@@ -513,7 +549,7 @@ fun main() = application {
                             .background(MaterialTheme.colorScheme.background)
                     ) {
                         when (activeModule) {
-                            AppModule.SALES, AppModule.CASH_CUT -> {
+                            AppModule.SALES -> {
                                 SalesScreen(
                                     viewModel = viewModel,
                                     onRequestCancelSale = { sale, reason ->
@@ -525,6 +561,13 @@ fun main() = application {
                                             viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
                                         }
                                     }
+                                )
+                            }
+                            AppModule.CASH_CUT -> {
+                                CashCutScreen(
+                                    viewModel = cashCutViewModel,
+                                    onBackToSales = { activeModule = AppModule.SALES },
+                                    activeCashierUserId = salesState.activeCashierId
                                 )
                             }
                             AppModule.CUSTOMERS -> {

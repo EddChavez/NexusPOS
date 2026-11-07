@@ -44,6 +44,7 @@ import mx.nexuspos.server.modules.catalog.CatalogService
 import mx.nexuspos.server.modules.credit.CreditService
 import mx.nexuspos.server.modules.identity.IdentityService
 import mx.nexuspos.server.modules.inventory.InventoryService
+import mx.nexuspos.server.modules.reports.ReportsService
 import mx.nexuspos.server.modules.sales.SalesService
 import mx.nexuspos.server.modules.system.SettingsService
 import mx.nexuspos.server.persistence.DatabaseFactory
@@ -69,6 +70,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val creditService = CreditService(dbFactory)
     val settingsService = SettingsService(dbFactory)
     val salesService = SalesService(dbFactory, settingsService)
+    val reportsService = ReportsService(dbFactory)
 
     val activeWsSessions = Collections.synchronizedSet(HashSet<DefaultWebSocketServerSession>())
 
@@ -482,6 +484,14 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val cancelled = salesService.cancelSale(id, req)
                 broadcastEventJson("sale.cancelled", jsonConfig.encodeToString(cancelled))
                 call.respond(cancelled)
+            }
+
+            // Financial & Daily Reports
+            get("/reports/daily") {
+                val dateParam = call.request.queryParameters["date"]?.toLongOrNull() ?: System.currentTimeMillis()
+                val sessionParam = call.request.queryParameters["sessionId"]
+                val report = reportsService.getDailyFinancialReport(dateParam, sessionParam)
+                call.respond(report)
             }
         }
 

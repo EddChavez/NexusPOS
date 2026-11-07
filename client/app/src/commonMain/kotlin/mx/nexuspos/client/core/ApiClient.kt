@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.CloseSessionRequest
+import mx.nexuspos.contracts.cash.DailyFinancialReportDto
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
@@ -330,7 +331,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun openSession(req: OpenSessionRequest): Result<CashSessionSummary> {
+    open suspend fun openSession(req: OpenSessionRequest): Result<CashSessionSummary> {
         return try {
             val res = http.post("$baseUrl/api/v1/cash-sessions") {
                 contentType(ContentType.Application.Json)
@@ -347,7 +348,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun closeSession(sessionId: String, req: CloseSessionRequest): Result<CashSessionSummary> {
+    open suspend fun closeSession(sessionId: String, req: CloseSessionRequest): Result<CashSessionSummary> {
         return try {
             val res = http.post("$baseUrl/api/v1/cash-sessions/$sessionId/close") {
                 contentType(ContentType.Application.Json)
@@ -570,6 +571,33 @@ open class ApiClient(
                 contentType(ContentType.Application.Json)
                 setBody(settings)
             }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getDailyReport(
+        dateEpochMs: Long? = null,
+        sessionId: String? = null
+    ): Result<DailyFinancialReportDto> {
+        return try {
+            val url = buildString {
+                append("$baseUrl/api/v1/reports/daily")
+                val params = mutableListOf<String>()
+                dateEpochMs?.let { params.add("date=$it") }
+                sessionId?.let { params.add("sessionId=$it") }
+                if (params.isNotEmpty()) {
+                    append("?")
+                    append(params.joinToString("&"))
+                }
+            }
+            val res = http.get(url)
             if (res.status.isSuccess()) {
                 Result.success(res.body())
             } else {

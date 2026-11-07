@@ -44,3 +44,23 @@ data class CashSessionSummary(
     val differenceCents: Long? = null, // counted - expected
     val status: String // OPEN, CLOSED
 )
+
+@Serializable
+data class DailyFinancialReportDto(
+    val dateEpochMs: Long,
+    val totalSalesCents: Long,
+    val salesCashCents: Long,
+    val salesCreditCents: Long,
+    val salesOtherCents: Long = 0L,
+    val totalTicketsCount: Int,
+    val completedTicketsCount: Int,
+    val cancelledTicketsCount: Int,
+    val cancelledAmountCents: Long,
+    val creditPaymentsCashCents: Long,
+    val cashInCents: Long,
+    val cashOutCents: Long,
+    val totalCostCents: Long,
+    val estimatedGrossProfitCents: Long,
+    val profitMarginPercent: Double,
+    val activeSessionsCount: Int
+)

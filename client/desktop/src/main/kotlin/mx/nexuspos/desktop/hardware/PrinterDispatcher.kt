@@ -1,6 +1,7 @@
 package mx.nexuspos.desktop.hardware
 
 import mx.nexuspos.contracts.cash.CashSessionSummary
+import mx.nexuspos.contracts.cash.DailyFinancialReportDto
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
 import java.io.ByteArrayInputStream
@@ -20,7 +21,8 @@ interface PrinterDispatcher {
     fun getAvailableOsPrinters(): List<String>
     fun printBytes(bytes: ByteArray, config: PrinterConfig): Result<Unit>
     fun printSaleReceipt(sale: SaleResponse, settings: SettingsDto?, config: PrinterConfig, isReprint: Boolean = false): Result<Unit>
-    fun printCashCut(session: CashSessionSummary, settings: SettingsDto?, config: PrinterConfig): Result<Unit>
+    fun printCashCut(session: CashSessionSummary, settings: SettingsDto?, config: PrinterConfig, isFinalZCut: Boolean = false): Result<Unit>
+    fun printDailyReport(report: DailyFinancialReportDto, settings: SettingsDto?, config: PrinterConfig): Result<Unit>
     fun openCashDrawer(config: PrinterConfig): Result<Unit>
     fun printTestReceipt(storeName: String, config: PrinterConfig): Result<Unit>
 }
@@ -67,13 +69,28 @@ class DefaultPrinterDispatcher : PrinterDispatcher {
     override fun printCashCut(
         session: CashSessionSummary,
         settings: SettingsDto?,
+        config: PrinterConfig,
+        isFinalZCut: Boolean
+    ): Result<Unit> {
+        if (config.connectionType == PrinterConnectionType.NONE) {
+            return Result.success(Unit)
+        }
+        val printer = EscPosReceiptPrinter(config.paperWidth)
+        val text = printer.formatCashCutText(session, settings, isFinalZCut = isFinalZCut)
+        val bytes = printer.generateEscPosBytes(text, cutPaper = true, openDrawer = false)
+        return printBytes(bytes, config)
+    }
+
+    override fun printDailyReport(
+        report: DailyFinancialReportDto,
+        settings: SettingsDto?,
         config: PrinterConfig
     ): Result<Unit> {
         if (config.connectionType == PrinterConnectionType.NONE) {
             return Result.success(Unit)
         }
         val printer = EscPosReceiptPrinter(config.paperWidth)
-        val text = printer.formatCashCutText(session, settings)
+        val text = printer.formatDailyReportText(report, settings)
         val bytes = printer.generateEscPosBytes(text, cutPaper = true, openDrawer = false)
         return printBytes(bytes, config)
     }
