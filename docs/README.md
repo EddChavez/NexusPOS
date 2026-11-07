@@ -30,6 +30,9 @@ docs/
 │   └── settings-configuration.md     # Configuración de tienda, ticket, política de stock y usuarios/PINs
 ├── api/
 │   └── endpoints.md                   # Contratos REST /api/v1, DTOs, Idempotency-Key y WebSocket
+├── deployment/
+│   ├── packaging-and-distribution.md  # Empaquetado nativo (MSI, DMG, DEB), JRE embebido y topología LAN
+│   └── backup-and-restore.md          # Respaldos automatizados pg_dump, rotación a 30 días y recuperación
 └── testing/
     └── testing-strategy.md            # Estrategia de pruebas unitarias, integración y hardware
 ```
