@@ -178,4 +178,17 @@ class BottomCheckoutPanelTest {
         assertEquals(1, viewModel.uiState.value.tickets.size)
         assertFalse(viewModel.uiState.value.tickets.any { it.id == activeId })
     }
+
+    @Test
+    fun testOpenParkSaleDialogState() {
+        val viewModel = SalesViewModel()
+        assertFalse(viewModel.uiState.value.isShowingParkedSalesListDialog)
+
+        // When cart is empty, openParkSaleDialog opens the list of parked sales
+        viewModel.openParkSaleDialog()
+        assertTrue(viewModel.uiState.value.isShowingParkedSalesListDialog)
+
+        viewModel.closeParkedSalesListDialog()
+        assertFalse(viewModel.uiState.value.isShowingParkedSalesListDialog)
+    }
 }

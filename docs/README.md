@@ -91,18 +91,27 @@ La terminal de venta está diseñada para ser operada a máxima velocidad sin ne
 | Atajo | Acción | Descripción |
 | :--- | :--- | :--- |
 | **Enter** | Agregar Producto | Procesa el código escaneado o SKU en la barra de captura. |
-| **F12** | Cobrar Orden | Abre la ventana de **Cobro Multi-Pago** (Efectivo, Tarjeta, Transferencia o Fiado). |
-| **Ctrl+L** | Cambiar Cajero | Bloquea la terminal para cambio de turno preservando los artículos del carrito. |
-| **Ctrl+H** | Historial Turno | Consulta ventas del turno, reimprime tickets y gestiona cancelaciones. |
-| **F7** | Abrir Cajón | Emite el pulso binario ESC/POS para apertura física del cajón de dinero. |
-| **INS** | Varios | Captura libre de artículo genérico con precio abierto. |
-| **Ctrl+P** | Artículos Comunes | Menú de selección rápida de bolsas, recargas y envases. |
-| **F10** | Catálogo | Búsqueda asistida en catálogo general. |
-| **F11** | Mayoreo | Aplica 10% de descuento de mayoreo a la línea seleccionada. |
+| **F7** | Entradas de Efectivo | Registro inmediato de aportaciones y cambio en caja chica. |
 | **F8** | Salidas de Caja | Registro inmediato de retiros de efectivo con concepto y monto. |
 | **F9** | Granel | Pesaje y captura de producto en kilogramos con lectura de báscula serial. |
-| **DEL** | Borrar Artículo | Elimina la línea seleccionada o última del ticket. |
+| **F10** | Catálogo | Búsqueda asistida en catálogo general con filtros y existencias. |
+| **F11** | Mayoreo | Aplica 10% de descuento de mayoreo a la línea seleccionada. |
+| **F12** | Cobrar Orden | Abre la ventana de **Cobro Multi-Pago** (Efectivo, Tarjeta, Transferencia o Fiado). |
+| **INS** | Varios | Captura libre de artículo genérico con precio abierto. |
+| **DEL** | Borrar Artículo | Elimina la partida activa seleccionada del carrito. |
 | **Esc** | Cerrar / Regresar | Cierra diálogos modales activos o regresa a **[F1] Ventas**. |
+
+### Acciones Compuestas (Gestión de Mostrador y Tickets)
+| Atajo | Acción | Descripción |
+| :--- | :--- | :--- |
+| **Ctrl+T** | Cambiar Ticket | Alterna secuencialmente entre cuentas abiertas (Ticket 1, Ticket 2...). |
+| **Ctrl+E** | Dejar Pendiente | Guarda el ticket en espera en base de datos local y abre uno nuevo. |
+| **Ctrl+W** | Cerrar Ticket | Cierra y cancela la pestaña del ticket activo en pantalla. |
+| **Ctrl+B** | Abrir Cajón | Emite pulso binario ESC/POS (`ESC p`) para apertura física del cajón de dinero. |
+| **Ctrl+R** | Reimprimir | Reimprime el ticket de la última venta concretada en el turno. |
+| **Ctrl+H** | Historial Turno | Consulta ventas del turno, reimprime tickets y gestiona cancelaciones. |
+| **Ctrl+P** | Artículos Comunes | Menú de selección rápida de bolsas, recargas y envases. |
+| **Ctrl+L** | Cambiar Cajero | Bloquea la terminal para cambio de turno preservando los artículos del carrito. |
 
 ---
 

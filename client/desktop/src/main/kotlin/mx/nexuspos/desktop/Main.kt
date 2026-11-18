@@ -522,6 +522,41 @@ fun main() = application {
                         } else false
                     }
 
+                    Key.T -> {
+                        if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
+                            viewModel.cycleNextTicket()
+                            true
+                        } else false
+                    }
+
+                    Key.E -> {
+                        if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
+                            viewModel.openParkSaleDialog()
+                            true
+                        } else false
+                    }
+
+                    Key.W -> {
+                        if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
+                            viewModel.closeTicket(salesState.activeTicketId)
+                            true
+                        } else false
+                    }
+
+                    Key.B -> {
+                        if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
+                            viewModel.openCashDrawer()
+                            true
+                        } else false
+                    }
+
+                    Key.R -> {
+                        if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
+                            viewModel.reprintLastTicket()
+                            true
+                        } else false
+                    }
+
                     Key.F10 -> {
                         if (activeModule == AppModule.SALES) {
                             viewModel.showSearchCatalogDialog(true)

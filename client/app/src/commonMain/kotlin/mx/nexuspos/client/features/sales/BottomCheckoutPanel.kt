@@ -134,12 +134,12 @@ private fun TicketManagementCard(
                 }
             }
 
-            // Fila de 3 botones compactos: [F5], [F6], [DEL]
+            // Fila de 3 botones compactos: [Ctrl+T], [Ctrl+E], [Ctrl+W]
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // [F5] Cambiar Ticket
+                // [Ctrl+T] Cambiar Ticket
                 OutlinedButton(
                     onClick = onSwitchTicket,
                     modifier = Modifier
@@ -153,7 +153,7 @@ private fun TicketManagementCard(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("[F5]", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("[Ctrl+T]", fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
                         Text(
                             "Cambiar",
                             fontSize = 11.sp,
@@ -163,7 +163,7 @@ private fun TicketManagementCard(
                     }
                 }
 
-                // [F6] Dejar Pendiente
+                // [Ctrl+E] Dejar Pendiente / En Espera
                 OutlinedButton(
                     onClick = onHoldTicket,
                     modifier = Modifier
@@ -177,7 +177,7 @@ private fun TicketManagementCard(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("[F6]", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("[Ctrl+E]", fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
                         Text(
                             text = if (state.parkedSalesCount > 0) "Pend (${state.parkedSalesCount})" else "Dejar Pend",
                             fontSize = 11.sp,
@@ -187,8 +187,7 @@ private fun TicketManagementCard(
                     }
                 }
 
-                // [DEL] Eliminar (Destacado en tokens oficiales Neutro/DEL de alto contraste)
-                // Este evento elimina por completo el ticket actual en foco, a diferencia de la eliminación de un producto individual de la parrilla
+                // [Ctrl+W] Cerrar Ticket actual
                 Button(
                     onClick = onCancelCurrentTicket,
                     enabled = state.canCancelTicket,
@@ -207,13 +206,13 @@ private fun TicketManagementCard(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "[DEL]",
-                            fontSize = 10.sp,
+                            "[Ctrl+W]",
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (state.canCancelTicket) NexusTheme.colors.dangerText else NexusTheme.colors.dangerText.copy(alpha = 0.35f)
                         )
                         Text(
-                            "Eliminar",
+                            "Cerrar",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = if (state.canCancelTicket) NexusTheme.colors.dangerText else NexusTheme.colors.dangerText.copy(alpha = 0.35f),
@@ -247,7 +246,7 @@ private fun TicketManagementCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Abrir Cajón",
+                        text = "[Ctrl+B] Abrir Cajón",
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -364,8 +363,8 @@ private fun PreviousSaleCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Reimprimir Ticket",
-                            fontSize = 11.5.sp,
+                            text = "[Ctrl+R] Reimprimir",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1
                         )
@@ -395,8 +394,8 @@ private fun PreviousSaleCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Ventas / Devol.",
-                            fontSize = 11.5.sp,
+                            text = "[Ctrl+H] Historial",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1
                         )

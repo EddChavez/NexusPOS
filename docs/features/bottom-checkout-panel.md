@@ -141,10 +141,10 @@ Las pruebas unitarias automatizadas se localizan en `client/desktop/src/test/kot
 1. **`testDefaultBottomCheckoutPanelState`:** Verifica los valores iniciales limpios en cero (`$0.00` y `Ticket #---`).
 2. **`testMappingFromSalesUiStateEmpty`:** Valida la proyección del estado cuando no hay artículos en el carrito.
 3. **`testMappingFromSalesUiStateWithCompletedSale`:** Valida el cálculo dinámico del folio, total anterior, importe recibido y cambio en verde tras concretar una venta.
-4. **`testCycleNextTicketInViewModel`:** Verifica la alternancia circular de tickets abiertos (`[F5]`).
-5. **`testHoldTicketAndNew`:** Valida que `[F6]` genere un nuevo ticket limpio manteniendo el anterior en espera.
-6. **`testOpenCashDrawerAndReprintMessages`:** Valida los eventos de control de cajón y reimpresión de tickets.
-7. **`testCancelCurrentTicketDestroysActiveTicket`:** Valida que el botón `[DEL]` (vía `onCancelCurrentTicket`) destruya por completo el ticket activo en foco.
+4. **`testCycleNextTicketInViewModel`:** Verifica la alternancia circular de tickets abiertos (`[Ctrl+T]`).
+5. **`testHoldTicketAndNew`:** Valida que `[Ctrl+E]` genere un nuevo ticket limpio manteniendo el anterior en espera.
+6. **`testOpenCashDrawerAndReprintMessages`:** Valida los eventos de control de cajón (`[Ctrl+B]`) y reimpresión de tickets (`[Ctrl+R]`).
+7. **`testCancelCurrentTicketDestroysActiveTicket`:** Valida que el botón `[Ctrl+W]` (vía `onCancelCurrentTicket`) destruya por completo el ticket activo en foco.
 
 ---
 
@@ -152,7 +152,7 @@ Las pruebas unitarias automatizadas se localizan en `client/desktop/src/test/kot
 
 - **Ancho Completo para la Parrilla:** Al suprimir la barra lateral derecha que consumía el 32% del ancho, el `CartGrid` ahora se expande horizontalmente en su totalidad, permitiendo que las 8 columnas contables (incluyendo badges de báscula RS-232 y cantidades decimales) se lean sin truncamiento ni apiñamiento.
 - **Scroll Aislado:** La tabla de productos implementada con `LazyColumn` en `Modifier.weight(1f)` hace scroll independiente de forma fluida mientras el encabezado superior y el panel inferior permanecen completamente estáticos.
-- **Operación 100% por Teclado:** Cada acción clave del panel inferior cuenta con su shortcut explícito (`F5`, `F6`, `DEL`, `F12`) visible directamente en la etiqueta de los botones.
+- **Operación 100% por Teclado sin Colisiones:** Cada acción clave del panel inferior cuenta con su shortcut explícito (`Ctrl+T`, `Ctrl+E`, `Ctrl+W`, `Ctrl+B`, `Ctrl+R`, `Ctrl+H`, `F12`) visible directamente en la etiqueta de los botones, evitando cualquier empalme con las teclas de navegación de encabezado (`F1`-`F6`).
 
 ---
 
@@ -167,9 +167,9 @@ Las pruebas unitarias automatizadas se localizan en `client/desktop/src/test/kot
 
 | Requerimiento Solicitado | Implementación | Verificación |
 |---|---|---|
-| Franja horizontal inferior con 3 tarjetas en Row | `BottomCheckoutPanel.kt` con altura `160.dp` | `BottomCheckoutPanelTest.kt` y `SalesScreen.kt` |
-| Tarjeta Izquierda (~0.3f): Gestión de Ticket con F5, F6, DEL y Abrir Cajón | `TicketManagementCard` | `BottomCheckoutPanelTest.kt` |
-| Tarjeta Central (~0.35f): Venta Anterior con fondo gris, Total, Pagó y Cambio (verde) | `PreviousSaleCard` y `InfoBox` | `BottomCheckoutPanelTest.kt` |
+| Franja horizontal inferior con 3 tarjetas en Row | `BottomCheckoutPanel.kt` con altura `176.dp` | `BottomCheckoutPanelTest.kt` y `SalesScreen.kt` |
+| Tarjeta Izquierda (~0.3f): Gestión de Ticket con Ctrl+T, Ctrl+E, Ctrl+W y [Ctrl+B] Abrir Cajón | `TicketManagementCard` | `BottomCheckoutPanelTest.kt` |
+| Tarjeta Central (~0.35f): Venta Anterior con fondo gris, Total, Pagó, Cambio (verde), [Ctrl+R] Reimprimir y [Ctrl+H] Historial | `PreviousSaleCard` y `InfoBox` | `BottomCheckoutPanelTest.kt` |
 | Tarjeta Derecha (~0.35f): Borde verde, Total gigante a la derecha y botón [F12] | `TotalToChargeCard` | `BottomCheckoutPanelTest.kt` |
 | Valores iniciales limpios en cero ($0.00 y Ticket #---) | `BottomCheckoutPanelState.kt` | `testDefaultBottomCheckoutPanelState` |
 | Scroll independiente para tabla de productos en venta | `CartGrid` en `Column` con `weight(1f)` en `SalesScreen.kt` | Verificación en ejecución Desktop |
