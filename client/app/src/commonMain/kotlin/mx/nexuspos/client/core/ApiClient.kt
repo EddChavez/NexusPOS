@@ -103,7 +103,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun searchProducts(
+    open suspend fun searchProducts(
         barcode: String? = null,
         query: String? = null,
         departmentId: String? = null,

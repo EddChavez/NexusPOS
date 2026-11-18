@@ -15,6 +15,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.kotlinx.coroutinesSwing)
     implementation(libs.kotlinx.datetime)
+    implementation("com.fazecast:jSerialComm:2.11.0")
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit)

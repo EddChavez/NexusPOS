@@ -54,6 +54,11 @@ import mx.nexuspos.client.features.header.TopHeaderUiState
 import mx.nexuspos.client.features.sales.SalesScreen
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.client.theme.NexusTheme
+import mx.nexuspos.client.features.scale.ScaleConfig
+import mx.nexuspos.client.features.scale.ScaleProtocol
+import mx.nexuspos.client.features.scale.ScaleUiConfig
+import mx.nexuspos.desktop.hardware.scale.ScaleConfigRepository
+import mx.nexuspos.desktop.hardware.scale.ScaleManager
 import mx.nexuspos.desktop.config.AppConfig
 import mx.nexuspos.desktop.config.AppConfigRepository
 import mx.nexuspos.desktop.hardware.DefaultPrinterDispatcher
@@ -84,9 +89,11 @@ fun main() = application {
     val printerRepo = remember { PrinterConfigRepository() }
     val printerDispatcher: PrinterDispatcher = remember { DefaultPrinterDispatcher() }
     var printerConfig by remember { mutableStateOf(printerRepo.load()) }
+    val scaleRepo = remember { ScaleConfigRepository() }
+    val scaleManager = remember { ScaleManager(scaleRepo) }
 
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
-    var scaleReading by remember { mutableStateOf(ScaleReading("0.000 kg", ScaleStatus.STABLE)) }
+    var scaleReading by remember { mutableStateOf(scaleManager.getCurrentReading()) }
 
     // Wire auth and hardware printer callbacks
     LaunchedEffect(Unit) {
@@ -196,6 +203,63 @@ fun main() = application {
         }
 
         settingsViewModel.loadPrinterConfig()
+
+        // 1.5 SettingsViewModel scale bridge
+        launch {
+            scaleManager.readingFlow.collect { reading ->
+                scaleReading = reading
+            }
+        }
+
+        viewModel.scaleReadingProvider = { scaleManager.getCurrentReading() }
+        viewModel.autoAcceptScaleWeightProvider = { scaleManager.getConfig().autoAcceptStableWeight }
+
+        settingsViewModel.scaleConfigLoader = {
+            val cfg = scaleManager.getConfig()
+            ScaleUiConfig(
+                enabled = cfg.enabled,
+                portName = cfg.portName,
+                baudRate = cfg.baudRate,
+                protocol = cfg.protocol.code,
+                autoAcceptStableWeight = cfg.autoAcceptStableWeight,
+                pollIntervalMs = cfg.pollIntervalMs
+            )
+        }
+
+        settingsViewModel.scaleConfigSaver = { uiCfg ->
+            val newCfg = ScaleConfig(
+                enabled = uiCfg.enabled,
+                portName = uiCfg.portName,
+                baudRate = uiCfg.baudRate,
+                protocol = ScaleProtocol.fromString(uiCfg.protocol),
+                autoAcceptStableWeight = uiCfg.autoAcceptStableWeight,
+                pollIntervalMs = uiCfg.pollIntervalMs
+            )
+            scaleManager.updateConfig(newCfg)
+        }
+
+        settingsViewModel.serialPortsProvider = {
+            scaleManager.getAvailablePorts()
+        }
+
+        settingsViewModel.testScaleAction = { uiCfg ->
+            val reading = scaleManager.getCurrentReading()
+            if (scaleManager.isConnected()) {
+                Result.success(reading)
+            } else {
+                Result.failure(IllegalStateException("Báscula no conectada en puerto ${uiCfg.portName}"))
+            }
+        }
+
+        settingsViewModel.tareScaleAction = {
+            scaleManager.tare()
+        }
+
+        settingsViewModel.zeroScaleAction = {
+            scaleManager.zero()
+        }
+
+        settingsViewModel.loadScaleConfig()
 
         // 2. Receipt formatting hook
         viewModel.receiptFormatter = { sale, isReprint ->
@@ -611,6 +675,7 @@ fun main() = application {
                             AppModule.SALES -> {
                                 SalesScreen(
                                     viewModel = viewModel,
+                                    scaleReading = scaleReading,
                                     onRequestCancelSale = { sale, reason ->
                                         if (salesState.activeCashierRole == "CASHIER") {
                                             authViewModel.requestSupervisorElevation(

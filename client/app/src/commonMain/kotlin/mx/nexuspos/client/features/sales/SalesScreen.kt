@@ -29,6 +29,7 @@ import mx.nexuspos.core.ProductUnit
 @Composable
 fun SalesScreen(
     viewModel: SalesViewModel = remember { SalesViewModel() },
+    scaleReading: mx.nexuspos.client.features.header.ScaleReading = mx.nexuspos.client.features.header.ScaleReading(),
     onRequestCancelSale: ((sale: SaleResponse, reason: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -141,6 +142,7 @@ fun SalesScreen(
             WeightQuantityDialog(
                 product = prod,
                 presentation = pres,
+                scaleReading = scaleReading,
                 onConfirm = { qty -> viewModel.confirmWeighedProduct(qty) },
                 onDismiss = { viewModel.dismissWeighingDialog() }
             )

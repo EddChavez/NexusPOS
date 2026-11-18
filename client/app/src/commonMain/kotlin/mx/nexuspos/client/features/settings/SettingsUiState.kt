@@ -2,7 +2,7 @@ package mx.nexuspos.client.features.settings
 
 import mx.nexuspos.contracts.identity.UserDto
 
-enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, NETWORK, USERS }
+enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, SCALE, NETWORK, USERS }
 
 data class SettingsUiState(
     val isLoading: Boolean = true,
@@ -39,6 +39,16 @@ data class SettingsUiState(
     val autoPrintOnSale: Boolean = true,
     val openDrawerOnCashSale: Boolean = true,
     val isTestingPrinter: Boolean = false,
+    // Scale Hardware settings
+    val scaleEnabled: Boolean = true,
+    val scalePortName: String = "AUTO",
+    val availableScalePorts: List<String> = emptyList(),
+    val scaleBaudRate: String = "9600",
+    val scaleProtocol: String = "TORREY",
+    val scaleAutoAcceptWeight: Boolean = false,
+    val isTestingScale: Boolean = false,
+    val scaleTestResult: String? = null,
+    val isScaleTestSuccess: Boolean = false,
     // Network / Server LAN settings
     val serverHost: String = "localhost",
     val serverPort: String = "8080",

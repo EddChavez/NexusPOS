@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.core.ServerConnectionState
+import mx.nexuspos.client.features.header.ScaleReading
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.ProductDto
@@ -93,13 +94,20 @@ class SalesViewModel(
                         val pres = prod.presentations.firstOrNull { it.barcode == input } ?: prod.presentations.firstOrNull()
                         if (pres != null) {
                             if (prod.baseUnit.equals("KG", ignoreCase = true)) {
-                                // Open bulk weight dialog
-                                _uiState.update {
-                                    it.copy(
-                                        scannerInput = "",
-                                        isWeighingProduct = Pair(prod, pres),
-                                        errorMessage = null
-                                    )
+                                val scale = scaleReadingProvider?.invoke()
+                                val autoAccept = autoAcceptScaleWeightProvider?.invoke() == true
+                                if (scale != null && scale.isStableWeight && autoAccept) {
+                                    addProductPresentation(prod, pres, mx.nexuspos.core.Quantity.fromDouble(scale.weightKg))
+                                    _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
+                                } else {
+                                    // Open bulk weight dialog
+                                    _uiState.update {
+                                        it.copy(
+                                            scannerInput = "",
+                                            isWeighingProduct = Pair(prod, pres),
+                                            errorMessage = null
+                                        )
+                                    }
                                 }
                             } else {
                                 addProductPresentation(prod, pres, Quantity.ONE)
@@ -115,12 +123,19 @@ class SalesViewModel(
                                 val pres = prod.presentations.firstOrNull()
                                 if (pres != null) {
                                     if (prod.baseUnit.equals("KG", ignoreCase = true)) {
-                                        _uiState.update {
-                                            it.copy(
-                                                scannerInput = "",
-                                                isWeighingProduct = Pair(prod, pres),
-                                                errorMessage = null
-                                            )
+                                        val scale = scaleReadingProvider?.invoke()
+                                        val autoAccept = autoAcceptScaleWeightProvider?.invoke() == true
+                                        if (scale != null && scale.isStableWeight && autoAccept) {
+                                            addProductPresentation(prod, pres, mx.nexuspos.core.Quantity.fromDouble(scale.weightKg))
+                                            _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
+                                        } else {
+                                            _uiState.update {
+                                                it.copy(
+                                                    scannerInput = "",
+                                                    isWeighingProduct = Pair(prod, pres),
+                                                    errorMessage = null
+                                                )
+                                            }
                                         }
                                     } else {
                                         addProductPresentation(prod, pres, Quantity.ONE)
@@ -539,6 +554,8 @@ class SalesViewModel(
     var onSaleCompleted: ((SaleResponse) -> Unit)? = null
     var onOpenCashDrawer: (() -> Unit)? = null
     var onPrintPhysicalReceipt: ((SaleResponse) -> Unit)? = null
+    var scaleReadingProvider: (() -> ScaleReading)? = null
+    var autoAcceptScaleWeightProvider: (() -> Boolean)? = null
 
     fun openCashDrawer() {
         onOpenCashDrawer?.invoke()

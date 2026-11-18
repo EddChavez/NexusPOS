@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
+import mx.nexuspos.client.features.header.ScaleReading
+import mx.nexuspos.client.features.scale.ScaleUiConfig
 import mx.nexuspos.contracts.identity.CreateUserRequest
 import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
@@ -45,6 +47,14 @@ class SettingsViewModel(
     var osPrintersProvider: (() -> List<String>)? = null
     var testPrintAction: ((PrinterUiConfig) -> Result<Unit>)? = null
     var testDrawerAction: ((PrinterUiConfig) -> Result<Unit>)? = null
+
+    // Hardware scale hooks wired by desktop launcher
+    var scaleConfigLoader: (() -> ScaleUiConfig)? = null
+    var scaleConfigSaver: ((ScaleUiConfig) -> Unit)? = null
+    var serialPortsProvider: (() -> List<String>)? = null
+    var testScaleAction: ((ScaleUiConfig) -> Result<ScaleReading>)? = null
+    var tareScaleAction: (() -> Result<Unit>)? = null
+    var zeroScaleAction: (() -> Result<Unit>)? = null
 
     // Network / Server LAN hooks wired by desktop launcher
     var networkConfigLoader: (() -> NetworkUiConfig)? = null
@@ -388,6 +398,102 @@ class SettingsViewModel(
             _uiState.update { state ->
                 state.copy(
                     successBanner = if (res.isSuccess) "Comando de apertura de cajón enviado exitosamente." else null,
+                    errorBanner = res.exceptionOrNull()?.message
+                )
+            }
+            if (res.isSuccess) autoDismissBanner()
+        }
+    }
+
+    // --- Hardware / Scale settings ---
+
+    fun loadScaleConfig() {
+        val loaded = scaleConfigLoader?.invoke() ?: ScaleUiConfig()
+        val ports = serialPortsProvider?.invoke() ?: emptyList()
+        _uiState.update {
+            it.copy(
+                scaleEnabled = loaded.enabled,
+                scalePortName = loaded.portName,
+                availableScalePorts = ports,
+                scaleBaudRate = loaded.baudRate.toString(),
+                scaleProtocol = loaded.protocol,
+                scaleAutoAcceptWeight = loaded.autoAcceptStableWeight
+            )
+        }
+    }
+
+    fun onScaleEnabledChanged(v: Boolean) = _uiState.update { it.copy(scaleEnabled = v) }
+    fun onScalePortNameChanged(v: String) = _uiState.update { it.copy(scalePortName = v) }
+    fun onScaleBaudRateChanged(v: String) = _uiState.update { it.copy(scaleBaudRate = v) }
+    fun onScaleProtocolChanged(v: String) = _uiState.update { it.copy(scaleProtocol = v) }
+    fun onScaleAutoAcceptWeightChanged(v: Boolean) = _uiState.update { it.copy(scaleAutoAcceptWeight = v) }
+
+    fun refreshAvailableScalePorts() {
+        val ports = serialPortsProvider?.invoke() ?: emptyList()
+        _uiState.update { it.copy(availableScalePorts = ports) }
+    }
+
+    fun getCurrentScaleConfig(): ScaleUiConfig {
+        val s = _uiState.value
+        return ScaleUiConfig(
+            enabled = s.scaleEnabled,
+            portName = s.scalePortName,
+            baudRate = s.scaleBaudRate.toIntOrNull() ?: 9600,
+            protocol = s.scaleProtocol,
+            autoAcceptStableWeight = s.scaleAutoAcceptWeight
+        )
+    }
+
+    fun saveScaleConfig() {
+        val cfg = getCurrentScaleConfig()
+        scaleConfigSaver?.invoke(cfg)
+        _uiState.update {
+            it.copy(
+                successBanner = "Configuración de báscula guardada correctamente.",
+                errorBanner = null
+            )
+        }
+        autoDismissBanner()
+    }
+
+    fun testScale() {
+        val cfg = getCurrentScaleConfig()
+        _uiState.update { it.copy(isTestingScale = true, scaleTestResult = null) }
+        scope.launch {
+            val res = testScaleAction?.invoke(cfg) ?: Result.failure(IllegalStateException("Driver de báscula no disponible"))
+            _uiState.update { state ->
+                state.copy(
+                    isTestingScale = false,
+                    isScaleTestSuccess = res.isSuccess,
+                    scaleTestResult = if (res.isSuccess) {
+                        "Lectura: ${res.getOrNull()?.weightText} [${res.getOrNull()?.status?.label}]"
+                    } else {
+                        "Error: ${res.exceptionOrNull()?.message}"
+                    }
+                )
+            }
+        }
+    }
+
+    fun tareScale() {
+        scope.launch {
+            val res = tareScaleAction?.invoke() ?: Result.failure(IllegalStateException("Driver de báscula no disponible"))
+            _uiState.update { state ->
+                state.copy(
+                    successBanner = if (res.isSuccess) "Comando de TARA enviado a la báscula." else null,
+                    errorBanner = res.exceptionOrNull()?.message
+                )
+            }
+            if (res.isSuccess) autoDismissBanner()
+        }
+    }
+
+    fun zeroScale() {
+        scope.launch {
+            val res = zeroScaleAction?.invoke() ?: Result.failure(IllegalStateException("Driver de báscula no disponible"))
+            _uiState.update { state ->
+                state.copy(
+                    successBanner = if (res.isSuccess) "Comando Poner a CERO enviado a la báscula." else null,
                     errorBanner = res.exceptionOrNull()?.message
                 )
             }

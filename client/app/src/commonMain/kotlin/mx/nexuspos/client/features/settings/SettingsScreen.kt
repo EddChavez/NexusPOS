@@ -81,6 +81,7 @@ fun SettingsScreen(
                 SettingsTab.STORE_TICKET -> StoreTicketTab(state = state, viewModel = viewModel)
                 SettingsTab.POLICIES -> PoliciesTab(state = state, viewModel = viewModel)
                 SettingsTab.PRINTER -> PrinterTab(state = state, viewModel = viewModel)
+                SettingsTab.SCALE -> ScaleTab(state = state, viewModel = viewModel)
                 SettingsTab.NETWORK -> NetworkTab(state = state, viewModel = viewModel)
                 SettingsTab.USERS -> UsersTab(state = state, viewModel = viewModel)
             }
@@ -134,6 +135,7 @@ private fun SettingsTopToolbar(
                         SettingsTab.STORE_TICKET -> "Tienda & Ticket" to Icons.Default.Store
                         SettingsTab.POLICIES -> "Políticas" to Icons.Default.Policy
                         SettingsTab.PRINTER -> "Impresora" to Icons.Default.Print
+                        SettingsTab.SCALE -> "Báscula" to Icons.Default.Scale
                         SettingsTab.NETWORK -> "Red / Servidor" to Icons.Default.Wifi
                         SettingsTab.USERS -> "Usuarios" to Icons.Default.Group
                     }
@@ -855,6 +857,330 @@ private fun PrinterTab(state: SettingsUiState, viewModel: SettingsViewModel) {
                     Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Guardar Configuración", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+// =====================================================
+// TAB: Báscula Electrónica Serial (RS-232 / USB)
+// =====================================================
+
+@Composable
+private fun ScaleTab(state: SettingsUiState, viewModel: SettingsViewModel) {
+    var expandedPortMenu by remember { mutableStateOf(false) }
+    var expandedProtocolMenu by remember { mutableStateOf(false) }
+    var expandedBaudMenu by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        contentAlignment = Alignment.TopStart
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 760.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Configuración de Báscula Electrónica Serial (RS-232 / USB)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = NexusTheme.colors.textPrimary
+            )
+
+            // Section 1: Activar / Desactivar
+            Surface(
+                color = NexusTheme.colors.bgSurfaceSubtle,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Habilitar báscula electrónica",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NexusTheme.colors.textPrimary
+                            )
+                            Text(
+                                text = "Lee peso continuamente para productos a granel (kg) y monitor en barra superior.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NexusTheme.colors.textSecondary
+                            )
+                        }
+                        Switch(
+                            checked = state.scaleEnabled,
+                            onCheckedChange = viewModel::onScaleEnabledChanged,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = NexusTheme.colors.textGreen,
+                                checkedTrackColor = NexusTheme.colors.surfaceGreen
+                            )
+                        )
+                    }
+                }
+            }
+
+            if (state.scaleEnabled) {
+                // Section 2: Parámetros del Puerto y Protocolo
+                Surface(
+                    color = NexusTheme.colors.bgSurfaceSubtle,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text(
+                            text = "Parámetros de Conexión Serial",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NexusTheme.colors.textPrimary
+                        )
+
+                        // Selector de Puerto
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                OutlinedTextField(
+                                    value = state.scalePortName,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Puerto Serial / COM") },
+                                    trailingIcon = {
+                                        IconButton(onClick = { expandedPortMenu = true }) {
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                DropdownMenu(
+                                    expanded = expandedPortMenu,
+                                    onDismissRequest = { expandedPortMenu = false }
+                                ) {
+                                    val ports = state.availableScalePorts.ifEmpty { listOf("AUTO", "SIMULADOR") }
+                                    ports.forEach { port ->
+                                        DropdownMenuItem(
+                                            text = { Text(port) },
+                                            onClick = {
+                                                viewModel.onScalePortNameChanged(port)
+                                                expandedPortMenu = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = viewModel::refreshAvailableScalePorts,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(52.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Detectar")
+                            }
+                        }
+
+                        // Selector de Protocolo y Velocidad
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Protocolo
+                            Box(modifier = Modifier.weight(1f)) {
+                                OutlinedTextField(
+                                    value = state.scaleProtocol,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Protocolo / Marca") },
+                                    trailingIcon = {
+                                        IconButton(onClick = { expandedProtocolMenu = true }) {
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                DropdownMenu(
+                                    expanded = expandedProtocolMenu,
+                                    onDismissRequest = { expandedProtocolMenu = false }
+                                ) {
+                                    listOf(
+                                        "TORREY" to "Torrey (L-EQ / MFQ / PCR)",
+                                        "RHINO" to "Rhino (BAR-8 / BAB-30)",
+                                        "GENERIC" to "Genérico Continuo (RS-232)",
+                                        "SIMULATOR" to "Simulador Virtual (Demo)"
+                                    ).forEach { (code, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = {
+                                                viewModel.onScaleProtocolChanged(code)
+                                                expandedProtocolMenu = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Baudrate
+                            Box(modifier = Modifier.weight(1f)) {
+                                OutlinedTextField(
+                                    value = state.scaleBaudRate,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Velocidad (Baudios)") },
+                                    trailingIcon = {
+                                        IconButton(onClick = { expandedBaudMenu = true }) {
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                DropdownMenu(
+                                    expanded = expandedBaudMenu,
+                                    onDismissRequest = { expandedBaudMenu = false }
+                                ) {
+                                    listOf("2400", "4800", "9600", "19200", "115200").forEach { rate ->
+                                        DropdownMenuItem(
+                                            text = { Text("$rate baud") },
+                                            onClick = {
+                                                viewModel.onScaleBaudRateChanged(rate)
+                                                expandedBaudMenu = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Auto-Aceptar
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Lectura automática al escanear a granel",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = NexusTheme.colors.textPrimary
+                                )
+                                Text(
+                                    text = "Toma automáticamente el peso de la báscula al escanear un código de barras en kilogramos.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NexusTheme.colors.textSecondary
+                                )
+                            }
+                            Switch(
+                                checked = state.scaleAutoAcceptWeight,
+                                onCheckedChange = viewModel::onScaleAutoAcceptWeightChanged,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = NexusTheme.colors.textGreen,
+                                    checkedTrackColor = NexusTheme.colors.surfaceGreen
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Section 3: Prueba y Diagnóstico en Vivo
+                Surface(
+                    color = NexusTheme.colors.bgSurfaceSubtle,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Diagnóstico y Prueba de Báscula",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NexusTheme.colors.textPrimary
+                        )
+
+                        val testRes = state.scaleTestResult
+                        if (testRes != null) {
+                            Surface(
+                                color = if (state.isScaleTestSuccess) NexusTheme.colors.surfaceGreen else NexusTheme.colors.dangerBg,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        if (state.isScaleTestSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                                        contentDescription = null,
+                                        tint = if (state.isScaleTestSuccess) NexusTheme.colors.textGreen else NexusTheme.colors.dangerText
+                                    )
+                                    Text(
+                                        text = testRes,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (state.isScaleTestSuccess) NexusTheme.colors.textGreen else NexusTheme.colors.dangerText
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = viewModel::testScale,
+                                enabled = !state.isTestingScale,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                if (state.isTestingScale) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Leyendo...")
+                                } else {
+                                    Text("Probar Lectura")
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = viewModel::tareScale,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Tarar")
+                            }
+
+                            OutlinedButton(
+                                onClick = viewModel::zeroScale,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Poner a Cero")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Barra inferior de guardado
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(
+                    onClick = viewModel::saveScaleConfig,
+                    colors = ButtonDefaults.buttonColors(containerColor = NexusTheme.colors.actionPrimary),
+                    modifier = Modifier.height(44.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Guardar Configuración de Báscula", fontWeight = FontWeight.Bold)
                 }
             }
         }
