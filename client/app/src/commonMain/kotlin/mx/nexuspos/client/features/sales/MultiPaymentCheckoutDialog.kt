@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -96,13 +97,20 @@ fun MultiPaymentCheckoutDialog(
             border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
             tonalElevation = 8.dp,
             modifier = modifier
-                .widthIn(max = 640.dp)
-                .fillMaxWidth(0.95f)
-                .padding(16.dp)
+                .width(720.dp)
+                .height(640.dp)
+                .padding(12.dp)
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                        onDismiss()
+                        true
+                    } else false
+                }
         ) {
             Column(
                 modifier = Modifier
-                    .padding(24.dp)
+                    .fillMaxSize()
+                    .padding(20.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {

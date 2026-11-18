@@ -65,7 +65,7 @@ fun SalesUiState.toBottomCheckoutPanelState(): BottomCheckoutPanelState {
         hasLastSale = lastSale != null,
         currentTotalFormatted = total.format(),
         currencyLabel = "Moneda: MXN ($)",
-        canCheckout = cartLines.isNotEmpty() && activeSession != null && connectionState == ServerConnectionState.CONNECTED,
+        canCheckout = cartLines.isNotEmpty() && connectionState == ServerConnectionState.CONNECTED,
         isServerConnected = connectionState == ServerConnectionState.CONNECTED
     )
 }

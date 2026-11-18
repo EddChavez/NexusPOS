@@ -129,6 +129,8 @@ fun SalesScreen(
                 onCheckout = {
                     if (state.activeSession == null) {
                         viewModel.showSessionDialog(true)
+                    } else if (state.cartLines.isEmpty()) {
+                        viewModel.setErrorMessage("Agrega al menos un producto al carrito para cobrar.")
                     } else {
                         viewModel.showCashPaymentDialog(true)
                     }
