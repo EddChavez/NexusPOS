@@ -104,7 +104,11 @@ class EscPosReceiptPrinter(
         sb.appendLine(thinSep)
 
         // Payment Details
+        if (sale.payments.size > 1) {
+            sb.appendLine(centerText("-- FORMAS DE PAGO --"))
+        }
         for (pay in sale.payments) {
+            val refStr = if (pay.reference.isNotBlank()) " (Ref: ${pay.reference})" else ""
             when (pay.method) {
                 "CASH" -> {
                     sb.appendLine(formatRow("EFECTIVO:", Money(pay.amountCents).format()))
@@ -112,6 +116,12 @@ class EscPosReceiptPrinter(
                         sb.appendLine(formatRow("RECIBIDO:", Money(pay.receivedCents).format()))
                         sb.appendLine(formatRow("CAMBIO:", Money(pay.changeCents).format()))
                     }
+                }
+                "CARD" -> {
+                    sb.appendLine(formatRow("TARJETA$refStr:", Money(pay.amountCents).format()))
+                }
+                "TRANSFER" -> {
+                    sb.appendLine(formatRow("TRANSFERENCIA$refStr:", Money(pay.amountCents).format()))
                 }
                 "CREDIT" -> {
                     sb.appendLine(centerText("** VENTA A CRÉDITO / FIADO **"))
@@ -126,7 +136,7 @@ class EscPosReceiptPrinter(
                     sb.appendLine(centerText("_______________________________"))
                 }
                 else -> {
-                    sb.appendLine(formatRow("PAGO (${pay.method}):", Money(pay.amountCents).format()))
+                    sb.appendLine(formatRow("PAGO (${pay.method})$refStr:", Money(pay.amountCents).format()))
                 }
             }
         }

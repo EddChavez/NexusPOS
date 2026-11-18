@@ -467,8 +467,30 @@ class SalesViewModel(
         sb.appendLine("IVA:      ${Money(sale.taxCents).format()}")
         sb.appendLine("TOTAL:    ${Money(sale.totalCents).format()}")
         sb.appendLine(thinSep)
+        if (sale.payments.size > 1) {
+            sb.appendLine("       -- FORMAS DE PAGO --      ")
+        }
         for (p in sale.payments) {
-            sb.appendLine("Pago (${p.method}): ${Money(p.amountCents).format()}")
+            val refStr = if (p.reference.isNotBlank()) " [${p.reference}]" else ""
+            when (p.method) {
+                "CASH" -> {
+                    sb.appendLine("Pago (Efectivo): ${Money(p.amountCents).format()}")
+                    if (p.receivedCents > 0L) {
+                        sb.appendLine("  Recibido: ${Money(p.receivedCents).format()}")
+                        sb.appendLine("  Cambio:   ${Money(p.changeCents).format()}")
+                    }
+                }
+                "CARD" -> sb.appendLine("Pago (Tarjeta$refStr): ${Money(p.amountCents).format()}")
+                "TRANSFER" -> sb.appendLine("Pago (Transf$refStr): ${Money(p.amountCents).format()}")
+                "CREDIT" -> {
+                    sb.appendLine("Pago (A Crédito): ${Money(p.amountCents).format()}")
+                    val remCredit = sale.customerRemainingCreditCents
+                    if (remCredit != null) {
+                        sb.appendLine("  Crédito Restante: ${Money(remCredit).format()}")
+                    }
+                }
+                else -> sb.appendLine("Pago (${p.method}$refStr): ${Money(p.amountCents).format()}")
+            }
         }
         sb.appendLine(sep)
         sb.appendLine("     ¡Gracias por su compra!    ")
@@ -649,6 +671,35 @@ class SalesViewModel(
 
     fun checkoutCash(receivedCents: Long) {
         val state = _uiState.value
+        checkoutMultiPayment(
+            listOf(
+                SalePaymentRequest(
+                    method = "CASH",
+                    amountCents = state.total.cents,
+                    receivedCents = receivedCents
+                )
+            )
+        )
+    }
+
+    fun checkoutCredit() {
+        val state = _uiState.value
+        if (state.selectedCustomer == null) {
+            _uiState.update { it.copy(errorMessage = "Debe seleccionar un cliente para venta a crédito (fiado).") }
+            return
+        }
+        checkoutMultiPayment(
+            listOf(
+                SalePaymentRequest(
+                    method = "CREDIT",
+                    amountCents = state.total.cents
+                )
+            )
+        )
+    }
+
+    fun checkoutMultiPayment(payments: List<SalePaymentRequest>) {
+        val state = _uiState.value
         if (state.connectionState == ServerConnectionState.NO_SERVER) {
             _uiState.update {
                 it.copy(errorMessage = "Sin servidor: No es posible cobrar mientras el servidor central no esté disponible en la LAN. El carrito se conserva intacto.")
@@ -664,6 +715,17 @@ class SalesViewModel(
             return
         }
 
+        if (payments.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "Debe especificar al menos una forma de pago.") }
+            return
+        }
+
+        val hasCredit = payments.any { it.method == "CREDIT" }
+        if (hasCredit && state.selectedCustomer == null) {
+            _uiState.update { it.copy(errorMessage = "Debe seleccionar un cliente para registrar pago a crédito (fiado).") }
+            return
+        }
+
         scope.launch {
             val linesReq = state.cartLines.map { line ->
                 SaleLineItemRequest(
@@ -676,14 +738,6 @@ class SalesViewModel(
                     taxRate = line.taxRate
                 )
             }
-
-            val payReq = listOf(
-                SalePaymentRequest(
-                    method = "CASH",
-                    amountCents = state.total.cents,
-                    receivedCents = receivedCents
-                )
-            )
 
             val saleReq = CreateSaleRequest(
                 idempotencyKey = UUID.randomUUID().toString(),
@@ -691,87 +745,7 @@ class SalesViewModel(
                 cashierUserId = state.activeCashierId,
                 customerId = state.selectedCustomer?.id,
                 lines = linesReq,
-                payments = payReq,
-                expectedTotalCents = state.total.cents
-            )
-
-            apiClient.completeSale(saleReq).onSuccess { sale ->
-                onSaleCompleted?.invoke(sale)
-                _uiState.update { state ->
-                    val clearedTickets = state.tickets.map { t ->
-                        if (t.id == state.activeTicketId) {
-                            t.copy(
-                                cartLines = emptyList(),
-                                subtotal = Money.ZERO,
-                                tax = Money.ZERO,
-                                total = Money.ZERO,
-                                selectedCustomer = null
-                            )
-                        } else t
-                    }
-                    state.copy(
-                        tickets = clearedTickets,
-                        cartLines = emptyList(),
-                        subtotal = Money.ZERO,
-                        tax = Money.ZERO,
-                        total = Money.ZERO,
-                        selectedCustomer = null,
-                        selectedCartLineId = null,
-                        isShowingCashPayment = false,
-                        lastCompletedSale = sale,
-                        successMessage = "Venta folio #${sale.folio} completada. Cambio: $${(sale.payments.firstOrNull()?.changeCents ?: 0L) / 100.0}",
-                        errorMessage = null
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(errorMessage = err.message)
-                }
-            }
-        }
-    }
-
-    fun checkoutCredit() {
-        val state = _uiState.value
-        val customer = state.selectedCustomer
-        if (customer == null) {
-            _uiState.update { it.copy(errorMessage = "Debe seleccionar un cliente para venta a crédito (fiado).") }
-            return
-        }
-
-        val sess = state.activeSession
-        if (sess == null || sess.status != "OPEN") {
-            _uiState.update { it.copy(errorMessage = "Debe abrir una sesión de caja antes de realizar ventas.") }
-            return
-        }
-
-        scope.launch {
-            val linesReq = state.cartLines.map { line ->
-                SaleLineItemRequest(
-                    productId = line.productId,
-                    presentationId = line.presentationId,
-                    description = line.name,
-                    quantityMillis = line.quantity.millis,
-                    expectedUnitPriceCents = line.unitPrice.cents,
-                    expectedTotalCents = line.total.cents,
-                    taxRate = line.taxRate
-                )
-            }
-
-            val payReq = listOf(
-                SalePaymentRequest(
-                    method = "CREDIT",
-                    amountCents = state.total.cents
-                )
-            )
-
-            val saleReq = CreateSaleRequest(
-                idempotencyKey = UUID.randomUUID().toString(),
-                cashSessionId = sess.sessionId,
-                cashierUserId = state.activeCashierId,
-                customerId = customer.id,
-                lines = linesReq,
-                payments = payReq,
+                payments = payments,
                 expectedTotalCents = state.total.cents
             )
 
@@ -789,6 +763,18 @@ class SalesViewModel(
                             )
                         } else t
                     }
+
+                    val cashPay = sale.payments.firstOrNull { it.method == "CASH" }
+                    val changeMsg = if (cashPay != null && cashPay.changeCents > 0L) {
+                        " | Cambio: $${cashPay.changeCents / 100.0}"
+                    } else ""
+
+                    val creditPay = sale.payments.firstOrNull { it.method == "CREDIT" }
+                    val remCredit = sale.customerRemainingCreditCents
+                    val creditMsg = if (creditPay != null && remCredit != null) {
+                        " | Crédito restante: $${remCredit / 100.0}"
+                    } else ""
+
                     s.copy(
                         tickets = clearedTickets,
                         cartLines = emptyList(),
@@ -797,13 +783,16 @@ class SalesViewModel(
                         total = Money.ZERO,
                         selectedCustomer = null,
                         selectedCartLineId = null,
+                        isShowingCashPayment = false,
                         lastCompletedSale = sale,
-                        successMessage = "Venta a crédito folio #${sale.folio} para ${customer.name}. Saldo restante: $${(sale.customerRemainingCreditCents ?: 0L) / 100.0}",
+                        successMessage = "Venta folio #${sale.folio} completada con éxito$changeMsg$creditMsg",
                         errorMessage = null
                     )
                 }
             }.onFailure { err ->
-                _uiState.update { it.copy(errorMessage = err.message) }
+                _uiState.update {
+                    it.copy(errorMessage = err.message)
+                }
             }
         }
     }

@@ -475,7 +475,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> {
+    open suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> {
         return try {
             val res = http.post("$baseUrl/api/v1/sales") {
                 contentType(ContentType.Application.Json)

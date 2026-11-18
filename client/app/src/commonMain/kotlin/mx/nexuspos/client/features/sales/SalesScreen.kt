@@ -145,10 +145,18 @@ fun SalesScreen(
         }
 
         if (state.isShowingCashPayment) {
-            CashPaymentDialog(
+            MultiPaymentCheckoutDialog(
+                isOpen = true,
                 total = state.total,
-                onConfirm = { receivedCents -> viewModel.checkoutCash(receivedCents) },
-                onDismiss = { viewModel.showCashPaymentDialog(false) }
+                selectedCustomer = state.selectedCustomer,
+                onDismiss = { viewModel.showCashPaymentDialog(false) },
+                onRequestSelectCustomer = {
+                    viewModel.showCashPaymentDialog(false)
+                    viewModel.showCustomerDialog(true)
+                },
+                onConfirmCheckout = { payments ->
+                    viewModel.checkoutMultiPayment(payments)
+                }
             )
         }
 

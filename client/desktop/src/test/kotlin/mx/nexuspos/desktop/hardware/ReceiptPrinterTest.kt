@@ -154,6 +154,73 @@ class ReceiptPrinterTest {
     }
 
     @Test
+    fun testFormatMixedPaymentReceipt() {
+        val sale = SaleResponse(
+            id = "sale-104",
+            folio = 104,
+            cashSessionId = "sess-1",
+            cashierName = "Don Pepe",
+            customerName = "Juan Pérez",
+            customerRemainingCreditCents = 15000L,
+            status = "COMPLETED",
+            subtotalCents = 75000L,
+            taxCents = 0L,
+            totalCents = 75000L,
+            lines = listOf(
+                SaleLineItemResponse(
+                    id = "line-1",
+                    productId = null,
+                    presentationId = null,
+                    description = "Bulto Alimento 25kg",
+                    quantityMillis = 1000L,
+                    unitPriceCents = 75000L,
+                    taxRate = 0.0,
+                    taxCents = 0L,
+                    totalCents = 75000L
+                )
+            ),
+            payments = listOf(
+                SalePaymentResponse(
+                    id = "pay-cash",
+                    method = "CASH",
+                    amountCents = 20000L, // $200.00
+                    receivedCents = 20000L,
+                    changeCents = 0L
+                ),
+                SalePaymentResponse(
+                    id = "pay-card",
+                    method = "CARD",
+                    amountCents = 30000L, // $300.00
+                    receivedCents = 30000L,
+                    changeCents = 0L,
+                    reference = "AUTH-9876"
+                ),
+                SalePaymentResponse(
+                    id = "pay-transfer",
+                    method = "TRANSFER",
+                    amountCents = 25000L, // $250.00
+                    receivedCents = 25000L,
+                    changeCents = 0L,
+                    reference = "SPEI-12345"
+                )
+            ),
+            createdAt = 1713139200000L
+        )
+
+        val text = printer.formatSaleReceiptText(sale)
+
+        assertTrue(text.contains("-- FORMAS DE PAGO --"))
+        assertTrue(text.contains("EFECTIVO:"))
+        assertTrue(text.contains("$200.00"))
+        assertTrue(text.contains("TARJETA (Ref: AUTH-9876):"))
+        assertTrue(text.contains("$300.00"))
+        assertTrue(text.contains("TRANSFERENCIA (Ref: SPEI-12345):"))
+        assertTrue(text.contains("$250.00"))
+        assertTrue(text.contains("TOTAL:"))
+        assertTrue(text.contains("$750.00"))
+    }
+
+    @Test
     fun testFormatCashCutSummary() {
         val cut = CashSessionSummary(
             sessionId = "sess-1",
