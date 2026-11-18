@@ -21,6 +21,7 @@ import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
+import mx.nexuspos.contracts.catalog.CatalogImportRequest
 import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
@@ -340,6 +341,20 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val reactivated = catalogService.reactivateProduct(id)
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(reactivated))
                 call.respond(reactivated)
+            }
+
+            // Bulk Catalog Export & Import (Excel / CSV)
+            get("/catalog/export") {
+                val csv = catalogService.exportCatalogCsv()
+                call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=\"catalogo_nexuspos.csv\"")
+                call.respondText(csv, ContentType.Text.CSV.withCharset(Charsets.UTF_8))
+            }
+
+            post("/catalog/import") {
+                val req = call.receive<CatalogImportRequest>()
+                val result = catalogService.importCatalogRows(req.rows)
+                broadcastEventJson("catalog.changed", "{}")
+                call.respond(result)
             }
 
             // Inventory

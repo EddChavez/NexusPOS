@@ -30,7 +30,8 @@ import mx.nexuspos.core.Money
 @Composable
 fun ProductsScreen(
     viewModel: ProductsViewModel,
-    onBackToSales: () -> Unit = {}
+    onBackToSales: () -> Unit = {},
+    onPrintShelfLabel: ((ProductDto, Int) -> Unit)? = null
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -75,6 +76,35 @@ fun ProductsScreen(
         )
     }
 
+    // Diálogo de Importación / Exportación Masiva (Excel / CSV)
+    if (state.showImportExportDialog) {
+        CatalogImportExportDialog(
+            isOpen = true,
+            exportedCsv = state.exportedCsvContent,
+            isExporting = state.isExporting,
+            isImporting = state.isImporting,
+            importResult = state.importResult,
+            onExport = { viewModel.exportCatalogCsv() },
+            onImport = { csv -> viewModel.importCatalogCsv(csv) },
+            onClearResult = { viewModel.clearImportResult() },
+            onDismiss = { viewModel.closeImportExportDialog() }
+        )
+    }
+
+    // Diálogo de Etiquetas de Anaquel con Códigos de Barras
+    if (state.showShelfLabelsDialog) {
+        ShelfLabelsDialog(
+            isOpen = true,
+            products = state.products,
+            selectedProduct = state.selectedProductForLabel,
+            onSelectProduct = { viewModel.selectProductForLabel(it) },
+            onPrintLabel = { prod, copies ->
+                onPrintShelfLabel?.invoke(prod, copies)
+            },
+            onDismiss = { viewModel.closeShelfLabelsDialog() }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -93,6 +123,8 @@ fun ProductsScreen(
             onToggleInactive = { viewModel.onToggleIncludeInactive() },
             onNewProduct = { viewModel.openCreateDialog() },
             onManageDepartments = { viewModel.openDepartmentsDialog() },
+            onOpenImportExport = { viewModel.openImportExportDialog() },
+            onOpenShelfLabels = { viewModel.openShelfLabelsDialog() },
             onBackToSales = onBackToSales
         )
 
@@ -132,6 +164,8 @@ private fun ProductsTopToolbar(
     onToggleInactive: () -> Unit,
     onNewProduct: () -> Unit,
     onManageDepartments: () -> Unit,
+    onOpenImportExport: () -> Unit,
+    onOpenShelfLabels: () -> Unit,
     onBackToSales: () -> Unit
 ) {
     Surface(
@@ -190,6 +224,22 @@ private fun ProductsTopToolbar(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onOpenImportExport,
+                        border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Excel / CSV", color = NexusTheme.colors.btnSecondaryText, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    OutlinedButton(
+                        onClick = onOpenShelfLabels,
+                        border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Etiquetas Anaquel", color = NexusTheme.colors.btnSecondaryText, fontWeight = FontWeight.SemiBold)
+                    }
+
                     Button(
                         onClick = onNewProduct,
                         colors = ButtonDefaults.buttonColors(containerColor = NexusTheme.colors.actionPrimary),

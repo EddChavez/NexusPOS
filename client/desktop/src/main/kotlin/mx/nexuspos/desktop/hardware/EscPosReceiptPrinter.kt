@@ -40,6 +40,12 @@ class EscPosReceiptPrinter(
         val BOLD_OFF = byteArrayOf(ESC, 0x45, 0x00)
         val CUT_PAPER = byteArrayOf(GS, 0x56, 0x41, 0x10) // GS V A 16 (Feed and cut)
 
+        val DOUBLE_SIZE_ON = byteArrayOf(GS, 0x21, 0x11) // Double height & width
+        val DOUBLE_SIZE_OFF = byteArrayOf(GS, 0x21, 0x00)
+        val BARCODE_HEIGHT_60 = byteArrayOf(GS, 0x68, 60)
+        val BARCODE_WIDTH_2 = byteArrayOf(GS, 0x77, 2)
+        val BARCODE_HRI_BELOW = byteArrayOf(GS, 0x48, 2)
+
         // ESC/POS Cash Drawer pulse commands (Pin 2 and Pin 5)
         val DRAWER_KICK_PIN2 = byteArrayOf(ESC, 0x70, 0x00, 0x19, 0xFA.toByte())
         val DRAWER_KICK_PIN5 = byteArrayOf(ESC, 0x70, 0x01, 0x19, 0xFA.toByte())
@@ -358,6 +364,112 @@ class EscPosReceiptPrinter(
     ): ByteArray {
         val text = generateTestReceiptText(storeName, config)
         return generateEscPosBytes(text, cutPaper = cutPaper, openDrawer = false)
+    }
+
+    /**
+     * Formats plain text layout for a thermal shelf label.
+     */
+    fun formatShelfLabelText(
+        productName: String,
+        barcode: String,
+        priceCents: Long,
+        presentationName: String = "Pieza",
+        departmentName: String? = null,
+        storeName: String? = null
+    ): String {
+        val sb = StringBuilder()
+        val sep = "=".repeat(columnWidth)
+        val thinSep = "-".repeat(columnWidth)
+
+        sb.appendLine(centerText(storeName ?: "NEXUS POS"))
+        sb.appendLine(sep)
+        sb.appendLine(centerText(productName.uppercase()))
+        val presInfo = "Presentación: $presentationName" + if (!departmentName.isNullOrBlank()) " | $departmentName" else ""
+        sb.appendLine(centerText(presInfo))
+        sb.appendLine(thinSep)
+        sb.appendLine()
+        val priceFormatted = Money(priceCents).format()
+        sb.appendLine(centerText(">>> $priceFormatted <<<"))
+        sb.appendLine()
+        sb.appendLine(thinSep)
+        sb.appendLine(centerText("|| ||||| ||||||| ||||| ||||"))
+        sb.appendLine(centerText(barcode.ifBlank { "SIN-CODIGO" }))
+        sb.appendLine(sep)
+        sb.appendLine(centerText("PRECIO VIGENTE AL: ${formatTimestamp(System.currentTimeMillis()).take(10)}"))
+        sb.appendLine()
+        sb.appendLine()
+        return sb.toString()
+    }
+
+    /**
+     * Generates native ESC/POS command bytes for printing a shelf label with Code 128 barcode.
+     */
+    fun generateShelfLabelBytes(
+        productName: String,
+        barcode: String,
+        priceCents: Long,
+        presentationName: String = "Pieza",
+        storeName: String? = null,
+        cutPaper: Boolean = true
+    ): ByteArray {
+        val out = ByteArrayOutputStream()
+        out.write(INIT)
+
+        out.write(ALIGN_CENTER)
+        out.write((storeName ?: "NEXUS POS").toByteArray(charset))
+        out.write(0x0A)
+        out.write("-".repeat(columnWidth.coerceAtMost(32)).toByteArray(charset))
+        out.write(0x0A)
+
+        out.write(BOLD_ON)
+        out.write(productName.take(columnWidth).toByteArray(charset))
+        out.write(BOLD_OFF)
+        out.write(0x0A)
+
+        out.write("($presentationName)".toByteArray(charset))
+        out.write(0x0A)
+        out.write(0x0A)
+
+        out.write(DOUBLE_SIZE_ON)
+        out.write(BOLD_ON)
+        out.write(Money(priceCents).format().toByteArray(charset))
+        out.write(BOLD_OFF)
+        out.write(DOUBLE_SIZE_OFF)
+        out.write(0x0A)
+        out.write(0x0A)
+
+        val cleanBarcode = barcode.trim()
+        if (cleanBarcode.isNotBlank()) {
+            out.write(BARCODE_HEIGHT_60)
+            out.write(BARCODE_WIDTH_2)
+            out.write(BARCODE_HRI_BELOW)
+
+            val codeBytes = cleanBarcode.toByteArray(charset)
+            val code128Payload = ByteArrayOutputStream()
+            code128Payload.write('{'.code)
+            code128Payload.write('B'.code)
+            code128Payload.write(codeBytes)
+            val payload = code128Payload.toByteArray()
+
+            out.write(GS.toInt())
+            out.write('k'.code)
+            out.write(73)
+            out.write(payload.size)
+            out.write(payload)
+            out.write(0x0A)
+        }
+
+        out.write(0x0A)
+        out.write("Vigente: ${formatTimestamp(System.currentTimeMillis()).take(10)}".toByteArray(charset))
+        out.write(0x0A)
+        out.write(0x0A)
+        out.write(0x0A)
+
+        if (cutPaper) {
+            out.write(CUT_PAPER)
+        }
+
+        return out.toByteArray()
     }
 
     private fun centerText(text: String): String {

@@ -640,7 +640,27 @@ fun main() = application {
                             AppModule.PRODUCTS -> {
                                 ProductsScreen(
                                     viewModel = productsViewModel,
-                                    onBackToSales = { activeModule = AppModule.SALES }
+                                    onBackToSales = { activeModule = AppModule.SALES },
+                                    onPrintShelfLabel = { prod, copies ->
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            if (printerConfig.connectionType != PrinterConnectionType.NONE) {
+                                                val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
+                                                val pres = prod.presentations.firstOrNull()
+                                                val barcode = pres?.barcode?.ifBlank { prod.sku } ?: prod.sku
+                                                val price = pres?.priceCents ?: 0L
+                                                repeat(copies) {
+                                                    val bytes = printer.generateShelfLabelBytes(
+                                                        productName = prod.name,
+                                                        barcode = barcode,
+                                                        priceCents = price,
+                                                        presentationName = prod.baseUnit,
+                                                        storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
+                                                    )
+                                                    printerDispatcher.printBytes(bytes, printerConfig)
+                                                }
+                                            }
+                                        }
+                                    }
                                 )
                             }
                             AppModule.INVENTORY -> {

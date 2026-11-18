@@ -1,5 +1,9 @@
 package mx.nexuspos.server.modules.catalog
 
+import mx.nexuspos.contracts.catalog.CatalogImportRequest
+import mx.nexuspos.contracts.catalog.CatalogImportResponse
+import mx.nexuspos.contracts.catalog.CatalogImportRowDto
+import mx.nexuspos.contracts.catalog.CatalogImportRowResult
 import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.DepartmentDto
@@ -697,5 +701,317 @@ class CatalogService(private val db: DatabaseFactory) {
         presStmt.close()
 
         return prod.copy(presentations = presList)
+    }
+
+    fun exportCatalogCsv(): String {
+        return db.inTransaction { conn ->
+            val sb = java.lang.StringBuilder()
+            sb.append("\uFEFF") // UTF-8 BOM para apertura perfecta en Excel
+            sb.append("SKU,CODIGO_BARRAS,NOMBRE,DEPARTAMENTO,UNIDAD,COSTO,PRECIO,STOCK_ACTUAL,STOCK_MINIMO,ACTIVO\r\n")
+
+            val sql = """
+                SELECT p.sku, COALESCE(pp.barcode, '') as barcode, p.name,
+                       COALESCE(d.name, 'General') as department, p.base_unit,
+                       p.cost_cents, COALESCE(pp.price_cents, 0) as price_cents,
+                       COALESCE(sb.quantity_millis, 0) as stock_millis,
+                       p.min_stock_millis, p.is_active
+                FROM products p
+                LEFT JOIN product_presentations pp ON p.id = pp.product_id AND pp.is_active = TRUE
+                LEFT JOIN departments d ON p.department_id = d.id
+                LEFT JOIN stock_balances sb ON p.id = sb.product_id
+                ORDER BY p.name ASC, pp.factor_millis ASC
+            """.trimIndent()
+
+            val stmt = conn.prepareStatement(sql)
+            val rs = stmt.executeQuery()
+
+            fun escapeCsv(value: String): String {
+                return if (value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
+                    "\"" + value.replace("\"", "\"\"") + "\""
+                } else {
+                    value
+                }
+            }
+
+            while (rs.next()) {
+                val sku = rs.getString("sku") ?: ""
+                val barcode = rs.getString("barcode") ?: ""
+                val name = rs.getString("name") ?: ""
+                val dept = rs.getString("department") ?: "General"
+                val unit = rs.getString("base_unit") ?: "PZA"
+                val cost = String.format(java.util.Locale.US, "%.2f", rs.getLong("cost_cents") / 100.0)
+                val price = String.format(java.util.Locale.US, "%.2f", rs.getLong("price_cents") / 100.0)
+                val stock = (rs.getLong("stock_millis") / 1000.0).toString().removeSuffix(".0")
+                val minStock = (rs.getLong("min_stock_millis") / 1000.0).toString().removeSuffix(".0")
+                val active = if (rs.getBoolean("is_active")) "SI" else "NO"
+
+                sb.append(escapeCsv(sku)).append(",")
+                sb.append(escapeCsv(barcode)).append(",")
+                sb.append(escapeCsv(name)).append(",")
+                sb.append(escapeCsv(dept)).append(",")
+                sb.append(escapeCsv(unit)).append(",")
+                sb.append(cost).append(",")
+                sb.append(price).append(",")
+                sb.append(stock).append(",")
+                sb.append(minStock).append(",")
+                sb.append(active).append("\r\n")
+            }
+            rs.close()
+            stmt.close()
+
+            sb.toString()
+        }
+    }
+
+    fun importCatalogRows(rows: List<CatalogImportRowDto>): CatalogImportResponse {
+        return db.inTransaction { conn ->
+            var createdCount = 0
+            var updatedCount = 0
+            var errorCount = 0
+            val results = mutableListOf<CatalogImportRowResult>()
+            val now = System.currentTimeMillis()
+
+            val deptsMap = mutableMapOf<String, String>()
+            val deptQuery = conn.prepareStatement("SELECT id, name FROM departments")
+            val deptRs = deptQuery.executeQuery()
+            while (deptRs.next()) {
+                deptsMap[deptRs.getString("name").trim().lowercase()] = deptRs.getString("id")
+            }
+            deptRs.close()
+            deptQuery.close()
+
+            fun getOrCreateDeptId(deptName: String): String {
+                val clean = deptName.trim()
+                if (clean.isBlank()) return deptsMap.values.firstOrNull() ?: "dept-general"
+                val key = clean.lowercase()
+                val existingId = deptsMap[key]
+                if (existingId != null) return existingId
+
+                val newId = "dept-" + UUID.randomUUID().toString().take(6)
+                val insertDept = conn.prepareStatement("INSERT INTO departments (id, name) VALUES (?, ?) ON CONFLICT DO NOTHING")
+                insertDept.setString(1, newId)
+                insertDept.setString(2, clean)
+                insertDept.executeUpdate()
+                insertDept.close()
+                deptsMap[key] = newId
+                return newId
+            }
+
+            for ((index, row) in rows.withIndex()) {
+                val rowNum = if (row.rowNumber > 0) row.rowNumber else index + 1
+                val cleanName = row.name.trim()
+                val cleanSku = row.sku.trim().uppercase()
+                val cleanBarcode = row.barcode.trim()
+
+                if (cleanName.isBlank()) {
+                    errorCount++
+                    results.add(
+                        CatalogImportRowResult(
+                            rowNumber = rowNum,
+                            sku = cleanSku,
+                            barcode = cleanBarcode,
+                            name = cleanName,
+                            status = "ERROR",
+                            message = "El nombre del producto no puede estar vacío"
+                        )
+                    )
+                    continue
+                }
+
+                if (row.priceCents < 0L || row.costCents < 0L) {
+                    errorCount++
+                    results.add(
+                        CatalogImportRowResult(
+                            rowNumber = rowNum,
+                            sku = cleanSku,
+                            barcode = cleanBarcode,
+                            name = cleanName,
+                            status = "ERROR",
+                            message = "El precio o costo no pueden ser negativos"
+                        )
+                    )
+                    continue
+                }
+
+                try {
+                    var existingProdId: String? = null
+
+                    if (cleanSku.isNotBlank()) {
+                        val findSkuStmt = conn.prepareStatement("SELECT id FROM products WHERE LOWER(sku) = ?")
+                        findSkuStmt.setString(1, cleanSku.lowercase())
+                        val rs = findSkuStmt.executeQuery()
+                        if (rs.next()) {
+                            existingProdId = rs.getString("id")
+                        }
+                        rs.close()
+                        findSkuStmt.close()
+                    }
+
+                    if (existingProdId == null && cleanBarcode.isNotBlank()) {
+                        val findBarcodeStmt = conn.prepareStatement("SELECT product_id FROM product_presentations WHERE barcode = ?")
+                        findBarcodeStmt.setString(1, cleanBarcode)
+                        val rs = findBarcodeStmt.executeQuery()
+                        if (rs.next()) {
+                            existingProdId = rs.getString("product_id")
+                        }
+                        rs.close()
+                        findBarcodeStmt.close()
+                    }
+
+                    val deptId = getOrCreateDeptId(row.department)
+                    val baseUnit = when (row.baseUnit.trim().uppercase()) {
+                        "KG", "KILOGRAMO", "KILO" -> "KG"
+                        "LT", "LITRO", "L" -> "LT"
+                        else -> "PZA"
+                    }
+
+                    if (existingProdId != null) {
+                        val updateStmt = conn.prepareStatement(
+                            """
+                            UPDATE products
+                            SET name = ?, department_id = ?, cost_cents = ?,
+                                min_stock_millis = ?, is_active = ?, updated_at = ?
+                            WHERE id = ?
+                            """.trimIndent()
+                        )
+                        updateStmt.setString(1, cleanName)
+                        updateStmt.setString(2, deptId)
+                        updateStmt.setLong(3, row.costCents)
+                        updateStmt.setLong(4, row.minStockMillis)
+                        updateStmt.setBoolean(5, row.isActive)
+                        updateStmt.setLong(6, now)
+                        updateStmt.setString(7, existingProdId)
+                        updateStmt.executeUpdate()
+                        updateStmt.close()
+
+                        val presUpdateStmt = conn.prepareStatement(
+                            """
+                            UPDATE product_presentations
+                            SET price_cents = ?, name = ?
+                            WHERE product_id = ? AND is_active = TRUE
+                            """.trimIndent()
+                        )
+                        presUpdateStmt.setLong(1, row.priceCents)
+                        presUpdateStmt.setString(2, if (baseUnit == "KG") "Granel" else "Pieza")
+                        presUpdateStmt.setString(3, existingProdId)
+                        presUpdateStmt.executeUpdate()
+                        presUpdateStmt.close()
+
+                        if (row.currentStockMillis > 0L) {
+                            val updateStock = conn.prepareStatement(
+                                "UPDATE stock_balances SET quantity_millis = ?, updated_at = ? WHERE product_id = ?"
+                            )
+                            updateStock.setLong(1, row.currentStockMillis)
+                            updateStock.setLong(2, now)
+                            updateStock.setString(3, existingProdId)
+                            val affected = updateStock.executeUpdate()
+                            updateStock.close()
+
+                            if (affected == 0) {
+                                val insertStock = conn.prepareStatement(
+                                    "INSERT INTO stock_balances (product_id, quantity_millis, updated_at) VALUES (?, ?, ?)"
+                                )
+                                insertStock.setString(1, existingProdId)
+                                insertStock.setLong(2, row.currentStockMillis)
+                                insertStock.setLong(3, now)
+                                insertStock.executeUpdate()
+                                insertStock.close()
+                            }
+                        }
+
+                        updatedCount++
+                        results.add(
+                            CatalogImportRowResult(
+                                rowNumber = rowNum,
+                                sku = cleanSku,
+                                barcode = cleanBarcode,
+                                name = cleanName,
+                                status = "UPDATED",
+                                message = "Producto actualizado (Precio: $${row.priceCents / 100.0})"
+                            )
+                        )
+                    } else {
+                        val newProdId = "prod-" + UUID.randomUUID().toString().take(8)
+                        val finalSku = if (cleanSku.isNotBlank()) cleanSku else "PRD-" + UUID.randomUUID().toString().take(6).uppercase()
+                        val finalBarcode = if (cleanBarcode.isNotBlank()) cleanBarcode else finalSku
+
+                        val insertStmt = conn.prepareStatement(
+                            """
+                            INSERT INTO products (id, sku, name, department_id, base_unit, cost_cents, tax_rate, uses_inventory, min_stock_millis, max_stock_millis, is_active, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?, 0, ?, ?)
+                            """.trimIndent()
+                        )
+                        insertStmt.setString(1, newProdId)
+                        insertStmt.setString(2, finalSku)
+                        insertStmt.setString(3, cleanName)
+                        insertStmt.setString(4, deptId)
+                        insertStmt.setString(5, baseUnit)
+                        insertStmt.setLong(6, row.costCents)
+                        insertStmt.setDouble(7, row.taxRate)
+                        insertStmt.setLong(8, row.minStockMillis)
+                        insertStmt.setBoolean(9, row.isActive)
+                        insertStmt.setLong(10, now)
+                        insertStmt.executeUpdate()
+                        insertStmt.close()
+
+                        val presId = "pres-" + UUID.randomUUID().toString().take(8)
+                        val insertPresStmt = conn.prepareStatement(
+                            """
+                            INSERT INTO product_presentations (id, product_id, barcode, name, factor_millis, price_cents, is_active)
+                            VALUES (?, ?, ?, ?, 1000, ?, TRUE)
+                            """.trimIndent()
+                        )
+                        insertPresStmt.setString(1, presId)
+                        insertPresStmt.setString(2, newProdId)
+                        insertPresStmt.setString(3, finalBarcode)
+                        insertPresStmt.setString(4, if (baseUnit == "KG") "Granel" else "Pieza")
+                        insertPresStmt.setLong(5, row.priceCents)
+                        insertPresStmt.executeUpdate()
+                        insertPresStmt.close()
+
+                        val stockStmt = conn.prepareStatement(
+                            "INSERT INTO stock_balances (product_id, quantity_millis, updated_at) VALUES (?, ?, ?)"
+                        )
+                        stockStmt.setString(1, newProdId)
+                        stockStmt.setLong(2, row.currentStockMillis)
+                        stockStmt.setLong(3, now)
+                        stockStmt.executeUpdate()
+                        stockStmt.close()
+
+                        createdCount++
+                        results.add(
+                            CatalogImportRowResult(
+                                rowNumber = rowNum,
+                                sku = finalSku,
+                                barcode = finalBarcode,
+                                name = cleanName,
+                                status = "CREATED",
+                                message = "Producto creado con éxito"
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    errorCount++
+                    results.add(
+                        CatalogImportRowResult(
+                            rowNumber = rowNum,
+                            sku = cleanSku,
+                            barcode = cleanBarcode,
+                            name = cleanName,
+                            status = "ERROR",
+                            message = e.message ?: "Error al procesar fila"
+                        )
+                    )
+                }
+            }
+
+            CatalogImportResponse(
+                totalRows = rows.size,
+                createdCount = createdCount,
+                updatedCount = updatedCount,
+                errorCount = errorCount,
+                rows = results
+            )
+        }
     }
 }

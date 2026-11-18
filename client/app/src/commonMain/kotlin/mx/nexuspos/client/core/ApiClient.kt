@@ -13,6 +13,8 @@ import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
 import mx.nexuspos.contracts.cash.OpenSessionRequest
+import mx.nexuspos.contracts.catalog.CatalogImportRequest
+import mx.nexuspos.contracts.catalog.CatalogImportResponse
 import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.DepartmentDto
@@ -254,6 +256,37 @@ open class ApiClient(
             val res = http.delete("$baseUrl/api/v1/departments/$id")
             if (res.status.isSuccess()) {
                 Result.success(true)
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun exportCatalogCsv(): Result<String> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/catalog/export")
+            if (res.status.isSuccess()) {
+                Result.success(res.bodyAsText())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun importCatalog(req: CatalogImportRequest): Result<CatalogImportResponse> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/catalog/import") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
             } else {
                 val err = parseError(res)
                 Result.failure(Exception(err.message))

@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
+import mx.nexuspos.client.features.catalog.CsvCatalogHelper
+import mx.nexuspos.contracts.catalog.CatalogImportRequest
+import mx.nexuspos.contracts.catalog.CatalogImportResponse
 import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
 import mx.nexuspos.contracts.catalog.CreatePresentationRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
@@ -325,5 +328,74 @@ class ProductsViewModel(
 
     fun dismissMessages() {
         _uiState.update { it.copy(errorMessage = null, successMessage = null) }
+    }
+
+    // ==========================================
+    // IMPORTACIÓN / EXPORTACIÓN Y ETIQUETAS
+    // ==========================================
+
+    fun openImportExportDialog() {
+        _uiState.update { it.copy(showImportExportDialog = true, importResult = null) }
+        exportCatalogCsv()
+    }
+
+    fun closeImportExportDialog() {
+        _uiState.update { it.copy(showImportExportDialog = false, importResult = null) }
+    }
+
+    fun openShelfLabelsDialog(product: ProductDto? = null) {
+        val target = product ?: _uiState.value.selectedProduct ?: _uiState.value.products.firstOrNull()
+        _uiState.update { it.copy(showShelfLabelsDialog = true, selectedProductForLabel = target) }
+    }
+
+    fun closeShelfLabelsDialog() {
+        _uiState.update { it.copy(showShelfLabelsDialog = false, selectedProductForLabel = null) }
+    }
+
+    fun selectProductForLabel(product: ProductDto?) {
+        _uiState.update { it.copy(selectedProductForLabel = product) }
+    }
+
+    fun exportCatalogCsv(onComplete: ((String) -> Unit)? = null) {
+        scope.launch {
+            _uiState.update { it.copy(isExporting = true) }
+            val res = apiClient.exportCatalogCsv()
+            res.onSuccess { csv ->
+                _uiState.update { it.copy(isExporting = false, exportedCsvContent = csv) }
+                onComplete?.invoke(csv)
+            }.onFailure { err ->
+                _uiState.update { it.copy(isExporting = false, errorMessage = "Error al exportar catálogo: ${err.message}") }
+            }
+        }
+    }
+
+    fun importCatalogCsv(csvContent: String) {
+        val rows = CsvCatalogHelper.parseCsvToRows(csvContent)
+        if (rows.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "El contenido CSV no contiene filas de productos válidas.") }
+            return
+        }
+
+        scope.launch {
+            _uiState.update { it.copy(isImporting = true, errorMessage = null) }
+            val res = apiClient.importCatalog(CatalogImportRequest(rows))
+            res.onSuccess { response ->
+                _uiState.update {
+                    it.copy(
+                        isImporting = false,
+                        importResult = response,
+                        successMessage = "Importación completada: ${response.createdCount} creados, ${response.updatedCount} actualizados, ${response.errorCount} errores."
+                    )
+                }
+                loadDepartments()
+                loadProducts()
+            }.onFailure { err ->
+                _uiState.update { it.copy(isImporting = false, errorMessage = "Error al importar catálogo: ${err.message}") }
+            }
+        }
+    }
+
+    fun clearImportResult() {
+        _uiState.update { it.copy(importResult = null) }
     }
 }
