@@ -38,6 +38,8 @@ import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
+import mx.nexuspos.contracts.sales.ParkSaleRequest
+import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.server.modules.cash.CashSessionService
 import mx.nexuspos.server.modules.catalog.CatalogService
@@ -45,6 +47,7 @@ import mx.nexuspos.server.modules.credit.CreditService
 import mx.nexuspos.server.modules.identity.IdentityService
 import mx.nexuspos.server.modules.inventory.InventoryService
 import mx.nexuspos.server.modules.reports.ReportsService
+import mx.nexuspos.server.modules.sales.ParkedSalesService
 import mx.nexuspos.server.modules.sales.SalesService
 import mx.nexuspos.server.modules.system.SettingsService
 import mx.nexuspos.server.persistence.DatabaseFactory
@@ -70,6 +73,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val creditService = CreditService(dbFactory)
     val settingsService = SettingsService(dbFactory)
     val salesService = SalesService(dbFactory, settingsService)
+    val parkedSalesService = ParkedSalesService(dbFactory)
     val reportsService = ReportsService(dbFactory)
 
     val activeWsSessions = Collections.synchronizedSet(HashSet<DefaultWebSocketServerSession>())
@@ -492,6 +496,35 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val sessionParam = call.request.queryParameters["sessionId"]
                 val report = reportsService.getDailyFinancialReport(dateParam, sessionParam)
                 call.respond(report)
+            }
+
+            // Parked Sales (Tickets en Espera)
+            get("/parked-sales") {
+                val registerId = call.request.queryParameters["registerId"]
+                call.respond(parkedSalesService.getParkedSales(registerId))
+            }
+
+            post("/parked-sales") {
+                val req = call.receive<ParkSaleRequest>()
+                val parked = parkedSalesService.parkSale(req)
+                broadcastEventJson("parked_sale.created", jsonConfig.encodeToString(parked))
+                call.respond(HttpStatusCode.Created, parked)
+            }
+
+            post("/parked-sales/{id}/retrieve") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de ticket en espera requerido")
+                val req = call.receive<RetrieveParkedSaleRequest>()
+                val retrieved = parkedSalesService.retrieveParkedSale(id, req)
+                broadcastEventJson("parked_sale.retrieved", jsonConfig.encodeToString(retrieved))
+                call.respond(retrieved)
+            }
+
+            post("/parked-sales/{id}/discard") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de ticket en espera requerido")
+                val userId = call.request.queryParameters["userId"] ?: "cajero"
+                val discarded = parkedSalesService.discardParkedSale(id, userId)
+                broadcastEventJson("parked_sale.discarded", jsonConfig.encodeToString(discarded))
+                call.respond(discarded)
             }
         }
 

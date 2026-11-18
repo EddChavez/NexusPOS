@@ -20,6 +20,7 @@ data class BottomCheckoutPanelState(
     val hasMultipleTickets: Boolean = false,
     val canCancelTicket: Boolean = false,
     val canDelete: Boolean = canCancelTicket,
+    val parkedSalesCount: Int = 0,
 
     // ==========================================
     // 2. TARJETA CENTRAL: VENTA ANTERIOR
@@ -56,6 +57,7 @@ fun SalesUiState.toBottomCheckoutPanelState(): BottomCheckoutPanelState {
         hasMultipleTickets = tickets.size > 1,
         canCancelTicket = canCancel,
         canDelete = canCancel,
+        parkedSalesCount = parkedSalesCount,
         lastSaleFolio = lastSale?.let { "Ticket #${it.folio}" } ?: "Ticket #---",
         lastSaleTotalFormatted = lastSale?.let { Money.fromCents(it.totalCents).format() } ?: "$0.00",
         lastSaleReceivedFormatted = lastSale?.let { Money.fromCents(receivedCents).format() } ?: "$0.00",

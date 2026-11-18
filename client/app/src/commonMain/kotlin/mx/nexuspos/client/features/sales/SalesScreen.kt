@@ -68,6 +68,8 @@ fun SalesScreen(
                             }
                         }
                         is CaptureBarEvent.DeleteItem -> viewModel.deleteActiveCartLine()
+                        is CaptureBarEvent.OpenParkedSales -> viewModel.openParkedSalesListDialog()
+                        is CaptureBarEvent.ParkCurrentSale -> viewModel.openParkSaleDialog()
                     }
                 }
             )
@@ -117,7 +119,7 @@ fun SalesScreen(
             BottomCheckoutPanel(
                 state = state.toBottomCheckoutPanelState(),
                 onSwitchTicket = { viewModel.cycleNextTicket() },
-                onHoldTicket = { viewModel.holdTicketAndNew() },
+                onHoldTicket = { viewModel.openParkSaleDialog() },
                 // Este evento elimina por completo el ticket actual en foco, a diferencia de la eliminación de un producto individual de la parrilla
                 onCancelCurrentTicket = { viewModel.closeTicket(state.activeTicketId) },
                 onOpenCashDrawer = { viewModel.openCashDrawer() },
@@ -276,6 +278,29 @@ fun SalesScreen(
                         viewModel.closeReprintPreview()
                     }
                 }
+            )
+        }
+
+        if (state.isShowingParkSaleDialog) {
+            ParkSalePromptDialog(
+                isOpen = true,
+                itemsCount = state.cartLines.size,
+                total = state.total,
+                onConfirm = { label -> viewModel.confirmParkCurrentSale(label) },
+                onDismiss = { viewModel.closeParkSaleDialog() }
+            )
+        }
+
+        if (state.isShowingParkedSalesListDialog) {
+            ParkedSalesListDialog(
+                isOpen = true,
+                parkedSales = state.parkedSales,
+                selectedSale = state.selectedParkedSale,
+                isLoading = state.isLoadingParkedSales,
+                onSelectSale = { viewModel.selectParkedSale(it) },
+                onRetrieve = { viewModel.retrieveParkedSale(it) },
+                onDiscard = { viewModel.discardParkedSale(it) },
+                onDismiss = { viewModel.closeParkedSalesListDialog() }
             )
         }
     }

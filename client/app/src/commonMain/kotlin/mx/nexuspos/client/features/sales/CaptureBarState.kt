@@ -55,4 +55,6 @@ sealed interface CaptureBarEvent {
     data object CashOut : CaptureBarEvent             // [F8]
     data object WeighBulk : CaptureBarEvent           // [F9]
     data object DeleteItem : CaptureBarEvent          // [DEL]
+    data object OpenParkedSales : CaptureBarEvent     // [Tickets en Espera]
+    data object ParkCurrentSale : CaptureBarEvent     // [Poner en Espera]
 }

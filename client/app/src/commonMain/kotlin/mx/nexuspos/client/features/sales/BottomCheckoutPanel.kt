@@ -179,7 +179,7 @@ private fun TicketManagementCard(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("[F6]", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            "Dejar Pend",
+                            text = if (state.parkedSalesCount > 0) "Pend (${state.parkedSalesCount})" else "Dejar Pend",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1

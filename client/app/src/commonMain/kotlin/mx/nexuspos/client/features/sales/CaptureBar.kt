@@ -128,7 +128,8 @@ fun CaptureBar(
                         Surface(
                             color = NexusTheme.colors.warningBg,
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, NexusTheme.colors.warning.copy(alpha = 0.6f))
+                            border = BorderStroke(1.dp, NexusTheme.colors.warning.copy(alpha = 0.6f)),
+                            modifier = Modifier.clickable { onEvent(CaptureBarEvent.OpenParkedSales) }
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -148,6 +149,21 @@ fun CaptureBar(
                                 )
                             }
                         }
+                    }
+
+                    // Botón para poner ticket actual en espera
+                    OutlinedIconButton(
+                        onClick = { onEvent(CaptureBarEvent.ParkCurrentSale) },
+                        modifier = Modifier.size(28.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PauseCircle,
+                            contentDescription = "Poner en Espera",
+                            modifier = Modifier.size(16.dp),
+                            tint = NexusTheme.colors.warningText
+                        )
                     }
 
                     // Botón para crear nueva venta / ticket

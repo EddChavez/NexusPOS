@@ -15,6 +15,10 @@ import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.sales.CreateSaleRequest
+import mx.nexuspos.contracts.sales.ParkSaleRequest
+import mx.nexuspos.contracts.sales.ParkedSaleItemDto
+import mx.nexuspos.contracts.sales.ParkedSaleResponse
+import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.sales.SaleLineItemRequest
 import mx.nexuspos.contracts.sales.SalePaymentRequest
 import mx.nexuspos.contracts.sales.SaleResponse
@@ -34,6 +38,7 @@ class SalesViewModel(
     init {
         checkServerConnection()
         loadActiveSession()
+        loadParkedSales()
     }
 
     fun checkServerConnection() {
@@ -312,6 +317,222 @@ class SalesViewModel(
     fun holdTicketAndNew() {
         newTicket()
         _uiState.update { it.copy(successMessage = "Ticket anterior puesto en espera. Nuevo ticket listo.") }
+    }
+
+    // ==========================================
+    // PERSISTENT PARKED SALES (BASE DE DATOS)
+    // ==========================================
+
+    fun loadParkedSales(registerId: String? = null) {
+        scope.launch {
+            _uiState.update { it.copy(isLoadingParkedSales = true) }
+            val res = apiClient.getParkedSales(registerId)
+            res.onSuccess { list ->
+                _uiState.update {
+                    it.copy(
+                        parkedSales = list,
+                        parkedSalesCount = list.size,
+                        isLoadingParkedSales = false,
+                        selectedParkedSale = it.selectedParkedSale?.let { sel -> list.firstOrNull { p -> p.id == sel.id } } ?: list.firstOrNull()
+                    )
+                }
+            }.onFailure {
+                _uiState.update { it.copy(isLoadingParkedSales = false) }
+            }
+        }
+    }
+
+    fun openParkSaleDialog() {
+        val state = _uiState.value
+        if (state.cartLines.isEmpty()) {
+            openParkedSalesListDialog()
+        } else {
+            _uiState.update { it.copy(isShowingParkSaleDialog = true) }
+        }
+    }
+
+    fun closeParkSaleDialog() {
+        _uiState.update { it.copy(isShowingParkSaleDialog = false) }
+    }
+
+    fun openParkedSalesListDialog() {
+        loadParkedSales()
+        _uiState.update { it.copy(isShowingParkedSalesListDialog = true) }
+    }
+
+    fun closeParkedSalesListDialog() {
+        _uiState.update { it.copy(isShowingParkedSalesListDialog = false, selectedParkedSale = null) }
+    }
+
+    fun selectParkedSale(parked: ParkedSaleResponse?) {
+        _uiState.update { it.copy(selectedParkedSale = parked) }
+    }
+
+    fun confirmParkCurrentSale(label: String) {
+        val state = _uiState.value
+        if (state.cartLines.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "El carrito está vacío. Agregue productos antes de poner en espera.") }
+            return
+        }
+
+        val effectiveLabel = label.trim().ifBlank {
+            val activeTicket = state.tickets.firstOrNull { it.id == state.activeTicketId }
+            activeTicket?.title ?: "Ticket ${state.tickets.size}"
+        }
+
+        val itemsDto = state.cartLines.map { line ->
+            ParkedSaleItemDto(
+                id = line.id,
+                productId = line.productId,
+                presentationId = line.presentationId,
+                barcode = line.barcode,
+                name = line.name,
+                unitCode = line.unit.code,
+                quantityMillis = line.quantity.millis,
+                unitPriceCents = line.unitPrice.cents,
+                taxRate = line.taxRate,
+                totalCents = line.total.cents,
+                isWeighed = line.isWeighed
+            )
+        }
+
+        val req = ParkSaleRequest(
+            customLabel = effectiveLabel,
+            cashierUserId = state.activeCashierId,
+            cashierName = state.activeCashierName,
+            registerId = state.activeSession?.registerId ?: "caja-1",
+            customerId = state.selectedCustomer?.id,
+            customerName = state.selectedCustomer?.name,
+            items = itemsDto,
+            totalCents = state.total.cents
+        )
+
+        scope.launch {
+            apiClient.parkSale(req).onSuccess { parked ->
+                _uiState.update { s ->
+                    val clearedTickets = s.tickets.map { t ->
+                        if (t.id == s.activeTicketId) {
+                            t.copy(
+                                cartLines = emptyList(),
+                                subtotal = Money.ZERO,
+                                tax = Money.ZERO,
+                                total = Money.ZERO,
+                                selectedCustomer = null
+                            )
+                        } else t
+                    }
+                    s.copy(
+                        tickets = clearedTickets,
+                        cartLines = emptyList(),
+                        subtotal = Money.ZERO,
+                        tax = Money.ZERO,
+                        total = Money.ZERO,
+                        selectedCustomer = null,
+                        selectedCartLineId = null,
+                        scannerInput = "",
+                        isShowingParkSaleDialog = false,
+                        successMessage = "Ticket '$effectiveLabel' guardado en espera (${parked.itemsCount} productos).",
+                        errorMessage = null
+                    )
+                }
+                loadParkedSales()
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(errorMessage = "Error al poner ticket en espera: ${err.message}")
+                }
+            }
+        }
+    }
+
+    fun retrieveParkedSale(parkedSale: ParkedSaleResponse) {
+        val state = _uiState.value
+        val req = RetrieveParkedSaleRequest(
+            retrievedByUserId = state.activeCashierId,
+            registerId = state.activeSession?.registerId ?: "caja-1"
+        )
+
+        scope.launch {
+            apiClient.retrieveParkedSale(parkedSale.id, req).onSuccess { retrieved ->
+                val restoredLines = retrieved.items.map { item ->
+                    CartLine(
+                        id = item.id.ifBlank { "cart-${UUID.randomUUID().toString().take(6)}" },
+                        productId = item.productId,
+                        presentationId = item.presentationId,
+                        barcode = item.barcode,
+                        name = item.name,
+                        unit = ProductUnit.fromCode(item.unitCode),
+                        quantity = Quantity(item.quantityMillis),
+                        unitPrice = Money.fromCents(item.unitPriceCents),
+                        taxRate = item.taxRate,
+                        total = Money.fromCents(item.totalCents),
+                        isWeighed = item.isWeighed
+                    )
+                }
+
+                _uiState.update { s ->
+                    if (s.cartLines.isEmpty()) {
+                        val updatedState = s.copy(
+                            cartLines = restoredLines,
+                            isShowingParkedSalesListDialog = false,
+                            selectedParkedSale = null,
+                            successMessage = "Ticket '${retrieved.customLabel}' recuperado al carrito."
+                        )
+                        val recalculated = recalculateTotals(updatedState)
+                        val syncedTickets = recalculated.tickets.map { t ->
+                            if (t.id == recalculated.activeTicketId) {
+                                t.copy(
+                                    cartLines = recalculated.cartLines,
+                                    subtotal = recalculated.subtotal,
+                                    tax = recalculated.tax,
+                                    total = recalculated.total
+                                )
+                            } else t
+                        }
+                        recalculated.copy(tickets = syncedTickets)
+                    } else {
+                        val newId = "ticket-${UUID.randomUUID().toString().take(6)}"
+                        val newTicket = TicketState(id = newId, title = retrieved.customLabel.take(15))
+                        val stateWithNewTicket = s.copy(
+                            tickets = s.tickets + newTicket,
+                            activeTicketId = newId,
+                            cartLines = restoredLines,
+                            isShowingParkedSalesListDialog = false,
+                            selectedParkedSale = null,
+                            successMessage = "Ticket '${retrieved.customLabel}' recuperado en nueva pestaña."
+                        )
+                        val recalculated = recalculateTotals(stateWithNewTicket)
+                        val syncedTickets = recalculated.tickets.map { t ->
+                            if (t.id == newId) {
+                                t.copy(
+                                    cartLines = recalculated.cartLines,
+                                    subtotal = recalculated.subtotal,
+                                    tax = recalculated.tax,
+                                    total = recalculated.total
+                                )
+                            } else t
+                        }
+                        recalculated.copy(tickets = syncedTickets)
+                    }
+                }
+                loadParkedSales()
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(errorMessage = "Error al recuperar ticket: ${err.message}")
+                }
+            }
+        }
+    }
+
+    fun discardParkedSale(parkedSaleId: String) {
+        val state = _uiState.value
+        scope.launch {
+            apiClient.discardParkedSale(parkedSaleId, userId = state.activeCashierId).onSuccess {
+                _uiState.update { it.copy(successMessage = "Ticket en espera descartado correctamente.") }
+                loadParkedSales()
+            }.onFailure { err ->
+                _uiState.update { it.copy(errorMessage = "Error al descartar ticket: ${err.message}") }
+            }
+        }
     }
 
     var receiptFormatter: ((SaleResponse, Boolean) -> String)? = null

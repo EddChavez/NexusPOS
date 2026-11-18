@@ -5,6 +5,7 @@ import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
 import mx.nexuspos.contracts.credit.CustomerDto
+import mx.nexuspos.contracts.sales.ParkedSaleResponse
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.ProductUnit
@@ -76,6 +77,12 @@ data class SalesUiState(
     val salePendingCancel: SaleResponse? = null,
     val reprintTicketPreview: String? = null,
     val lastCompletedSale: SaleResponse? = null,
+    val parkedSalesCount: Int = 0,
+    val parkedSales: List<ParkedSaleResponse> = emptyList(),
+    val selectedParkedSale: ParkedSaleResponse? = null,
+    val isShowingParkSaleDialog: Boolean = false,
+    val isShowingParkedSalesListDialog: Boolean = false,
+    val isLoadingParkedSales: Boolean = false,
     val errorMessage: String? = null,
     val successMessage: String? = null
 )
@@ -84,7 +91,7 @@ data class SalesUiState(
  * Convierte el estado de ventas a la proyección requerida por [CaptureBar].
  */
 fun SalesUiState.toCaptureBarState(): CaptureBarState {
-    val pendingCount = tickets.count { it.id != activeTicketId && it.cartLines.isNotEmpty() }
+    val pendingCount = tickets.count { it.id != activeTicketId && it.cartLines.isNotEmpty() } + parkedSalesCount
     val tabItems = tickets.map { t ->
         TicketTabItem(
             id = t.id,
