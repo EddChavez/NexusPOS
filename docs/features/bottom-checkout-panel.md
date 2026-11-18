@@ -22,9 +22,9 @@ Asimismo, unifica el área central de ventas en un esquema vertical donde `CartG
   - Cabecera con título en negrita y Badge `"En Curso"`.
   - Fila de 3 botones cuadrados/compactos:
     - `[F5] Cambiar`: Cicla entre tickets abiertos en memoria.
-    - `[F6] Dejar Pend`: Pone en espera el ticket activo y crea un nuevo ticket limpio.
+    - `[F6] Dejar Pend (N)`: Pone en espera el ticket activo en base de datos (`POST /api/v1/parked-sales`) y muestra badge con el conteo de ventas pendientes.
     - `[DEL] Eliminar`: Cancela y destruye por completo el ticket actual en foco (`onCancelCurrentTicket`) a diferencia de la eliminación de un artículo individual de la parrilla (destacado en rojo/peligro de alto contraste).
-  - Fila inferior: Botón de ancho completo `"Abrir Cajón"` con icono `Inbox`.
+  - Fila inferior: Botón de ancho completo `"Abrir Cajón"` con icono `Inbox` (atajo global `[F7]`).
 - **Tarjeta 2: VENTA ANTERIOR / POST-VENTA (weight ~0.35f):**
   - Surface con color `surfaceVariant` (gris suave) para distinguir que es un contexto histórico ya cerrado.
   - Cabecera con título e indicador de folio (`"Ticket #---"` inicial o `"Ticket #1042"`).
@@ -32,7 +32,7 @@ Asimismo, unifica el área central de ventas en un esquema vertical donde `CartG
     - `TOTAL ANT.` (inicial `$0.00`).
     - `PAGÓ CON` (inicial `$0.00`).
     - `CAMBIO` (inicial `$0.00`, resaltado en color verde neón `Color(0xFF00E676)`).
-  - 2 botones inferiores: `"Reimprimir Ticket"` y `"Ventas / Devol."`.
+  - 2 botones inferiores: `"Reimprimir Ticket"` (reimpresión física rápida) y `"Ventas / Devol."` (abre el historial del turno `[Ctrl+H]`).
 - **Tarjeta 3: TOTAL A COBRAR (weight ~0.35f):**
   - Borde verde principal de 2.dp (`BorderStroke(2.dp, Color(0xFF2E7D32))`) de alta prioridad visual.
   - Cabecera con título `"TOTAL A COBRAR"` e indicador `"Moneda: MXN ($)"`.
@@ -40,6 +40,7 @@ Asimismo, unifica el área central de ventas en un esquema vertical donde `CartG
   - Botón primario masivo verde (`Color(0xFF1B5E20)`):
     - Texto: `"[F12] COBRAR ORDEN"`
     - Subtexto: `"Efectivo / Tarjeta / Fiado"`
+    - Acción: Despliega la ventana de **Cobro Multi-Pago / Dividido** (`MultiPaymentCheckoutDialog.kt`).
 - **Refactorización de Layout en `SalesScreen.kt`:**
   - Sustitución de la columna lateral del 32% por un flujo vertical homogéneo: `CaptureBar` superior, `CartGrid` con `weight(1f)` y `BottomCheckoutPanel` inferior.
 

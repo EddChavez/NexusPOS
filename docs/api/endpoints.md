@@ -300,6 +300,65 @@ Reactiva un producto previamente dado de baja lógica.
 
 ---
 
+### F. Importación y Exportación Masiva de Catálogo (`/api/v1/catalog`)
+
+#### `GET /api/v1/catalog/export`
+Genera y descarga el catálogo completo de productos en formato CSV compatible con Microsoft Excel y hojas de cálculo.
+- **Convenciones y Formato:**
+  - Codificación UTF-8 con BOM (`\uFEFF`) para apertura directa en Excel sin caracteres corruptos ni requerir asistentes de importación.
+  - Especificación RFC 4180 con escape de comillas dobles y separador de comas.
+  - Valores monetarios en pesos con dos decimales (`18.50`).
+  - Encabezados: `Código de Barras,SKU,Nombre del Producto,Departamento,Unidad,Costo ($),Precio de Venta ($),Maneja Inventario,Stock Mínimo,Stock Máximo,Stock Actual,Activo`.
+- **Respuesta 200 OK:** Flujo de texto `text/csv; charset=utf-8` con encabezado `Content-Disposition: attachment; filename="nexuspos_catalogo_YYYYMMDD_HHMMSS.csv"`.
+
+#### `POST /api/v1/catalog/import`
+Procesa un lote de productos para actualización masiva o alta inicial mediante upsert inteligente.
+- **Reglas de Negocio:**
+  - **Upsert por Identificador:** Busca coincidencias prioritariamente por `sku` o por `barcode`. Si el producto existe, actualiza sus nombres, precios, costos y existencias. Si no existe, genera el alta automática.
+  - **Creación On-the-Fly de Departamentos:** Si el nombre del departamento especificado no existe, lo crea automáticamente en la base de datos.
+  - **Tolerancia a Fallos:** Procesa cada fila de forma aislada. Filas con errores individuales (ej. precio negativo) se reportan en el detalle de resultados sin abortar la importación de los registros válidos.
+  - **Sincronización:** Emite el evento WebSocket `catalog.changed` para que todas las cajas actualicen su caché local.
+- **Cuerpo de Solicitud:**
+  ```json
+  {
+    "rows": [
+      {
+        "sku": "SKU-SAB45",
+        "barcode": "7501011115555",
+        "name": "Sabritas Sal 45g",
+        "departmentName": "Botanas",
+        "baseUnit": "PZA",
+        "costCents": 1200,
+        "priceCents": 1800,
+        "usesInventory": true,
+        "minStockMillis": 5000,
+        "maxStockMillis": 30000,
+        "stockMillis": 24000,
+        "isActive": true
+      }
+    ]
+  }
+  ```
+- **Respuesta 200 OK:**
+  ```json
+  {
+    "totalRows": 1,
+    "createdCount": 1,
+    "updatedCount": 0,
+    "failedCount": 0,
+    "results": [
+      {
+        "rowIndex": 0,
+        "status": "CREATED",
+        "message": "Producto creado exitosamente",
+        "sku": "SKU-SAB45"
+      }
+    ]
+  }
+  ```
+
+---
+
 ### F. Sesiones de Caja, Arqueo y Movimientos (`/api/v1/cash-sessions`)
 
 #### `POST /api/v1/cash-sessions`
@@ -522,14 +581,52 @@ Obtiene el ticket y partidas completas de una venta individual por su identifica
 - **Respuesta 200 OK:** Objeto `SaleResponse`.
 
 #### `POST /api/v1/sales`
-Ejecuta la transacción atómica de cobro de una venta.
+Ejecuta la transacción atómica de cobro de una venta con soporte para pagos únicos o **cobro dividido / multi-pago (Split Payment)**.
 - **Validaciones Atómicas:**
   - Requiere encabezado `Idempotency-Key` único.
-  - Descuenta existencias en inventario (`usesInventory = true`).
-  - Si incluye pago en `"CASH"`, suma el monto cobrado al efectivo esperado en la sesión de caja.
-  - Si incluye pago en `"CREDIT"`, valida que el cliente tenga crédito activo y no exceda su límite, creando el cargo correspondiente en el Kardex de crédito.
-- **Cuerpo:** Objeto `CreateSaleRequest`.
-- **Respuesta 201 Created:** Objeto `SaleResponse`.
+  - Valida que la suma de `amountCents` de todas las formas de pago cubra el `totalCents` de la venta.
+  - Descuenta existencias en inventario (`usesInventory = true`) registrando movimientos de Kardex tipo `SALE`.
+  - **Efectivo (`CASH`):** Suma la porción cobrada en efectivo a `expected_cash_cents` de la sesión de caja activa. El cambio entregado se calcula exclusivamente sobre la porción en efectivo (`receivedCents - amountCents`).
+  - **Tarjeta (`CARD`):** Registra el importe cobrado y el número de autorización bancaria / voucher en `reference`.
+  - **Transferencia (`TRANSFER`):** Registra el importe y la clave de rastreo / folio SPEI en `reference`.
+  - **Crédito Fiado (`CREDIT`):** Valida que el cliente exista, tenga crédito habilitado y $\text{Saldo Actual} + \text{Monto Fiado} \le \text{Límite de Crédito}$, generando el cargo correspondiente en el Kardex de crédito.
+- **Cuerpo de Solicitud:**
+  ```json
+  {
+    "cashSessionId": "sess-caja1-101",
+    "cashierUserId": "usr-admin-1",
+    "customerId": "cust-001",
+    "subtotalCents": 30000,
+    "taxCents": 0,
+    "totalCents": 30000,
+    "lines": [
+      {
+        "productId": "prod-1",
+        "presentationId": "pres-1",
+        "quantityMillis": 2000,
+        "unitPriceCents": 15000,
+        "taxRate": 0.0,
+        "taxCents": 0,
+        "totalCents": 30000
+      }
+    ],
+    "payments": [
+      {
+        "method": "CASH",
+        "amountCents": 10000,
+        "receivedCents": 20000,
+        "reference": ""
+      },
+      {
+        "method": "CARD",
+        "amountCents": 20000,
+        "receivedCents": 20000,
+        "reference": "AUTH-4812 Banorte"
+      }
+    ]
+  }
+  ```
+- **Respuesta 201 Created:** Objeto `SaleResponse` con `payments` desglosados y número de folio consecutivo único.
 
 #### `POST /api/v1/sales/{id}/cancel`
 Cancela atómicamente una venta realizada, revirtiendo todas sus operaciones asociadas en una sola transacción:
@@ -651,6 +748,94 @@ Registra un nuevo movimiento manual en el Kardex (compra, ajuste por merma, cont
 
 ---
 
+### K. Tickets en Espera Persistentes (`/api/v1/parked-sales`)
+
+#### `GET /api/v1/parked-sales`
+Lista todas las ventas pausadas activas (`status = 'PARKED'`) en orden cronológico inverso. Permite consultar las colas de espera compartidas entre todas las terminales de la red local.
+- **Respuesta 200 OK:**
+  ```json
+  [
+    {
+      "id": "parked-1713139200000",
+      "customLabel": "Cliente camisa azul",
+      "cashierUserId": "usr-admin-1",
+      "cashierName": "Don Pepe",
+      "registerId": "caja-1",
+      "totalCents": 8500,
+      "itemsCount": 3,
+      "items": [
+        {
+          "productId": "prod-1",
+          "presentationId": "pres-1",
+          "productName": "Leche Entera 1L",
+          "presentationName": "Pieza",
+          "quantityMillis": 2000,
+          "unitPriceCents": 2800,
+          "totalCents": 5600,
+          "isWeighed": false
+        }
+      ],
+      "status": "PARKED",
+      "createdAt": 1713139200000,
+      "retrievedAt": null,
+      "retrievedByUserId": null
+    }
+  ]
+  ```
+
+#### `POST /api/v1/parked-sales`
+Pone en espera / suspende un ticket de venta activo en el servidor central.
+- **Reglas de Negocio:**
+  - Persiste el carrito completo en la tabla `parked_sales` con serialización JSON de artículos, cantidades, precios e indicadores de granel.
+  - No descuenta inventario ni afecta el balance de caja hasta que el ticket sea reanudado y cobrado.
+  - Difunde el evento WebSocket `parked_sale.created` a todas las terminales LAN conectadas.
+- **Cuerpo de Solicitud:**
+  ```json
+  {
+    "customLabel": "Doña Carmen",
+    "cashierUserId": "usr-admin-1",
+    "cashierName": "Don Pepe",
+    "registerId": "caja-1",
+    "items": [
+      {
+        "productId": "prod-1",
+        "presentationId": "pres-1",
+        "productName": "Arroz 1kg",
+        "presentationName": "Bolsa",
+        "quantityMillis": 1000,
+        "unitPriceCents": 2200,
+        "totalCents": 2200,
+        "isWeighed": false
+      }
+    ]
+  }
+  ```
+- **Respuesta 201 Created:** Objeto `ParkedSaleResponse`.
+
+#### `POST /api/v1/parked-sales/{id}/retrieve`
+Reanuda un ticket en espera para su cobro en mostrador.
+- **Reglas de Negocio:**
+  - Marca atómicamente el estado a `"RETRIEVED"`.
+  - Si otra caja intenta reanudar simultáneamente el mismo ticket, la transacción previene el doble despacho devolviendo error de conflicto.
+  - Difunde el evento WebSocket `parked_sale.retrieved` para que todas las cajas actualicen su contador de tickets pendientes.
+- **Cuerpo de Solicitud:**
+  ```json
+  {
+    "retrievedByUserId": "usr-cajero-2"
+  }
+  ```
+- **Respuesta 200 OK:** Objeto `ParkedSaleResponse` con los artículos listos para inyectar en el carrito activo.
+
+#### `POST /api/v1/parked-sales/{id}/discard`
+Descarta permanentemente un ticket retenido que el cliente desistió de comprar.
+- **Reglas de Negocio:**
+  - Marca el estado a `"DISCARDED"`.
+  - Excluye el registro de la lista de pendientes activos.
+  - Difunde el evento WebSocket `parked_sale.discarded`.
+- **Respuesta 200 OK:** Objeto `ParkedSaleResponse` con `status: "DISCARDED"`.
+
+---
+
 ## 3. Canal de Eventos en Tiempo Real (WebSocket)
 
 - **URL:** `ws://<server-ip>:8080/ws/events`
@@ -666,6 +851,7 @@ Registra un nuevo movimiento manual en el Kardex (compra, ajuste por merma, cont
 ### Catálogo de Eventos Transmitidos:
 | Evento | Descripción | Payload |
 | :--- | :--- | :--- |
+| `catalog.changed` | Notificación de importación o actualización masiva del catálogo | `{"action": "import"}` |
 | `product.created` | Alta de nuevo artículo en el catálogo | `ProductDto` |
 | `product.updated` | Modificación de datos maestros o presentaciones | `ProductDto` |
 | `product.deactivated` | Baja lógica de producto | `ProductDto` |
@@ -677,6 +863,9 @@ Registra un nuevo movimiento manual en el Kardex (compra, ajuste por merma, cont
 | `inventory.updated` | Notificación de cambio de existencias | `{"productId": "..."}` |
 | `cash.session.opened` | Apertura de turno de caja | `CashSessionSummary` |
 | `cash.session.closed` | Cierre oficial de turno (Corte Z) | `CashSessionSummary` |
+| `parked_sale.created` | Ticket puesto en espera en cola compartida | `ParkedSaleResponse` |
+| `parked_sale.retrieved` | Ticket en espera recuperado para cobro | `ParkedSaleResponse` |
+| `parked_sale.discarded` | Ticket en espera descartado | `ParkedSaleResponse` |
 | `sale.completed` | Venta finalizada con éxito | `SaleResponse` |
 | `sale.cancelled` | Cancelación de venta y reversión | `SaleResponse` |
 | `customer.created` | Alta de cliente | `CustomerDto` |

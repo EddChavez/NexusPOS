@@ -1,28 +1,36 @@
-# Funcionalidad: Sesiones y Cortes de Caja
+# Funcionalidad: Sesiones de Caja, Arqueo [F6] (Corte X y Z) y Reporte del Día
 
-Este documento describe la gestión del ciclo de vida del efectivo en cada terminal: apertura de turno, registro de movimientos de entrada/salida, arqueo físico y cierre de corte.
+Este documento describe la gestión integral del efectivo en cada terminal de venta: apertura de turno con fondo inicial, movimientos de entrada/salida, arqueo físico en tiempo real, emisión de **Corte X** y **Corte Z**, y generación del **Reporte Financiero Consolidado del Día** con métricas de ganancia y costo de reposición.
 
 ---
 
 ## 1. Objetivo
-Garantizar el control y la trazabilidad absoluta del dinero en efectivo que ingresa y sale de cada caja, eliminando descuadres inexplicables y proporcionando una fórmula auditable para el cálculo de sobrantes o faltantes en cada turno de trabajo.
+
+Garantizar el control, la trazabilidad y la reconciliación matemática del dinero en efectivo que ingresa y sale de cada caja, eliminando descuadres inexplicables, proporcionando una fórmula auditable para el cálculo de sobrantes o faltantes en cada turno de trabajo y calculando la rentabilidad diaria del negocio.
 
 ---
 
 ## 2. Alcance
 
 ### Incluye:
-- Apertura de turno con captura de fondo inicial de cambio.
-- Registro de entradas manuales de efectivo (ej. aportación de morralla).
-- Registro de salidas/retiros de efectivo (ej. pago a repartidor o proveedor de refrescos).
-- Integración automática del efectivo cobrado por ventas y abonos de clientes fiados.
-- Arqueo de caja y captura de efectivo contado físicamente al finalizar el turno.
-- Cálculo automático de la diferencia (sobrante `+` o faltante `-`) según la regla canónica `RN-CAJ-04`.
-- Emisión de ticket térmico de corte de caja con líneas para firma de cajero y supervisor.
+- **Apertura de Turno:** Diálogo de captura de fondo inicial de cambio (`initialFundCents`).
+- **Registro de Entradas y Salidas:** Atajos `[F7]` (Entrada manual de cambio) y `[F8]` (Retiro de efectivo para proveedores/gastos con concepto y monto).
+- **Módulo de Cortes de Turno ([F6] Cortes):** Pantalla especializada [`CashCutScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutScreen.kt) con dos pestañas de alto impacto:
+  1. **Pestaña 1 — Corte de Turno:**
+     - Tarjetas KPI: Fondo Inicial, Ventas Efectivo, Abonos Cobrados de Crédito, Entradas, Salidas y **Efectivo Esperado en Caja**.
+     - Panel de Arqueo Físico: Campo para captura del efectivo contado por el cajero con cálculo dinámico de diferencia en vivo (`differenceCents`) y badge visual (**Cuadrado Exacto**, **Sobrante (Excedente)** o **Faltante**).
+     - **Corte X (Arqueo Parcial):** Genera e imprime un ticket informativo con el estado actual de la caja manteniendo el turno abierto (`OPEN`) para continuar operando.
+     - **Corte Z (Cierre Oficial):** Envía el cierre al servidor (`POST /api/v1/cash-sessions/{id}/close`), emite el pulso de apertura al cajón de dinero, imprime el ticket térmico oficial con renglones de firma para cajero y supervisor, y marca la sesión como `CLOSED`.
+     - Botón `[F7] Abrir Cajón` para verificación física del efectivo.
+  2. **Pestaña 2 — Reporte del Día:**
+     - Consulta de ventas consolidadas del día mediante `GET /api/v1/reports/daily`.
+     - Desglose por método de pago (Efectivo, Crédito Fiado, otros), cobranza de abonos de fiados, tickets completados y cancelados.
+     - **Métricas de Rentabilidad:** Costo total de reposición de mercancía vendida (COGS), ganancia bruta estimada en pesos (`totalSales - totalCost`) y margen de utilidad porcentual (`profitMarginPercent`).
+     - Botón para imprimir ticket térmico del reporte financiero diario.
 
 ### Queda fuera (Fases futuras):
-- Denominador visual de billetes y monedas por piezas (desglose pieza por pieza) (Fase 2).
-- Cortes ciegos donde el cajero no ve el esperado hasta después de capturar el contado (Fase 2).
+- Conteo desglosado por denominaciones individuales de billetes/monedas (Fase 2 - Pilar 2).
+- Modo de arqueo ciego donde el cajero no ve el esperado hasta finalizar (Fase 2 - Pilar 2).
 
 ---
 
@@ -31,27 +39,36 @@ Garantizar el control y la trazabilidad absoluta del dinero en efectivo que ingr
 - **Actores:** Cajero (su propia caja), Encargado (todas las cajas), Administrador.
 - **Precondiciones:**
   1. Para abrir sesión: la terminal no debe tener una sesión previa abierta.
-  2. Para cerrar sesión: debe existir una sesión abierta activa asociada al cajero o terminal.
+  2. Para operar ventas: debe existir una sesión abierta activa asociada a la terminal.
 
 ---
 
 ## 4. Flujo Funcional
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Cerrada: Estado inicial
-    Cerrada --> Abierta: Apertura con Fondo Inicial (POST /api/v1/cash/sessions/open)
-    
-    state Abierta {
-        [*] --> Operando
-        Operando --> Operando: Venta en Efectivo (Suma automático)
-        Operando --> Operando: Abono de Cliente Fiado (Suma automático)
-        Operando --> Operando: Entrada Manual (POST /movements)
-        Operando --> Operando: Retiro a Proveedor (POST /movements)
-    }
-    
-    Abierta --> Cerrada: Cierre con Arqueo Contado (POST /close)
-    Cerrada --> [*]: Impresión de Ticket de Corte
+flowchart TD
+    Start["Operador presiona [F6] Cortes"] --> Screen["CashCutScreen"]
+    Screen --> TabCut["Pestaña 'Corte de Turno'"]
+    Screen --> TabReport["Pestaña 'Reporte del Día'"]
+
+    subgraph Corte ["Arqueo y Cortes"]
+        TabCut --> LoadSession["GET /api/v1/cash-sessions/current"]
+        LoadSession --> KPIS["Muestra Efectivo Esperado en Caja"]
+        KPIS --> InputCount["Cajero ingresa Efectivo Contado Físicamente"]
+        InputCount --> Diff["Cálculo dinámico: Diferencia = Contado - Esperado"]
+
+        Diff --> ActionX["Botón 'Imprimir Corte X'\n(Informativo - Sesión sigue OPEN)"]
+        Diff --> ActionZ["Botón 'Cerrar Turno (Corte Z)'"]
+        ActionZ --> CloseAPI["POST /api/v1/cash-sessions/{id}/close"]
+        CloseAPI --> DrawerPulse["Pulso binario ESC p al cajón de dinero"]
+        DrawerPulse --> PrintCut["Imprime ticket térmico con firmas\nSesión pasa a CLOSED"]
+    end
+
+    subgraph Reporte ["Reporte Financiero"]
+        TabReport --> LoadReport["GET /api/v1/reports/daily?date=..."]
+        LoadReport --> DisplayFinance["Ventas Netas, Cobranza, COGS y Margen %"]
+        DisplayFinance --> PrintReport["Imprime ticket consolidado del día"]
+    end
 ```
 
 ---
@@ -62,55 +79,48 @@ stateDiagram-v2
 - **RN-CAJ-02 (Fondo Inicial Obligatorio):** Todo turno debe iniciar con un importe de fondo declarado (puede ser `$0.00` si se inicia sin cambio).
 - **RN-CAJ-03 (Registro de Movimientos):** Todo retiro o ingreso manual debe registrar monto en centavos, concepto descriptivo y usuario responsable.
 - **RN-CAJ-04 (Fórmula Canónica de Efectivo Esperado):**
-  $$\text{Efectivo Esperado} = \text{Fondo Inicial} + \text{Ventas Efectivo} + \text{Abonos Crédito} + \text{Entradas Manuales} - \text{Retiros} - \text{Devoluciones}$$
+  $$\text{Efectivo Esperado} = \text{Fondo Inicial} + \text{Ventas Efectivo} + \text{Abonos Crédito} + \text{Entradas Manuales} - \text{Retiros} - \text{Cancelaciones Efectivo}$$
 - **RN-CAJ-05 (Cálculo de Diferencia / Arqueo):**
   $$\text{Diferencia} = \text{Efectivo Contado Físicamente} - \text{Efectivo Esperado}$$
-  - Si $\text{Diferencia} > 0$: Existe un **Sobrante**.
+  - Si $\text{Diferencia} > 0$: Existe un **Sobrante (Excedente)**.
   - Si $\text{Diferencia} < 0$: Existe un **Faltante**.
-- **RN-CAJ-06 (Inmutabilidad del Corte):** Una vez cerrada una sesión, su estado pasa a `CLOSED` y no se le pueden agregar más ventas ni movimientos. Las ventas posteriores exigirán una nueva apertura de turno.
+  - Si $\text{Diferencia} = 0$: Cuadre exacto.
+- **RN-CAJ-06 (Inmutabilidad del Corte Z):** Una vez cerrada una sesión con Corte Z, su estado pasa a `CLOSED` y no se le pueden asociar más ventas ni movimientos. Las ventas posteriores exigirán una nueva apertura de turno.
+- **RN-CAJ-07 (Cálculo Financiero de Ganancia en Reporte Diario):**
+  - Costo de Mercancía Vendida (COGS): $\sum \frac{\text{quantity\_millis} \times \text{cost\_cents}}{1000}$.
+  - Ganancia Bruta: $\text{Ventas Netas} - \text{COGS}$.
+  - Margen Porcentual: $\frac{\text{Ganancia Bruta}}{\text{Ventas Netas}} \times 100\%$.
 
 ---
 
 ## 6. Diseño Técnico
 
-- **Vistas UI:** [`CashSessionDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashSessionDialog.kt).
-- **Gestor de Estado:** [`SalesViewModel.openCashSession()`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/SalesViewModel.kt), `closeCashSession()`.
-- **Servicio Backend:** [`CashSessionService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/cash/CashSessionService.kt).
-- **Contratos DTO:** [`CashSessionDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/cash/CashSessionDtos.kt) (`OpenSessionRequest`, `CloseSessionRequest`, `CashSessionSummary`).
-- **Formateador de Ticket:** [`EscPosReceiptPrinter.formatCashCutText()`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/main/kotlin/mx/nexuspos/desktop/hardware/EscPosReceiptPrinter.kt).
+- **Vistas UI Compose:**
+  - Pantalla principal de cortes: [`CashCutScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutScreen.kt).
+  - Diálogo de fondo inicial: [`CashSessionDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashSessionDialog.kt).
+- **Gestor de Estado:** [`CashCutViewModel.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutViewModel.kt), [`CashCutUiState.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutUiState.kt).
+- **Servicios Backend:**
+  - [`CashSessionService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/cash/CashSessionService.kt).
+  - [`ReportsService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/reports/ReportsService.kt).
+- **Contratos DTO:**
+  - [`CashSessionDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/cash/CashSessionDtos.kt) (`CashSessionSummary`, `DailyFinancialReportDto`, `OpenCashSessionRequest`, `CloseCashSessionRequest`).
+- **Formateador Térmico:** [`EscPosReceiptPrinter.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/main/kotlin/mx/nexuspos/desktop/hardware/EscPosReceiptPrinter.kt) (`formatCashCutText`, `formatDailyReportText`).
 - **Endpoints:**
-  - `POST /api/v1/cash/sessions/open`
-  - `POST /api/v1/cash/sessions/{id}/movements`
-  - `POST /api/v1/cash/sessions/{id}/close`
-  - `GET /api/v1/cash/sessions/active?registerId=...`
+  - `POST /api/v1/cash-sessions`
+  - `GET /api/v1/cash-sessions/current`
+  - `GET /api/v1/cash-sessions/{id}/summary`
+  - `POST /api/v1/cash-sessions/{id}/movements`
+  - `POST /api/v1/cash-sessions/{id}/close`
+  - `GET /api/v1/reports/daily`
 
 ---
 
-## 7. Feature Flags y Configuraciones
+## 7. Pruebas Automatizadas
 
-- `max_cash_outflow_without_supervisor`: Límite en pesos (ej. $500.00) sobre el cual un cajero regular requiere que el supervisor autorice la salida de dinero para pagar mercancía.
-
----
-
-## 8. Errores y Casos Límite
-
-| Escenario | Comportamiento del Sistema |
-| :--- | :--- |
-| **Intento de venta sin sesión abierta** | El cobro se rechaza con error `409 SESSION_CLOSED`. |
-| **Intento de abrir sesión duplicada** | Si la caja ya tiene turno abierto, el servidor rechaza con `400 ALREADY_OPEN`. |
-| **Retiro mayor al efectivo disponible** | Advertencia en pantalla alertando que la caja quedará con saldo negativo de efectivo. |
-
----
-
-## 9. Pruebas y Criterios de Aceptación
-
-1. Abrir con $500.00, registrar $3,450.00 de ventas en efectivo, $200.00 de abono a crédito y un retiro de $150.00 a proveedor debe arrojar un efectivo esperado de **exactamente $4,000.00**.
-2. Si el cajero cuenta físicamente $4,005.00, la diferencia registrada debe ser **+$5.00 (Sobrante)**.
-3. El ticket de corte debe desglosar cada concepto e incluir espacio para firma de cajero y supervisor.
-- **Suite de pruebas:** [`ServerComprehensiveTest.testCashSessionAndCutDifference()`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ServerComprehensiveTest.kt#L106-L128).
-
----
-
-## 10. Referencias
-- [ADR-004: Precisión Financiera con Value Classes](file:///Users/eddch/Documents/OzafryDev/NexusPOS/docs/architecture/technical-decisions.md#adr-004-precision-financiera-con-value-classes-money-y-quantity)
-- [Reglas de Caja en Diseño Funcional](file:///Users/eddch/Documents/OzafryDev/NexusPOS/docs/architecture/diseno-funcional.md#43-corte-de-caja)
+- **Pruebas de Backend Integrado:** [`ReportsModuleTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ReportsModuleTest.kt).
+  - `testDailyFinancialReportEndpoint`: Verificación de ventas, costos, COGS, ganancia bruta estimada y margen de utilidad.
+- **Pruebas de Frontend Desktop:** [`CashCutFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/cash/CashCutFeatureTest.kt).
+  - `testCountingDifferenceCalculation`: Validación matemática de arqueo exacto, sobrante y faltante.
+  - `testPerformCorteXDispatchesPrintWithoutClosing`: Corte X emite ticket manteniendo el turno `OPEN`.
+  - `testPerformCorteZClosesSessionAndTriggersDrawerAndPrint`: Corte Z cierra sesión en servidor, emite pulso al cajón y manda a imprimir.
+  - `testDailyFinancialReportLoadingAndReceiptFormatting`: Carga y formateo de bytes del reporte diario.

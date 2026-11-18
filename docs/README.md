@@ -20,14 +20,17 @@ docs/
 │   ├── top-header-navigation.md       # Cabecera global, atajos F1-F6, semáforo LAN y báscula
 │   ├── sales-capture-bar.md           # Barra de control, multi-ticket, escaneo rápido y ribbon de atajos
 │   ├── sales-cart-grid.md             # Parrilla de venta, 8 columnas, soporte granel RS-232 y stock
-│   ├── sales.md                       # Venta, carrito, cobro atómico, folio e impresión ESC/POS
-│   ├── cash-session.md                # Sesiones de caja, fondo inicial, movimientos y arqueo (RN-CAJ-04)
+│   ├── sales.md                       # Venta, carrito, cobro multi-pago (Split), historial y cancelaciones
+│   ├── parked-sales.md                # Tickets en espera persistentes en PostgreSQL con sync WebSocket LAN
+│   ├── cash-session.md                # Sesiones de caja, fondo inicial, movimientos, Corte X/Z y reporte diario
 │   ├── credit-fiado.md                # Crédito/Fiado a clientes, límites, saldo y abonos
-│   ├── catalog-inventory.md           # Catálogo, productos, departamentos, presentaciones y peso
+│   ├── catalog-inventory.md           # Catálogo, departamentos, importador/exportador Excel y etiquetas anaquel
 │   ├── inventory-kardex.md            # Control de existencias, valuación financiera, Kardex y ajustes
-│   ├── authentication.md              # Login por PIN, cambio de cajero y estado LAN
+│   ├── hardware-peripherals.md        # Báscula serial (Torrey/Rhino), impresora térmica ESC/POS y cajón de dinero
+│   ├── authentication.md              # Login por PIN, cambio de cajero (Ctrl+L) y elevación con supervisor
 │   ├── system-status-footer.md        # Barra inferior de estado, LAN, báscula y reloj en tiempo real
-│   └── settings-configuration.md     # Configuración de tienda, ticket, política de stock y usuarios/PINs
+│   ├── bottom-checkout-panel.md       # Panel inferior de totales, acciones de ticket y cobro masivo [F12]
+│   └── settings-configuration.md      # Configuración de tienda, políticas, usuarios, hardware y red LAN
 ├── api/
 │   └── endpoints.md                   # Contratos REST /api/v1, DTOs, Idempotency-Key y WebSocket
 ├── deployment/
@@ -88,13 +91,16 @@ La terminal de venta está diseñada para ser operada a máxima velocidad sin ne
 | Atajo | Acción | Descripción |
 | :--- | :--- | :--- |
 | **Enter** | Agregar Producto | Procesa el código escaneado o SKU en la barra de captura. |
-| **F12** | Cobrar Efectivo | Abre el diálogo de pago y cálculo de cambio. |
+| **F12** | Cobrar Orden | Abre la ventana de **Cobro Multi-Pago** (Efectivo, Tarjeta, Transferencia o Fiado). |
+| **Ctrl+L** | Cambiar Cajero | Bloquea la terminal para cambio de turno preservando los artículos del carrito. |
+| **Ctrl+H** | Historial Turno | Consulta ventas del turno, reimprime tickets y gestiona cancelaciones. |
+| **F7** | Abrir Cajón | Emite el pulso binario ESC/POS para apertura física del cajón de dinero. |
 | **INS** | Varios | Captura libre de artículo genérico con precio abierto. |
 | **Ctrl+P** | Artículos Comunes | Menú de selección rápida de bolsas, recargas y envases. |
 | **F10** | Catálogo | Búsqueda asistida en catálogo general. |
 | **F11** | Mayoreo | Aplica 10% de descuento de mayoreo a la línea seleccionada. |
-| **F7 / F8** | Entradas / Salidas | Registro inmediato de movimientos de efectivo de turno. |
-| **F9** | Granel | Pesaje y captura de producto en kilogramos. |
+| **F8** | Salidas de Caja | Registro inmediato de retiros de efectivo con concepto y monto. |
+| **F9** | Granel | Pesaje y captura de producto en kilogramos con lectura de báscula serial. |
 | **DEL** | Borrar Artículo | Elimina la línea seleccionada o última del ticket. |
 | **Esc** | Cerrar / Regresar | Cierra diálogos modales activos o regresa a **[F1] Ventas**. |
 

@@ -21,14 +21,15 @@ Proveer un módulo centralizado y seguro ([F5] Configuración) que permita al ad
 - **Tab 1 — Tienda & Ticket:** Formulario de datos de la tienda + vista previa de ticket térmico en tiempo real con fuente monoespaciada.
 - **Tab 2 — Políticas:** Interruptor (Switch) para la política de inventario negativo con persistencia inmediata y confirmación visual.
 - **Tab 3 — Usuarios:** Tabla de cajeros y administradores con buscador, filtro de inactivos, badges de rol/estado y botones de acción.
+- **Tab 4 — Impresora Térmica:** Parámetros de conexión física (Desactivada, USB/SO vía Java Print Service, o Red Ethernet/WiFi vía Socket TCP puerto 9100), selector de ancho de papel (80mm vs 58mm), interruptores de impresión automática al cobrar, apertura automática de cajón y botón de diagnóstico de impresión en vivo.
+- **Tab 5 — Báscula Serial:** Selección de protocolo (Torrey, Rhino, Genérico/Toledo, Simulador), selector de puerto COM/tty detectado en caliente, baudrate, intervalo de sondeo, switch de auto-aceptación de peso en granel, lectura diagnóstica en vivo y botones de **Tara** y **Cero**.
+- **Tab 6 — Red / Servidor LAN:** Configuración de IP/Hostname del servidor central, puerto, ID de caja (`caja-1`), nombre de terminal, prueba de ping en vivo a `/health` y reconexión en caliente.
 - **Diálogo de Usuario:** `AlertDialog` para crear o editar usuarios con campo de PIN enmascarado (`PasswordVisualTransformation`), selector de rol y validación client-side.
 - **Protección del último Administrador:** El servidor bloquea la desactivación o degradación del último usuario activo con rol `ADMIN`.
 - **Atajos de teclado:** `[F5]` para entrar al módulo, `[INS]` para nuevo usuario (en Tab Usuarios), `[Esc]` para cerrar diálogos o regresar a `[F1] Ventas`.
 
 ### Queda fuera (Fases futuras):
-- Gestión de sucursales y terminales (Fase 2).
-- Configuración de impresoras térmicas por perfil de impresora (Fase 2).
-- Control horario de cajeros y auditoría de accesos (Fase 3).
+- Control horario de cajeros y auditoría biométrica de accesos (Fase 3).
 - Importación de usuarios vía CSV/directorio LDAP (Fase 3).
 
 ---
@@ -111,7 +112,9 @@ flowchart TD
 - **RN-CFG-05 (PIN Opcional en Edición):** Al actualizar un usuario, si el campo `pin` se omite o envía `null`, el servidor conserva el PIN actual sin modificarlo. Solo si se envía un nuevo valor de 4 dígitos el servidor procede a re-hashear.
 - **RN-CFG-06 (Desactivación Lógica de Usuarios):** Los usuarios no se eliminan físicamente de la base de datos para preservar la trazabilidad de tickets y movimientos de caja. Se marca `is_active = false`. Pueden reactivarse con `POST /api/v1/users/{id}/reactivate`.
 - **RN-CFG-07 (Persistencia Inmediata de Políticas):** El interruptor de inventario negativo persiste en el servidor en el acto, sin requerir un botón "Guardar". Si la operación falla, el Switch se revierte al valor anterior para mantener consistencia visual.
-- **RN-CFG-08 (Símbolo de Moneda):** El símbolo de moneda configurado (`currencySymbol`) se usa en la vista previa del ticket. Su propagación al módulo de ventas requiere relanzar `SalesViewModel` (no recargado en tiempo real en esta versión).
+- **RN-CFG-08 (Símbolo de Moneda):** El símbolo de moneda configurado (`currencySymbol`) se usa en la vista previa del ticket.
+- **RN-CFG-09 (Persistencia Local de Hardware por Terminal):** Los ajustes de hardware (puertos seriales de báscula en `~/.nexuspos/scale.properties` e impresora en `~/.nexuspos/printer.properties`) son locales a cada máquina física, permitiendo configuraciones heterogéneas entre diferentes cajas de la tienda.
+- **RN-CFG-10 (Reconexión Dinámica de Red LAN):** La pestaña de red almacena los parámetros en `~/.nexuspos/config.properties`. Al guardar o probar la conexión, el cliente actualiza `apiClient.baseUrl` en caliente sin reiniciar la aplicación.
 
 ---
 
