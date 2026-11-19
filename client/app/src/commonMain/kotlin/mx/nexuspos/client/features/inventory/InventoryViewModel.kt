@@ -31,6 +31,7 @@ class InventoryViewModel(
         loadDepartments()
         loadProducts()
         loadMovements()
+        loadReorderSuggestions()
     }
 
     fun loadSummary() {
@@ -113,7 +114,50 @@ class InventoryViewModel(
         _uiState.update { it.copy(activeTab = tab) }
         if (tab == InventoryTab.KARDEX) {
             loadMovements(_uiState.value.selectedProduct?.id)
+        } else if (tab == InventoryTab.REORDER_SUGGESTIONS) {
+            loadReorderSuggestions()
         }
+    }
+
+    fun loadReorderSuggestions(
+        departmentId: String? = _uiState.value.reorderDepartmentId,
+        onlyOutOfStock: Boolean = _uiState.value.reorderOnlyOutOfStock
+    ) {
+        scope.launch {
+            _uiState.update { it.copy(isReorderLoading = true, errorMessage = null) }
+            val res = apiClient.getReorderSuggestions(departmentId = departmentId, onlyOutOfStock = onlyOutOfStock)
+            res.onSuccess { report ->
+                _uiState.update { it.copy(reorderReport = report, isReorderLoading = false) }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isReorderLoading = false, errorMessage = err.message) }
+            }
+        }
+    }
+
+    fun onReorderDepartmentSelected(departmentId: String?) {
+        _uiState.update { it.copy(reorderDepartmentId = departmentId) }
+        loadReorderSuggestions(departmentId = departmentId)
+    }
+
+    fun onToggleReorderOnlyOutOfStock(onlyOutOfStock: Boolean) {
+        _uiState.update { it.copy(reorderOnlyOutOfStock = onlyOutOfStock) }
+        loadReorderSuggestions(onlyOutOfStock = onlyOutOfStock)
+    }
+
+    fun updateSuggestedQuantity(productId: String, quantityMillis: Long) {
+        _uiState.update { current ->
+            val updatedMap = current.editedOrderQuantities.toMutableMap()
+            if (quantityMillis <= 0L) {
+                updatedMap.remove(productId)
+            } else {
+                updatedMap[productId] = quantityMillis
+            }
+            current.copy(editedOrderQuantities = updatedMap)
+        }
+    }
+
+    fun resetEditedQuantities() {
+        _uiState.update { it.copy(editedOrderQuantities = emptyMap()) }
     }
 
     fun selectProduct(product: ProductDto?) {

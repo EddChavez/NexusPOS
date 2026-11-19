@@ -2,6 +2,8 @@ package mx.nexuspos.desktop.hardware
 
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
+import mx.nexuspos.contracts.inventory.ReorderSuggestionItemDto
+import mx.nexuspos.contracts.inventory.ReorderUrgency
 import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
@@ -248,6 +250,76 @@ class EscPosReceiptPrinter(
         val text = formatSaleRefundText(refund, settings)
         val openDrawer = (refund.refundMethod == "CASH")
         return generateEscPosBytes(text, cutPaper = cutPaper, openDrawer = openDrawer)
+    }
+
+    /**
+     * Formats suggested purchase and reorder list (Lista de Resurtido).
+     */
+    fun formatReorderListText(
+        items: List<ReorderSuggestionItemDto>,
+        settings: SettingsDto? = null,
+        departmentName: String? = null
+    ): String {
+        val sb = StringBuilder()
+        val sep = "=".repeat(columnWidth)
+        val thinSep = "-".repeat(columnWidth)
+
+        sb.appendLine(centerText(settings?.storeName ?: "NEXUS POS"))
+        settings?.storeAddress?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText(it)) }
+        sb.appendLine(sep)
+        sb.appendLine(centerText("*** LISTA DE RESURTIDO Y COMPRA ***"))
+        departmentName?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText("DEPTO: $it")) }
+        sb.appendLine(thinSep)
+
+        val dateStr = formatTimestamp(System.currentTimeMillis())
+        sb.appendLine("Fecha Emisión: $dateStr")
+        sb.appendLine("Total Partidas: ${items.size}")
+        val criticalCount = items.count { it.urgency == ReorderUrgency.CRITICAL_OUT_OF_STOCK }
+        if (criticalCount > 0) {
+            sb.appendLine("Agotados Críticos: $criticalCount")
+        }
+        sb.appendLine(thinSep)
+        sb.appendLine(formatRow("CANT. A PEDIR / ARTÍCULO", "EST. COSTO"))
+        sb.appendLine(thinSep)
+
+        items.forEach { item ->
+            val qtyStr = if (item.suggestedOrderMillis % 1000L == 0L) {
+                "${item.suggestedOrderMillis / 1000L} ${item.baseUnit}"
+            } else {
+                "${item.suggestedOrderMillis / 1000.0} ${item.baseUnit}"
+            }
+            val costStr = Money(item.estimatedInvestmentCents).format()
+            val criticalTag = if (item.urgency == ReorderUrgency.CRITICAL_OUT_OF_STOCK) " [AGOTADO]" else ""
+            sb.appendLine(formatRow(qtyStr, costStr))
+            sb.appendLine("  ${item.productName}$criticalTag")
+            val stockStr = "  Stock: ${Quantity(item.currentStockMillis).format()} | Mín: ${Quantity(item.minStockMillis).format()}"
+            sb.appendLine(stockStr)
+            if (item.barcode.isNotBlank() && item.barcode != "S/C") {
+                sb.appendLine("  Cod: ${item.barcode}")
+            }
+        }
+
+        sb.appendLine(sep)
+        val totalCost = items.sumOf { it.estimatedInvestmentCents }
+        sb.appendLine(formatRow("INVERSIÓN TOTAL EST.:", Money(totalCost).format()))
+        sb.appendLine(thinSep)
+        sb.appendLine()
+        sb.appendLine(centerText("_______________________________"))
+        sb.appendLine(centerText("Firma Encargado de Compras"))
+        sb.appendLine()
+        sb.appendLine()
+
+        return sb.toString()
+    }
+
+    fun generateReorderListBytes(
+        items: List<ReorderSuggestionItemDto>,
+        settings: SettingsDto? = null,
+        departmentName: String? = null,
+        cutPaper: Boolean = true
+    ): ByteArray {
+        val text = formatReorderListText(items, settings, departmentName)
+        return generateEscPosBytes(text, cutPaper = cutPaper, openDrawer = false)
     }
 
     /**

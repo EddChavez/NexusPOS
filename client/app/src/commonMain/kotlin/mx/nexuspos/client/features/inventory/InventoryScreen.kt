@@ -26,6 +26,7 @@ import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
+import mx.nexuspos.contracts.inventory.ReorderSuggestionItemDto
 import mx.nexuspos.contracts.inventory.StockMovementDto
 import mx.nexuspos.core.Money
 import java.text.SimpleDateFormat
@@ -36,6 +37,9 @@ import java.util.Locale
 fun InventoryScreen(
     viewModel: InventoryViewModel,
     onRequestAdjustStock: ((ProductDto) -> Unit)? = null,
+    onExportReorderCsv: ((List<ReorderSuggestionItemDto>) -> Unit)? = null,
+    onCopyReorderWhatsApp: ((List<ReorderSuggestionItemDto>) -> Unit)? = null,
+    onPrintReorderTicket: ((List<ReorderSuggestionItemDto>) -> Unit)? = null,
     onBackToSales: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -81,7 +85,7 @@ fun InventoryScreen(
             onDismissSuccess = viewModel::dismissMessages
         )
 
-        // 2. SELECTOR DE PESTAÑAS (Existencias vs Kardex)
+        // 2. SELECTOR DE PESTAÑAS (Existencias vs Kardex vs Pedido Sugerido)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -97,6 +101,11 @@ fun InventoryScreen(
                     text = "📜 Kardex de Movimientos",
                     isSelected = state.activeTab == InventoryTab.KARDEX,
                     onClick = { viewModel.onTabSelected(InventoryTab.KARDEX) }
+                )
+                TabButton(
+                    text = "🛒 Pedido Sugerido",
+                    isSelected = state.activeTab == InventoryTab.REORDER_SUGGESTIONS,
+                    onClick = { viewModel.onTabSelected(InventoryTab.REORDER_SUGGESTIONS) }
                 )
             }
 
@@ -138,6 +147,23 @@ fun InventoryScreen(
                     isLoading = state.isMovementsLoading,
                     selectedProduct = state.selectedProduct,
                     onClearProductFilter = { viewModel.selectProduct(null) },
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
+            }
+            InventoryTab.REORDER_SUGGESTIONS -> {
+                ReorderSuggestionsPanel(
+                    report = state.reorderReport,
+                    departments = state.departments,
+                    selectedDepartmentId = state.reorderDepartmentId,
+                    onlyOutOfStock = state.reorderOnlyOutOfStock,
+                    editedQuantities = state.editedOrderQuantities,
+                    isLoading = state.isReorderLoading,
+                    onSelectDepartment = { viewModel.onReorderDepartmentSelected(it) },
+                    onToggleOnlyOutOfStock = { viewModel.onToggleReorderOnlyOutOfStock(it) },
+                    onUpdateQuantity = { pid, q -> viewModel.updateSuggestedQuantity(pid, q) },
+                    onExportCsv = { items -> onExportReorderCsv?.invoke(items) },
+                    onCopyWhatsApp = { items -> onCopyReorderWhatsApp?.invoke(items) },
+                    onPrintTicket = { items -> onPrintReorderTicket?.invoke(items) },
                     modifier = Modifier.fillMaxWidth().weight(1f)
                 )
             }

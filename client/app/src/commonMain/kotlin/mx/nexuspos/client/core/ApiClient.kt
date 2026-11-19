@@ -36,6 +36,7 @@ import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
+import mx.nexuspos.contracts.inventory.ReorderSuggestionsReportDto
 import mx.nexuspos.contracts.inventory.StockMovementDto
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
@@ -301,6 +302,26 @@ open class ApiClient(
     suspend fun getInventorySummary(): Result<InventorySummaryDto> {
         return try {
             val res = http.get("$baseUrl/api/v1/inventory/summary")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getReorderSuggestions(
+        departmentId: String? = null,
+        onlyOutOfStock: Boolean = false
+    ): Result<ReorderSuggestionsReportDto> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/inventory/reorder-suggestions") {
+                if (!departmentId.isNullOrBlank()) parameter("departmentId", departmentId)
+                if (onlyOutOfStock) parameter("onlyOutOfStock", true)
+            }
             if (res.status.isSuccess()) {
                 Result.success(res.body())
             } else {

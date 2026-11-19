@@ -36,6 +36,7 @@ import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
 import mx.nexuspos.client.features.inventory.InventoryScreen
 import mx.nexuspos.client.features.inventory.InventoryViewModel
+import mx.nexuspos.desktop.inventory.ReorderExportHelper
 import mx.nexuspos.client.features.products.ProductsScreen
 import mx.nexuspos.client.features.products.ProductsViewModel
 import mx.nexuspos.client.core.ApiClient
@@ -808,6 +809,37 @@ fun main() = application {
                                             authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(product))
                                         } else {
                                             inventoryViewModel.openMovementDialog(product)
+                                        }
+                                    },
+                                    onExportReorderCsv = { items ->
+                                        val csv = ReorderExportHelper.generateCsvContent(items)
+                                        try {
+                                            val file = java.io.File(System.getProperty("user.home"), "pedido_sugerido_${System.currentTimeMillis()}.csv")
+                                            file.writeText(csv)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    },
+                                    onCopyReorderWhatsApp = { items ->
+                                        val text = ReorderExportHelper.generateWhatsAppText(
+                                            items = items,
+                                            storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
+                                        )
+                                        try {
+                                            val selection = java.awt.datatransfer.StringSelection(text)
+                                            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    },
+                                    onPrintReorderTicket = { items ->
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            printerDispatcher.printReorderList(
+                                                items = items,
+                                                settings = null,
+                                                departmentName = null,
+                                                config = printerConfig
+                                            )
                                         }
                                     },
                                     onBackToSales = { activeModule = AppModule.SALES }

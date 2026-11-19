@@ -3,11 +3,13 @@ package mx.nexuspos.client.features.inventory
 import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
+import mx.nexuspos.contracts.inventory.ReorderSuggestionsReportDto
 import mx.nexuspos.contracts.inventory.StockMovementDto
 
 enum class InventoryTab {
     STOCK_TABLE,
-    KARDEX
+    KARDEX,
+    REORDER_SUGGESTIONS
 }
 
 enum class StockFilter {
@@ -28,6 +30,11 @@ data class InventoryUiState(
     val activeTab: InventoryTab = InventoryTab.STOCK_TABLE,
     val showMovementDialog: Boolean = false,
     val productForMovement: ProductDto? = null,
+    val reorderReport: ReorderSuggestionsReportDto? = null,
+    val editedOrderQuantities: Map<String, Long> = emptyMap(),
+    val isReorderLoading: Boolean = false,
+    val reorderDepartmentId: String? = null,
+    val reorderOnlyOutOfStock: Boolean = false,
     val isLoading: Boolean = false,
     val isMovementsLoading: Boolean = false,
     val isSubmitting: Boolean = false,

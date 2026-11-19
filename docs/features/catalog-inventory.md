@@ -88,6 +88,13 @@ flowchart TD
 - **RN-CAT-07 (Consistencia de Nombre en Venta):** Las líneas del carrito de venta muestran como título principal el nombre del producto base (`prod.name`), acompañando el subtítulo con la presentación si difiere, evitando que el ticket diga únicamente "Pieza".
 - **RN-CAT-08 (Compatibilidad Nativa con Microsoft Excel):** Todo CSV generado por `GET /api/v1/catalog/export` debe incorporar al inicio la marca de orden de bytes UTF-8 BOM (`\uFEFF`) para que Excel en Windows y macOS abra el archivo con acentos y caracteres especiales sin distorsión.
 - **RN-CAT-09 (Etiquetado Físico ESC/POS):** Las etiquetas de anaquel térmicas se imprimen centradas, incluyendo el nombre del negocio, nombre del producto en mayúsculas, precio destacado de gran tamaño, código de barras Code 128 Set B nativo (`GS k 73`) y texto legible inferior (HRI).
+- **RN-INV-01 (Puntos de Reorden y Pedido Sugerido a Proveedor):** Todo producto con control de existencias activo (`uses_inventory = true`) es evaluado contra su umbral mínimo (`min_stock_millis`). Si la existencia actual es menor o igual al mínimo, se genera una sugerencia de compra automática:
+  - Si cuenta con stock máximo (`max_stock_millis > min_stock_millis`), la cantidad sugerida es:
+    $$Q_{\text{sugerida}} = \max(0, \text{max\_stock} - \text{stock\_actual})$$
+  - Si no tiene stock máximo definido, se calcula como el doble del mínimo menos la existencia actual:
+    $$Q_{\text{sugerida}} = \max(0, (2 \times \text{min\_stock}) - \text{stock\_actual})$$
+  - Los productos con existencia $\le 0$ son marcados con urgencia crítica `CRITICAL_OUT_OF_STOCK` ("🚨 Agotado").
+  - El sistema permite ajustar interactivamente la cantidad a pedir en la tabla y despachar el pedido por tres vías: mensaje formateado para WhatsApp, archivo CSV/Excel para compras mayoristas y lista física térmica ESC/POS.
 
 ---
 
@@ -95,14 +102,19 @@ flowchart TD
 
 ### Componentes de UI (Desktop / Client)
 - [`ProductsScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/products/ProductsScreen.kt): Vista principal con tabla de productos, barra de búsqueda en tiempo real, filtro departamental, y botones superiores para alta, departamentos, Excel y etiquetas.
+- [`InventoryScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/inventory/InventoryScreen.kt): Pantalla de inventario con pestañas de *Existencias y Alertas*, *Kardex de Movimientos* y *Pedido Sugerido*.
+- [`ReorderSuggestionsPanel.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/inventory/ReorderSuggestionsPanel.kt): Panel interactivo de sugerencias de compra con KPIs de inversión, filtros departamentales y cantidades ajustables con stepper.
+- [`ReorderExportHelper.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/main/kotlin/mx/nexuspos/desktop/inventory/ReorderExportHelper.kt): Generador de texto para WhatsApp y exportador de archivo CSV ordenado.
 - [`ProductFormDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/products/ProductFormDialog.kt): Modal de captura y edición de producto con administración de presentaciones.
 - [`CatalogImportExportDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/products/CatalogImportExportDialog.kt): Modal de importación y exportación masiva Excel con tabla de errores y resumen de upsert.
 - [`ShelfLabelsDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/products/ShelfLabelsDialog.kt): Modal de diseño y previsualización de etiquetas de estantería.
 - [`CsvCatalogHelper.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/catalog/CsvCatalogHelper.kt): Parser CSV robusto con soporte RFC 4180, normalización de acentos y prefijos monetarios.
 - [`ProductsViewModel.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/products/ProductsViewModel.kt): Gestión reactiva del estado `ProductsUiState`.
+- [`InventoryViewModel.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/inventory/InventoryViewModel.kt): Gestión reactiva de inventario y pedidos de resurtido.
 
 ### Contratos de Datos (DTOs)
 - [`CatalogDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/catalog/CatalogDtos.kt): `ProductDto`, `ProductPresentationDto`, `DepartmentDto`.
+- [`ReorderDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/inventory/ReorderDtos.kt): `ReorderSuggestionItemDto`, `ReorderSuggestionsReportDto`, `ReorderUrgency`.
 - [`CatalogImportExportDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/catalog/CatalogImportExportDtos.kt): `CatalogImportRowDto`, `CatalogImportRequest`, `CatalogImportResponse`, `CatalogImportRowResult`.
 
 ### Backend y Persistencia
@@ -110,12 +122,21 @@ flowchart TD
   - CRUD de productos y departamentos.
   - `exportCatalogCsv`: Emisión de CSV con UTF-8 BOM.
   - `importCatalogRows`: Upsert masivo inteligente, creación de departamentos y actualización de saldos de existencias.
-- [`Application.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/Application.kt): Endpoints `/api/v1/products`, `/api/v1/departments`, `/api/v1/catalog/export`, `/api/v1/catalog/import`.
+- [`InventoryService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/inventory/InventoryService.kt):
+  - `getReorderSuggestions`: Cálculo de cantidades a pedir, detección de urgencias y evaluación de costos de inversión.
+- [`Application.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/Application.kt): Endpoints `/api/v1/products`, `/api/v1/departments`, `/api/v1/catalog/export`, `/api/v1/catalog/import`, `/api/v1/inventory/reorder-suggestions`.
 
 ---
 
 ## 7. Pruebas Automatizadas
 
+- **Pruebas de Pedido Sugerido y Reorden (Backend):** [`ReorderSuggestionsModuleTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ReorderSuggestionsModuleTest.kt).
+  - `testReorderSuggestionsFormulasAndFilters`: Valida fórmulas matemáticas de resurtido con y sin stock máximo, filtro de sólo agotados y segmentación departamental.
+- **Pruebas de Pedido Sugerido y Exportación (Desktop):** [`ReorderFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/inventory/ReorderFeatureTest.kt).
+  - `testInventoryViewModelReorderTabAndQuantityEditing`: Valida interacción en UI, ajuste manual de cantidades y persistencia en estado.
+  - `testReorderExportHelperWhatsAppFormatting`: Valida formato optimizado de texto para chat de WhatsApp con emojis de estado.
+  - `testReorderExportHelperCsvFormatting`: Valida exportación de tabla CSV para proveedores.
+  - `testEscPosReceiptPrinterReorderListText`: Valida emisión de ticket térmico de lista de compra para la central de abastos.
 - **Pruebas de Backend Ktor:** [`CatalogImportExportTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/CatalogImportExportTest.kt).
   - `testExportCatalogCsv`: Valida que la descarga CSV incluya BOM UTF-8, encabezados canónicos y precios formateados.
   - `testImportCatalogRows_create_and_update`: Valida upsert masivo: creación de nuevos productos, actualización de existentes y reporte no bloqueante de filas con error.

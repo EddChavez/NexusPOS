@@ -2,6 +2,9 @@ package mx.nexuspos.server.modules.inventory
 
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
+import mx.nexuspos.contracts.inventory.ReorderSuggestionItemDto
+import mx.nexuspos.contracts.inventory.ReorderSuggestionsReportDto
+import mx.nexuspos.contracts.inventory.ReorderUrgency
 import mx.nexuspos.contracts.inventory.StockMovementDto
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.NotFoundException
@@ -209,6 +212,94 @@ class InventoryService(private val db: DatabaseFactory) {
                 userId = req.userId,
                 userName = "Cajero",
                 createdAt = now
+            )
+        }
+    }
+
+    fun getReorderSuggestions(
+        departmentId: String? = null,
+        onlyOutOfStock: Boolean = false
+    ): ReorderSuggestionsReportDto {
+        return db.inTransaction { conn ->
+            val sql = StringBuilder("""
+                SELECT 
+                    p.id, p.sku, p.name, p.department_id, d.name as department_name,
+                    p.base_unit, p.cost_cents, p.min_stock_millis, p.max_stock_millis,
+                    COALESCE(sb.quantity_millis, 0) as current_stock_millis,
+                    COALESCE(
+                        (SELECT pp.barcode FROM product_presentations pp WHERE pp.product_id = p.id ORDER BY pp.factor_millis ASC LIMIT 1),
+                        'S/C'
+                    ) as barcode
+                FROM products p
+                LEFT JOIN departments d ON p.department_id = d.id
+                LEFT JOIN stock_balances sb ON p.id = sb.product_id
+                WHERE p.is_active = TRUE 
+                  AND p.uses_inventory = TRUE
+            """.trimIndent())
+
+            val params = mutableListOf<Any>()
+            if (!departmentId.isNullOrBlank()) {
+                sql.append(" AND p.department_id = ?")
+                params.add(departmentId)
+            }
+
+            if (onlyOutOfStock) {
+                sql.append(" AND COALESCE(sb.quantity_millis, 0) <= 0")
+            } else {
+                sql.append(" AND (COALESCE(sb.quantity_millis, 0) <= 0 OR (p.min_stock_millis > 0 AND COALESCE(sb.quantity_millis, 0) <= p.min_stock_millis))")
+            }
+
+            sql.append(" ORDER BY CASE WHEN COALESCE(sb.quantity_millis, 0) <= 0 THEN 0 ELSE 1 END, p.name ASC")
+
+            val stmt = conn.prepareStatement(sql.toString())
+            params.forEachIndexed { idx, p -> stmt.setObject(idx + 1, p) }
+            val rs = stmt.executeQuery()
+
+            val items = mutableListOf<ReorderSuggestionItemDto>()
+            while (rs.next()) {
+                val currentStock = rs.getLong("current_stock_millis")
+                val minStock = rs.getLong("min_stock_millis")
+                val maxStock = rs.getLong("max_stock_millis")
+                val costCents = rs.getLong("cost_cents")
+
+                val suggestedMillis = when {
+                    maxStock > minStock && maxStock > currentStock -> maxStock - currentStock
+                    minStock > 0 -> ((2 * minStock) - currentStock).coerceAtLeast(minStock)
+                    else -> 1000L // 1 unidad base si no hay mínimo configurado pero está en 0
+                }
+
+                val estimatedCost = (suggestedMillis * costCents) / 1000L
+                val urgency = if (currentStock <= 0L) ReorderUrgency.CRITICAL_OUT_OF_STOCK else ReorderUrgency.LOW_STOCK
+
+                items.add(
+                    ReorderSuggestionItemDto(
+                        productId = rs.getString("id"),
+                        sku = rs.getString("sku"),
+                        barcode = rs.getString("barcode") ?: "S/C",
+                        productName = rs.getString("name"),
+                        departmentId = rs.getString("department_id"),
+                        departmentName = rs.getString("department_name"),
+                        baseUnit = rs.getString("base_unit"),
+                        currentStockMillis = currentStock,
+                        minStockMillis = minStock,
+                        maxStockMillis = maxStock,
+                        suggestedOrderMillis = suggestedMillis,
+                        costCents = costCents,
+                        estimatedInvestmentCents = estimatedCost,
+                        urgency = urgency
+                    )
+                )
+            }
+            rs.close()
+            stmt.close()
+
+            val now = System.currentTimeMillis()
+            ReorderSuggestionsReportDto(
+                generatedAt = now,
+                totalItemsCount = items.size,
+                criticalOutOfStockCount = items.count { it.urgency == ReorderUrgency.CRITICAL_OUT_OF_STOCK },
+                totalEstimatedInvestmentCents = items.sumOf { it.estimatedInvestmentCents },
+                items = items
             )
         }
     }

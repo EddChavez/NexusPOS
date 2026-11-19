@@ -363,6 +363,12 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 call.respond(inventoryService.getInventorySummary())
             }
 
+            get("/inventory/reorder-suggestions") {
+                val departmentId = call.request.queryParameters["departmentId"]
+                val onlyOutOfStock = call.request.queryParameters["onlyOutOfStock"]?.toBooleanStrictOrNull() ?: false
+                call.respond(inventoryService.getReorderSuggestions(departmentId, onlyOutOfStock))
+            }
+
             get("/inventory/movements") {
                 val productId = call.request.queryParameters["productId"]
                 val type = call.request.queryParameters["type"]
