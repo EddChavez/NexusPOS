@@ -115,21 +115,32 @@ flowchart TD
 ### Contratos de Datos (DTOs)
 - [`CatalogDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/catalog/CatalogDtos.kt): `ProductDto`, `ProductPresentationDto`, `DepartmentDto`.
 - [`ReorderDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/inventory/ReorderDtos.kt): `ReorderSuggestionItemDto`, `ReorderSuggestionsReportDto`, `ReorderUrgency`.
+- [`LotDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/inventory/LotDtos.kt): `ProductLotDto`, `CreateProductLotRequest`, `LotWriteOffRequest`, `ExpirationsReportDto`, `LotExpirationStatus`.
 - [`CatalogImportExportDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/catalog/CatalogImportExportDtos.kt): `CatalogImportRowDto`, `CatalogImportRequest`, `CatalogImportResponse`, `CatalogImportRowResult`.
 
 ### Backend y Persistencia
 - [`CatalogService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/catalog/CatalogService.kt):
-  - CRUD de productos y departamentos.
+  - CRUD de productos y departamentos, incluyendo flags `is_perishable` y `shelf_life_alert_days`.
   - `exportCatalogCsv`: Emisión de CSV con UTF-8 BOM.
   - `importCatalogRows`: Upsert masivo inteligente, creación de departamentos y actualización de saldos de existencias.
 - [`InventoryService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/inventory/InventoryService.kt):
   - `getReorderSuggestions`: Cálculo de cantidades a pedir, detección de urgencias y evaluación de costos de inversión.
-- [`Application.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/Application.kt): Endpoints `/api/v1/products`, `/api/v1/departments`, `/api/v1/catalog/export`, `/api/v1/catalog/import`, `/api/v1/inventory/reorder-suggestions`.
+- [`ProductLotsService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/inventory/ProductLotsService.kt):
+  - Registro de lotes (`createLot`), acumulación automática de cantidades en lotes idénticos e integración con `stock_balances` y `stock_movements`.
+  - Reporte ejecutivo de caducidades (`getExpirationsReport`) con cálculo de merma confirmada y capital en riesgo.
+  - Bajas por merma en 1 clic (`writeOffLot`) con transacción atómica y registro de salida `LOSS` en Kardex.
+  - Alerta de lote más próximo a vencer (`getExpiringLotForProduct`).
+- [`Application.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/Application.kt): Endpoints `/api/v1/products`, `/api/v1/departments`, `/api/v1/catalog/export`, `/api/v1/catalog/import`, `/api/v1/inventory/reorder-suggestions`, `/api/v1/inventory/lots`, `/api/v1/inventory/lots/report`, `/api/v1/inventory/lots/{id}/write-off`, `/api/v1/inventory/lots/expiring/{productId}`.
 
 ---
 
 ## 7. Pruebas Automatizadas
 
+- **Pruebas de Lotes y Caducidades (Backend):** [`ProductLotsModuleTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ProductLotsModuleTest.kt).
+  - `testLotsAndExpirationsFullCycle`: Valida registro de lotes caducados, próximos y óptimos, acumulación de lotes existentes, reporte de valuación de merma y baja atómica al Kardex tipo LOSS.
+- **Pruebas de Lotes y Reporte ESC/POS (Desktop):** [`ProductLotsFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/inventory/ProductLotsFeatureTest.kt).
+  - `testInventoryViewModelLotsFlow`: Valida navegación en pestaña de lotes, filtro por semáforo, registro de nuevo lote y confirmación de baja por merma en ViewModel.
+  - `testEscPosPrinterExpirationsReportFormatting`: Valida generación de ticket térmico en 80mm y 58mm con semáforo, costos y línea de firma de auditoría.
 - **Pruebas de Pedido Sugerido y Reorden (Backend):** [`ReorderSuggestionsModuleTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ReorderSuggestionsModuleTest.kt).
   - `testReorderSuggestionsFormulasAndFilters`: Valida fórmulas matemáticas de resurtido con y sin stock máximo, filtro de sólo agotados y segmentación departamental.
 - **Pruebas de Pedido Sugerido y Exportación (Desktop):** [`ReorderFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/inventory/ReorderFeatureTest.kt).

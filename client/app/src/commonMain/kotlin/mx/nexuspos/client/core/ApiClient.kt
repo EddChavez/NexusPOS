@@ -34,7 +34,12 @@ import mx.nexuspos.contracts.identity.LoginResponse
 import mx.nexuspos.contracts.identity.CreateUserRequest
 import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
+import mx.nexuspos.contracts.inventory.CreateProductLotRequest
+import mx.nexuspos.contracts.inventory.ExpirationsReportDto
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
+import mx.nexuspos.contracts.inventory.LotExpirationStatus
+import mx.nexuspos.contracts.inventory.LotWriteOffRequest
+import mx.nexuspos.contracts.inventory.ProductLotDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.inventory.ReorderSuggestionsReportDto
 import mx.nexuspos.contracts.inventory.StockMovementDto
@@ -363,6 +368,90 @@ open class ApiClient(
             }
             if (res.status.isSuccess()) {
                 Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getProductLots(
+        productId: String? = null,
+        status: LotExpirationStatus? = null
+    ): Result<List<ProductLotDto>> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/inventory/lots") {
+                if (!productId.isNullOrBlank()) parameter("productId", productId)
+                if (status != null) parameter("status", status.name)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun createProductLot(req: CreateProductLotRequest): Result<ProductLotDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/inventory/lots") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getExpirationsReport(): Result<ExpirationsReportDto> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/inventory/lots/report")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun writeOffProductLot(lotId: String, req: LotWriteOffRequest): Result<ProductLotDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/inventory/lots/$lotId/write-off") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getExpiringLotForProduct(productId: String): Result<ProductLotDto?> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/inventory/lots/expiring/$productId")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else if (res.status == HttpStatusCode.NotFound) {
+                Result.success(null)
             } else {
                 val err = parseError(res)
                 Result.failure(Exception(err.message))

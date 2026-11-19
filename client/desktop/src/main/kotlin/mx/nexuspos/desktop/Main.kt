@@ -842,6 +842,18 @@ fun main() = application {
                                             )
                                         }
                                     },
+                                    onPrintLotsReport = {
+                                        val rep = inventoryViewModel.uiState.value.lotsReport
+                                        if (rep != null) {
+                                            CoroutineScope(Dispatchers.IO).launch {
+                                                printerDispatcher.printExpirationsReport(
+                                                    report = rep,
+                                                    settings = null,
+                                                    config = printerConfig
+                                                )
+                                            }
+                                        }
+                                    },
                                     onBackToSales = { activeModule = AppModule.SALES }
                                 )
                             }

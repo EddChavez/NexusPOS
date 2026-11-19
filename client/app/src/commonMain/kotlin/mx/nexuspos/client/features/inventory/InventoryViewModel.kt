@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.inventory.CreateProductLotRequest
+import mx.nexuspos.contracts.inventory.LotExpirationStatus
+import mx.nexuspos.contracts.inventory.LotWriteOffRequest
+import mx.nexuspos.contracts.inventory.ProductLotDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 
 class InventoryViewModel(
@@ -32,6 +36,7 @@ class InventoryViewModel(
         loadProducts()
         loadMovements()
         loadReorderSuggestions()
+        loadLotsReport()
     }
 
     fun loadSummary() {
@@ -112,10 +117,11 @@ class InventoryViewModel(
 
     fun onTabSelected(tab: InventoryTab) {
         _uiState.update { it.copy(activeTab = tab) }
-        if (tab == InventoryTab.KARDEX) {
-            loadMovements(_uiState.value.selectedProduct?.id)
-        } else if (tab == InventoryTab.REORDER_SUGGESTIONS) {
-            loadReorderSuggestions()
+        when (tab) {
+            InventoryTab.KARDEX -> loadMovements(_uiState.value.selectedProduct?.id)
+            InventoryTab.REORDER_SUGGESTIONS -> loadReorderSuggestions()
+            InventoryTab.LOTS_AND_EXPIRATIONS -> loadLotsReport()
+            InventoryTab.STOCK_TABLE -> {}
         }
     }
 
@@ -208,6 +214,108 @@ class InventoryViewModel(
                         successMessage = "$typeLabel con éxito para '${mov.productName}'"
                     )
                 }
+                loadSummary()
+                loadProducts()
+                loadMovements()
+            }.onFailure { err ->
+                _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
+            }
+        }
+    }
+
+    fun loadLotsReport() {
+        scope.launch {
+            _uiState.update { it.copy(isLotsLoading = true, errorMessage = null) }
+            val res = apiClient.getExpirationsReport()
+            res.onSuccess { report ->
+                _uiState.update { it.copy(lotsReport = report, isLotsLoading = false) }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLotsLoading = false, errorMessage = err.message) }
+            }
+        }
+    }
+
+    fun onLotStatusFilterSelected(status: LotExpirationStatus?) {
+        _uiState.update { it.copy(selectedLotStatusFilter = status) }
+    }
+
+    fun openCreateLotDialog() {
+        _uiState.update { it.copy(showCreateLotDialog = true, errorMessage = null) }
+    }
+
+    fun closeCreateLotDialog() {
+        _uiState.update { it.copy(showCreateLotDialog = false) }
+    }
+
+    fun openLotWriteOffDialog(lot: ProductLotDto) {
+        _uiState.update { it.copy(lotForWriteOff = lot, errorMessage = null) }
+    }
+
+    fun closeLotWriteOffDialog() {
+        _uiState.update { it.copy(lotForWriteOff = null) }
+    }
+
+    fun createLot(
+        productId: String,
+        lotNumber: String,
+        expirationDate: String,
+        quantityMillis: Long,
+        costCents: Long,
+        addToGeneralStock: Boolean,
+        notes: String
+    ) {
+        scope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            val req = CreateProductLotRequest(
+                productId = productId,
+                lotNumber = lotNumber,
+                expirationDate = expirationDate,
+                quantityMillis = quantityMillis,
+                costCents = costCents,
+                addToGeneralStock = addToGeneralStock,
+                notes = notes
+            )
+            val res = apiClient.createProductLot(req)
+            res.onSuccess { createdLot ->
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        showCreateLotDialog = false,
+                        successMessage = "Lote '${createdLot.lotNumber}' registrado con éxito para '${createdLot.productName}'"
+                    )
+                }
+                loadLotsReport()
+                loadSummary()
+                loadProducts()
+            }.onFailure { err ->
+                _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
+            }
+        }
+    }
+
+    fun writeOffLot(
+        lotId: String,
+        quantityMillis: Long?,
+        reason: String,
+        userId: String = "usr-admin"
+    ) {
+        scope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            val req = LotWriteOffRequest(
+                quantityMillis = quantityMillis,
+                reason = reason,
+                userId = userId
+            )
+            val res = apiClient.writeOffProductLot(lotId, req)
+            res.onSuccess { updatedLot ->
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        lotForWriteOff = null,
+                        successMessage = "Baja de merma procesada para lote '${updatedLot.lotNumber}' (${updatedLot.productName})"
+                    )
+                }
+                loadLotsReport()
                 loadSummary()
                 loadProducts()
                 loadMovements()

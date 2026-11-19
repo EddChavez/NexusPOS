@@ -2,6 +2,7 @@ package mx.nexuspos.desktop.hardware
 
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
+import mx.nexuspos.contracts.inventory.ExpirationsReportDto
 import mx.nexuspos.contracts.inventory.ReorderSuggestionItemDto
 import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
@@ -27,6 +28,7 @@ interface PrinterDispatcher {
     fun printDailyReport(report: DailyFinancialReportDto, settings: SettingsDto?, config: PrinterConfig): Result<Unit>
     fun printSaleRefund(refund: SaleRefundResponse, settings: SettingsDto?, config: PrinterConfig): Result<Unit>
     fun printReorderList(items: List<ReorderSuggestionItemDto>, settings: SettingsDto?, departmentName: String?, config: PrinterConfig): Result<Unit>
+    fun printExpirationsReport(report: ExpirationsReportDto, settings: SettingsDto?, config: PrinterConfig): Result<Unit>
     fun openCashDrawer(config: PrinterConfig): Result<Unit>
     fun printTestReceipt(storeName: String, config: PrinterConfig): Result<Unit>
 }
@@ -123,6 +125,19 @@ class DefaultPrinterDispatcher : PrinterDispatcher {
         }
         val printer = EscPosReceiptPrinter(config.paperWidth)
         val bytes = printer.generateReorderListBytes(items, settings, departmentName)
+        return printBytes(bytes, config)
+    }
+
+    override fun printExpirationsReport(
+        report: ExpirationsReportDto,
+        settings: SettingsDto?,
+        config: PrinterConfig
+    ): Result<Unit> {
+        if (config.connectionType == PrinterConnectionType.NONE) {
+            return Result.success(Unit)
+        }
+        val printer = EscPosReceiptPrinter(config.paperWidth)
+        val bytes = printer.generateExpirationsReportBytes(report, settings)
         return printBytes(bytes, config)
     }
 

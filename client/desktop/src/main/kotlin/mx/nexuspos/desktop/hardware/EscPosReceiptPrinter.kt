@@ -2,6 +2,8 @@ package mx.nexuspos.desktop.hardware
 
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
+import mx.nexuspos.contracts.inventory.ExpirationsReportDto
+import mx.nexuspos.contracts.inventory.LotExpirationStatus
 import mx.nexuspos.contracts.inventory.ReorderSuggestionItemDto
 import mx.nexuspos.contracts.inventory.ReorderUrgency
 import mx.nexuspos.contracts.sales.SaleRefundResponse
@@ -319,6 +321,70 @@ class EscPosReceiptPrinter(
         cutPaper: Boolean = true
     ): ByteArray {
         val text = formatReorderListText(items, settings, departmentName)
+        return generateEscPosBytes(text, cutPaper = cutPaper, openDrawer = false)
+    }
+
+    /**
+     * Formats executive report of lot expirations and perishables.
+     */
+    fun formatExpirationsReportText(
+        report: ExpirationsReportDto,
+        settings: SettingsDto? = null
+    ): String {
+        val sb = StringBuilder()
+        val sep = "=".repeat(columnWidth)
+        val thinSep = "-".repeat(columnWidth)
+
+        sb.appendLine(centerText(settings?.storeName ?: "NEXUS POS"))
+        settings?.storeAddress?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText(it)) }
+        sb.appendLine(sep)
+        sb.appendLine(centerText("*** REPORTE DE CADUCIDADES ***"))
+        sb.appendLine(centerText("CONTROL DE LOTES Y PERECEDEROS"))
+        sb.appendLine(thinSep)
+
+        val dateStr = formatTimestamp(report.generatedAt)
+        sb.appendLine("Fecha Emisión: $dateStr")
+        sb.appendLine("Total Lotes Activos: ${report.totalLotsCount}")
+        sb.appendLine("Lotes Caducados: ${report.expiredLotsCount}")
+        sb.appendLine("Lotes Próximos a Vencer: ${report.nearExpirationLotsCount}")
+        sb.appendLine(formatRow("MERMA CONFIRMADA:", Money(report.totalExpiredValuationCents).format()))
+        sb.appendLine(formatRow("CAPITAL EN RIESGO:", Money(report.totalAtRiskValuationCents).format()))
+        sb.appendLine(thinSep)
+        sb.appendLine(formatRow("LOTE / ARTÍCULO", "VENCE / ESTADO"))
+        sb.appendLine(thinSep)
+
+        report.lots.forEach { lot ->
+            val statusTag = when (lot.status) {
+                LotExpirationStatus.EXPIRED -> "[CADUCADO]"
+                LotExpirationStatus.NEAR_EXPIRATION -> "[PRÓXIMO ${lot.daysUntilExpiration}d]"
+                LotExpirationStatus.OPTIMAL -> "[OK ${lot.daysUntilExpiration}d]"
+            }
+            sb.appendLine(formatRow("${lot.lotNumber} (${lot.quantityMillis / 1000.0} ${lot.baseUnit})", statusTag))
+            sb.appendLine("  ${lot.productName}")
+            sb.appendLine("  Caduca: ${lot.expirationDate} | Val: ${Money(lot.valuationCents).format()}")
+            if (lot.barcode.isNotBlank() && lot.barcode != "S/C") {
+                sb.appendLine("  Cod: ${lot.barcode}")
+            }
+            sb.appendLine()
+        }
+
+        sb.appendLine(sep)
+        sb.appendLine(centerText("Fin del Reporte"))
+        sb.appendLine()
+        sb.appendLine(centerText("_______________________________"))
+        sb.appendLine(centerText("Firma Auditor / Encargado"))
+        sb.appendLine()
+        sb.appendLine()
+
+        return sb.toString()
+    }
+
+    fun generateExpirationsReportBytes(
+        report: ExpirationsReportDto,
+        settings: SettingsDto? = null,
+        cutPaper: Boolean = true
+    ): ByteArray {
+        val text = formatExpirationsReportText(report, settings)
         return generateEscPosBytes(text, cutPaper = cutPaper, openDrawer = false)
     }
 

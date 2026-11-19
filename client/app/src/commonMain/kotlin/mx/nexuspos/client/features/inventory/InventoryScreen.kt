@@ -40,6 +40,7 @@ fun InventoryScreen(
     onExportReorderCsv: ((List<ReorderSuggestionItemDto>) -> Unit)? = null,
     onCopyReorderWhatsApp: ((List<ReorderSuggestionItemDto>) -> Unit)? = null,
     onPrintReorderTicket: ((List<ReorderSuggestionItemDto>) -> Unit)? = null,
+    onPrintLotsReport: (() -> Unit)? = null,
     onBackToSales: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -59,6 +60,31 @@ fun InventoryScreen(
                 )
             },
             onDismiss = { viewModel.closeMovementDialog() }
+        )
+    }
+
+    // Diálogo de Registro de Lote
+    if (state.showCreateLotDialog) {
+        CreateProductLotDialog(
+            products = state.products,
+            initialProduct = state.selectedProduct,
+            isSubmitting = state.isSubmitting,
+            onDismiss = { viewModel.closeCreateLotDialog() },
+            onConfirm = { pid, lotNum, exp, qtyMillis, costCents, addStock, notes ->
+                viewModel.createLot(pid, lotNum, exp, qtyMillis, costCents, addStock, notes)
+            }
+        )
+    }
+
+    // Diálogo de Baja por Merma de Lote
+    state.lotForWriteOff?.let { lot ->
+        LotWriteOffDialog(
+            lot = lot,
+            isSubmitting = state.isSubmitting,
+            onDismiss = { viewModel.closeLotWriteOffDialog() },
+            onConfirm = { lotId, qtyMillis, reason ->
+                viewModel.writeOffLot(lotId, qtyMillis, reason)
+            }
         )
     }
 
@@ -106,6 +132,11 @@ fun InventoryScreen(
                     text = "🛒 Pedido Sugerido",
                     isSelected = state.activeTab == InventoryTab.REORDER_SUGGESTIONS,
                     onClick = { viewModel.onTabSelected(InventoryTab.REORDER_SUGGESTIONS) }
+                )
+                TabButton(
+                    text = "📅 Lotes y Caducidades",
+                    isSelected = state.activeTab == InventoryTab.LOTS_AND_EXPIRATIONS,
+                    onClick = { viewModel.onTabSelected(InventoryTab.LOTS_AND_EXPIRATIONS) }
                 )
             }
 
@@ -164,6 +195,18 @@ fun InventoryScreen(
                     onExportCsv = { items -> onExportReorderCsv?.invoke(items) },
                     onCopyWhatsApp = { items -> onCopyReorderWhatsApp?.invoke(items) },
                     onPrintTicket = { items -> onPrintReorderTicket?.invoke(items) },
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
+            }
+            InventoryTab.LOTS_AND_EXPIRATIONS -> {
+                ProductLotsPanel(
+                    report = state.lotsReport,
+                    selectedStatusFilter = state.selectedLotStatusFilter,
+                    isLoading = state.isLotsLoading,
+                    onFilterStatus = { viewModel.onLotStatusFilterSelected(it) },
+                    onCreateLotClick = { viewModel.openCreateLotDialog() },
+                    onWriteOffLotClick = { viewModel.openLotWriteOffDialog(it) },
+                    onPrintLotsReport = onPrintLotsReport,
                     modifier = Modifier.fillMaxWidth().weight(1f)
                 )
             }

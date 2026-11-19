@@ -42,6 +42,8 @@ data class ProductDto(
     val currentStockMillis: Long = 0L,
     val minStockMillis: Long = 0L,
     val maxStockMillis: Long = 0L,
+    val isPerishable: Boolean = false,
+    val shelfLifeAlertDays: Int = 7,
     val isActive: Boolean = true,
     val presentations: List<ProductPresentationDto> = emptyList(),
     val updatedAt: Long = 0L
@@ -59,6 +61,8 @@ data class CreateProductRequest(
     val initialStockMillis: Long = 0L,
     val minStockMillis: Long = 0L,
     val maxStockMillis: Long = 0L,
+    val isPerishable: Boolean = false,
+    val shelfLifeAlertDays: Int = 7,
     val presentations: List<CreatePresentationRequest> = emptyList()
 )
 
@@ -82,6 +86,8 @@ data class UpdateProductRequest(
     val usesInventory: Boolean = true,
     val minStockMillis: Long = 0L,
     val maxStockMillis: Long = 0L,
+    val isPerishable: Boolean = false,
+    val shelfLifeAlertDays: Int = 7,
     val isActive: Boolean = true,
     val presentations: List<CreatePresentationRequest> = emptyList()
 )

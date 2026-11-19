@@ -2,14 +2,18 @@ package mx.nexuspos.client.features.inventory
 
 import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.inventory.ExpirationsReportDto
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
+import mx.nexuspos.contracts.inventory.LotExpirationStatus
+import mx.nexuspos.contracts.inventory.ProductLotDto
 import mx.nexuspos.contracts.inventory.ReorderSuggestionsReportDto
 import mx.nexuspos.contracts.inventory.StockMovementDto
 
 enum class InventoryTab {
     STOCK_TABLE,
     KARDEX,
-    REORDER_SUGGESTIONS
+    REORDER_SUGGESTIONS,
+    LOTS_AND_EXPIRATIONS
 }
 
 enum class StockFilter {
@@ -35,6 +39,11 @@ data class InventoryUiState(
     val isReorderLoading: Boolean = false,
     val reorderDepartmentId: String? = null,
     val reorderOnlyOutOfStock: Boolean = false,
+    val lotsReport: ExpirationsReportDto? = null,
+    val isLotsLoading: Boolean = false,
+    val selectedLotStatusFilter: LotExpirationStatus? = null,
+    val showCreateLotDialog: Boolean = false,
+    val lotForWriteOff: ProductLotDto? = null,
     val isLoading: Boolean = false,
     val isMovementsLoading: Boolean = false,
     val isSubmitting: Boolean = false,

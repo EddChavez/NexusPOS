@@ -36,6 +36,9 @@ import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.PairingClaimRequest
 import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
+import mx.nexuspos.contracts.inventory.CreateProductLotRequest
+import mx.nexuspos.contracts.inventory.LotExpirationStatus
+import mx.nexuspos.contracts.inventory.LotWriteOffRequest
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
@@ -48,6 +51,7 @@ import mx.nexuspos.server.modules.catalog.CatalogService
 import mx.nexuspos.server.modules.credit.CreditService
 import mx.nexuspos.server.modules.identity.IdentityService
 import mx.nexuspos.server.modules.inventory.InventoryService
+import mx.nexuspos.server.modules.inventory.ProductLotsService
 import mx.nexuspos.server.modules.reports.ReportsService
 import mx.nexuspos.server.modules.sales.ParkedSalesService
 import mx.nexuspos.server.modules.sales.SalesService
@@ -71,6 +75,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val identityService = IdentityService(dbFactory)
     val catalogService = CatalogService(dbFactory)
     val inventoryService = InventoryService(dbFactory)
+    val productLotsService = ProductLotsService(dbFactory)
     val cashService = CashSessionService(dbFactory)
     val creditService = CreditService(dbFactory)
     val settingsService = SettingsService(dbFactory)
@@ -382,6 +387,47 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 broadcastEventJson("inventory.movement.created", jsonConfig.encodeToString(movement))
                 broadcastEventJson("inventory.updated", jsonConfig.encodeToString(mapOf("productId" to req.productId)))
                 call.respond(HttpStatusCode.Created, movement)
+            }
+
+            // Product Lots & Expirations (Perecederos)
+            get("/inventory/lots") {
+                val productId = call.request.queryParameters["productId"]
+                val statusStr = call.request.queryParameters["status"]
+                val statusFilter = statusStr?.let {
+                    try { LotExpirationStatus.valueOf(it.uppercase()) } catch (_: Exception) { null }
+                }
+                call.respond(productLotsService.getLots(productId, statusFilter))
+            }
+
+            post("/inventory/lots") {
+                val req = call.receive<CreateProductLotRequest>()
+                val lot = productLotsService.createLot(req)
+                broadcastEventJson("inventory.lot.created", jsonConfig.encodeToString(lot))
+                broadcastEventJson("inventory.updated", jsonConfig.encodeToString(mapOf("productId" to req.productId)))
+                call.respond(HttpStatusCode.Created, lot)
+            }
+
+            get("/inventory/lots/report") {
+                call.respond(productLotsService.getExpirationsReport())
+            }
+
+            post("/inventory/lots/{id}/write-off") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de lote requerido")
+                val req = call.receive<LotWriteOffRequest>()
+                val updatedLot = productLotsService.writeOffLot(id, req)
+                broadcastEventJson("inventory.lot.written_off", jsonConfig.encodeToString(updatedLot))
+                broadcastEventJson("inventory.updated", jsonConfig.encodeToString(mapOf("productId" to updatedLot.productId)))
+                call.respond(updatedLot)
+            }
+
+            get("/inventory/lots/expiring/{productId}") {
+                val productId = call.parameters["productId"] ?: throw ValidationException("ID de producto requerido")
+                val lot = productLotsService.getExpiringLotForProduct(productId)
+                if (lot == null) {
+                    call.respond(HttpStatusCode.NotFound, ApiError("NO_ACTIVE_LOTS", "No hay lotes activos para el producto"))
+                } else {
+                    call.respond(lot)
+                }
             }
 
             // Cash Sessions

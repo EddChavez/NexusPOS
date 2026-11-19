@@ -267,7 +267,7 @@ class CatalogService(private val db: DatabaseFactory) {
                 SELECT p.id, p.sku, p.name, p.department_id, d.name as dept_name,
                        p.base_unit, p.cost_cents, p.tax_rate, p.uses_inventory,
                        COALESCE(sb.quantity_millis, 0) as stock_millis,
-                       p.min_stock_millis, p.max_stock_millis, p.is_active, p.updated_at
+                       p.min_stock_millis, p.max_stock_millis, p.is_perishable, p.shelf_life_alert_days, p.is_active, p.updated_at
                 FROM products p
                 LEFT JOIN departments d ON p.department_id = d.id
                 LEFT JOIN stock_balances sb ON p.id = sb.product_id
@@ -320,6 +320,8 @@ class CatalogService(private val db: DatabaseFactory) {
                         currentStockMillis = rs.getLong("stock_millis"),
                         minStockMillis = rs.getLong("min_stock_millis"),
                         maxStockMillis = rs.getLong("max_stock_millis"),
+                        isPerishable = rs.getBoolean("is_perishable"),
+                        shelfLifeAlertDays = rs.getInt("shelf_life_alert_days"),
                         isActive = rs.getBoolean("is_active"),
                         updatedAt = rs.getLong("updated_at"),
                         presentations = emptyList() // populated below
@@ -432,8 +434,8 @@ class CatalogService(private val db: DatabaseFactory) {
 
             val insertStmt = conn.prepareStatement(
                 """
-                INSERT INTO products (id, sku, name, department_id, base_unit, cost_cents, tax_rate, uses_inventory, min_stock_millis, max_stock_millis, is_active, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?)
+                INSERT INTO products (id, sku, name, department_id, base_unit, cost_cents, tax_rate, uses_inventory, min_stock_millis, max_stock_millis, is_perishable, shelf_life_alert_days, is_active, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?)
                 """.trimIndent()
             )
             insertStmt.setString(1, prodId)
@@ -446,7 +448,9 @@ class CatalogService(private val db: DatabaseFactory) {
             insertStmt.setBoolean(8, request.usesInventory)
             insertStmt.setLong(9, request.minStockMillis.coerceAtLeast(0L))
             insertStmt.setLong(10, request.maxStockMillis.coerceAtLeast(0L))
-            insertStmt.setLong(11, now)
+            insertStmt.setBoolean(11, request.isPerishable)
+            insertStmt.setInt(12, request.shelfLifeAlertDays.coerceAtLeast(1))
+            insertStmt.setLong(13, now)
             insertStmt.executeUpdate()
             insertStmt.close()
 
@@ -554,7 +558,7 @@ class CatalogService(private val db: DatabaseFactory) {
                 UPDATE products
                 SET sku = ?, name = ?, department_id = ?, base_unit = ?, cost_cents = ?,
                     tax_rate = ?, uses_inventory = ?, min_stock_millis = ?, max_stock_millis = ?,
-                    is_active = ?, updated_at = ?
+                    is_perishable = ?, shelf_life_alert_days = ?, is_active = ?, updated_at = ?
                 WHERE id = ?
                 """.trimIndent()
             )
@@ -567,9 +571,11 @@ class CatalogService(private val db: DatabaseFactory) {
             updateStmt.setBoolean(7, request.usesInventory)
             updateStmt.setLong(8, request.minStockMillis.coerceAtLeast(0L))
             updateStmt.setLong(9, request.maxStockMillis.coerceAtLeast(0L))
-            updateStmt.setBoolean(10, request.isActive)
-            updateStmt.setLong(11, now)
-            updateStmt.setString(12, id)
+            updateStmt.setBoolean(10, request.isPerishable)
+            updateStmt.setInt(11, request.shelfLifeAlertDays.coerceAtLeast(1))
+            updateStmt.setBoolean(12, request.isActive)
+            updateStmt.setLong(13, now)
+            updateStmt.setString(14, id)
             updateStmt.executeUpdate()
             updateStmt.close()
 
@@ -645,7 +651,7 @@ class CatalogService(private val db: DatabaseFactory) {
             SELECT p.id, p.sku, p.name, p.department_id, d.name as dept_name,
                    p.base_unit, p.cost_cents, p.tax_rate, p.uses_inventory,
                    COALESCE(sb.quantity_millis, 0) as stock_millis,
-                   p.min_stock_millis, p.max_stock_millis, p.is_active, p.updated_at
+                   p.min_stock_millis, p.max_stock_millis, p.is_perishable, p.shelf_life_alert_days, p.is_active, p.updated_at
             FROM products p
             LEFT JOIN departments d ON p.department_id = d.id
             LEFT JOIN stock_balances sb ON p.id = sb.product_id
@@ -672,6 +678,8 @@ class CatalogService(private val db: DatabaseFactory) {
             currentStockMillis = rs.getLong("stock_millis"),
             minStockMillis = rs.getLong("min_stock_millis"),
             maxStockMillis = rs.getLong("max_stock_millis"),
+            isPerishable = rs.getBoolean("is_perishable"),
+            shelfLifeAlertDays = rs.getInt("shelf_life_alert_days"),
             isActive = rs.getBoolean("is_active"),
             updatedAt = rs.getLong("updated_at"),
             presentations = emptyList()
