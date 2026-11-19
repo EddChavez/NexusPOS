@@ -265,8 +265,20 @@ fun SalesScreen(
                 onSelectSale = { viewModel.selectShiftSale(it) },
                 onReload = { viewModel.loadShiftSales() },
                 onReprintTicket = { viewModel.reprintTicket(it) },
+                onRefundSale = { viewModel.promptRefundSale(it) },
                 onCancelSale = { viewModel.startCancelSaleFlow(it) },
                 onDismiss = { viewModel.closeSalesHistoryDialog() }
+            )
+        }
+
+        if (state.isShowingRefundDialog && state.salePendingRefund != null) {
+            RefundSaleLinesDialog(
+                sale = state.salePendingRefund!!,
+                activeCashSessionId = state.activeSession?.sessionId ?: "",
+                currentUserId = state.activeCashierId,
+                isCashier = state.activeCashierRole == "CASHIER",
+                onDismiss = { viewModel.dismissRefundDialog() },
+                onConfirmRefund = { req -> viewModel.executeRefundSale(state.salePendingRefund!!.id, req) }
             )
         }
 

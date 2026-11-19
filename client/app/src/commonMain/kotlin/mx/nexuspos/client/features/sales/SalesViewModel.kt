@@ -16,6 +16,7 @@ import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
 import mx.nexuspos.contracts.credit.CustomerDto
+import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.ParkSaleRequest
 import mx.nexuspos.contracts.sales.ParkedSaleItemDto
@@ -23,6 +24,7 @@ import mx.nexuspos.contracts.sales.ParkedSaleResponse
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.sales.SaleLineItemRequest
 import mx.nexuspos.contracts.sales.SalePaymentRequest
+import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.PricingRules
@@ -672,6 +674,71 @@ class SalesViewModel(
                     it.copy(
                         isShowingCancelReasonDialog = false,
                         errorMessage = "Error al cancelar la venta: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    var onRefundSupervisorRequired: ((SupervisorAction.RefundSale) -> Unit)? = null
+    var onPrintSaleRefund: ((refund: SaleRefundResponse) -> Unit)? = null
+
+    fun promptRefundSale(sale: SaleResponse) {
+        if (sale.status == "CANCELLED") {
+            _uiState.update { it.copy(errorMessage = "No se puede devolver mercancía de un ticket cancelado.") }
+            return
+        }
+        if (sale.status == "REFUNDED") {
+            _uiState.update { it.copy(errorMessage = "El ticket #${sale.folio} ya ha sido devuelto en su totalidad.") }
+            return
+        }
+        val returnableCount = sale.lines.sumOf { it.returnableQuantityMillis }
+        if (returnableCount <= 0L) {
+            _uiState.update { it.copy(errorMessage = "Todas las partidas del ticket #${sale.folio} ya han sido devueltas.") }
+            return
+        }
+        _uiState.update { it.copy(isShowingRefundDialog = true, salePendingRefund = sale) }
+    }
+
+    fun dismissRefundDialog() {
+        _uiState.update { it.copy(isShowingRefundDialog = false, salePendingRefund = null) }
+    }
+
+    fun executeRefundSale(saleId: String, request: CreateSaleRefundRequest, isSupervisorApproved: Boolean = false) {
+        val state = _uiState.value
+        val isCashier = state.activeCashierRole == "CASHIER"
+
+        if (isCashier && !isSupervisorApproved) {
+            dismissRefundDialog()
+            onRefundSupervisorRequired?.invoke(
+                SupervisorAction.RefundSale(
+                    saleId = saleId,
+                    folio = state.salePendingRefund?.folio ?: 0L,
+                    request = request
+                )
+            )
+            return
+        }
+
+        scope.launch {
+            val res = apiClient.refundSale(saleId, request)
+            res.onSuccess { refund ->
+                _uiState.update { s ->
+                    s.copy(
+                        isShowingRefundDialog = false,
+                        salePendingRefund = null,
+                        successMessage = "Devolución Nota #${refund.folio} procesada exitosamente."
+                    )
+                }
+                onPrintSaleRefund?.invoke(refund)
+                loadShiftSales()
+                loadActiveSession()
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isShowingRefundDialog = false,
+                        salePendingRefund = null,
+                        errorMessage = "Error al procesar devolución: ${err.message}"
                     )
                 }
             }

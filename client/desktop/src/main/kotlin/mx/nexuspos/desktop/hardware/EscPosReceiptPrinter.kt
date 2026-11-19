@@ -2,6 +2,7 @@ package mx.nexuspos.desktop.hardware
 
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
+import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.core.Money
@@ -165,6 +166,88 @@ class EscPosReceiptPrinter(
         sb.appendLine()
 
         return sb.toString()
+    }
+
+    /**
+     * Formats official partial refund receipt (Nota de Devolución).
+     */
+    fun formatSaleRefundText(
+        refund: SaleRefundResponse,
+        settings: SettingsDto? = null
+    ): String {
+        val sb = StringBuilder()
+        val sep = "=".repeat(columnWidth)
+        val thinSep = "-".repeat(columnWidth)
+
+        // Store Header
+        sb.appendLine(centerText(settings?.storeName ?: "NEXUS POS - ABARROTES"))
+        settings?.storeAddress?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText(it)) }
+        settings?.storePhone?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText("Tel: $it")) }
+        sb.appendLine(sep)
+
+        sb.appendLine(centerText("*** NOTA DE DEVOLUCIÓN ***"))
+        sb.appendLine(thinSep)
+
+        sb.appendLine("Nota Devolución: #${refund.folio}")
+        sb.appendLine("Ticket Original: #${refund.saleFolio}")
+        sb.appendLine("Fecha: ${formatTimestamp(refund.createdAt)}")
+        sb.appendLine("Cajero: ${refund.cashierName}")
+        refund.authorizedByName?.takeIf { it.isNotBlank() }?.let {
+            sb.appendLine("Autorizó (Sup): $it")
+        }
+        sb.appendLine("Motivo: ${refund.reason}")
+        if (refund.notes.isNotBlank()) {
+            sb.appendLine("Obs: ${refund.notes}")
+        }
+        sb.appendLine(thinSep)
+
+        sb.appendLine(formatRow("CANT. ARTÍCULO DEVUELTO", "REEMBOLSO"))
+        sb.appendLine(thinSep)
+
+        for (item in refund.lines) {
+            val qtyStr = "${Quantity(item.quantityMillis).format()} ${item.description}"
+            val totalStr = Money(item.totalCents).format()
+            sb.appendLine(formatRow(qtyStr, totalStr))
+            if (item.quantityMillis != 1000L) {
+                sb.appendLine("  @ ${Money(item.unitPriceCents).format()} c/u")
+            }
+            if (item.reenterStock) {
+                sb.appendLine("  [Reingresó a Inventario]")
+            } else {
+                sb.appendLine("  [Baja/Merma - No reingresó]")
+            }
+        }
+        sb.appendLine(sep)
+
+        val methodLabel = when (refund.refundMethod) {
+            "CASH" -> "EFECTIVO (Gaveta)"
+            "CREDIT" -> "SALDO A FAVOR (Crédito)"
+            else -> refund.refundMethod
+        }
+        sb.appendLine(formatRow("MÉTODO REEMBOLSO:", methodLabel))
+        sb.appendLine(formatRow("TOTAL REEMBOLSADO:", Money(refund.totalCents).format()))
+        sb.appendLine(thinSep)
+
+        sb.appendLine()
+        sb.appendLine(centerText("_______________________________"))
+        sb.appendLine(centerText("Firma del Cliente"))
+        sb.appendLine()
+        sb.appendLine(centerText("_______________________________"))
+        sb.appendLine(centerText("Firma Cajero / Supervisor"))
+        sb.appendLine()
+        sb.appendLine()
+
+        return sb.toString()
+    }
+
+    fun generateSaleRefundBytes(
+        refund: SaleRefundResponse,
+        settings: SettingsDto? = null,
+        cutPaper: Boolean = true
+    ): ByteArray {
+        val text = formatSaleRefundText(refund, settings)
+        val openDrawer = (refund.refundMethod == "CASH")
+        return generateEscPosBytes(text, cutPaper = cutPaper, openDrawer = openDrawer)
     }
 
     /**

@@ -108,6 +108,13 @@ sequenceDiagram
 - **RN-VEN-07 (Reimpresión Auditable):** Todo ticket reimpreso debe incluir visiblemente el encabezado `*** COPIA DE REIMPRESIÓN ***`.
 - **RN-VEN-08 (Elevación de Supervisor para Cancelaciones):** Un cajero regular (`CASHIER`) no puede cancelar ventas sin la aprobación de un usuario con rol `ADMIN` o `SUPERVISOR` validada mediante PIN de 4 dígitos.
 - **RN-VEN-09 (Políticas y Descuentos Libres):** Los descuentos libres en línea o globales pueden definirse en porcentaje o en centavos fijos sin exceder el importe total de la partida. Si un cajero aplica un descuento superior al límite establecido en los parámetros de la tienda (`maxCashierDiscountPercent`), se requiere autorización al vuelo mediante PIN de supervisor. El descuento reduce el importe de la venta y se desglosa contablemente en el ticket térmico.
+- **RN-VEN-10 (Devoluciones Parciales de Mercancía y Notas de Devolución):** Permite regresar uno o varios productos individuales con cantidades exactas o fraccionales (`quantityMillis`) sin anular la venta completa:
+  1. **Reingreso a Stock Condicional:** Si `reenterStock` es `true`, reingresa el stock a `stock_balances` y genera un movimiento Kardex `REFUND`. Si es `false`, se registra como merma/desecho sin inflar el inventario físico.
+  2. **Impacto Financiero en Turno Activo:** El reembolso se liquida desde la sesión de caja activa actual del cajero que atiende al cliente, descontando `expected_cash_cents` y sumando `refunds_cash_cents`. Si el método es crédito/fiado, reduce el saldo deudor del cliente (`credit_movements` con tipo `REFUND`).
+  3. **Estados de Venta:** La venta transiciona a `PARTIALLY_REFUNDED` si aún quedan artículos vigentes, o a `REFUNDED` cuando el 100% de los artículos ha sido devuelto.
+  4. **Protección Anti-Duplicación:** Las ventas con devoluciones parciales no pueden cancelarse por completo (`cancelSale` es rechazado con `400 Bad Request`).
+  5. **Foliador y Comprobante Térmico:** Cada devolución genera un folio consecutivo oficial (`counters` `sale_refund_folio`) e imprime una *"NOTA DE DEVOLUCIÓN"* en ticket térmico ESC/POS con desglose de artículos, firmas y motivo.
+  6. **Elevación de Privilegios:** Todo cajero (`CASHIER`) requiere PIN de Encargado/Administrador para procesar cualquier devolución.
 
 ---
 
@@ -115,15 +122,16 @@ sequenceDiagram
 
 - **Vistas UI Compose:**
   - Pantalla principal: [`SalesScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/SalesScreen.kt).
-  - Diálogo de descuentos: [`ApplyDiscountDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/ApplyDiscountDialog.kt).
   - Modal multi-pago: [`MultiPaymentCheckoutDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/MultiPaymentCheckoutDialog.kt).
+  - Diálogo de devoluciones parciales: [`RefundSaleLinesDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/RefundSaleLinesDialog.kt).
+  - Diálogo de descuentos: [`ApplyDiscountDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/ApplyDiscountDialog.kt).
   - Historial de ventas: [`SalesHistoryDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/SalesHistoryDialog.kt).
   - Motivo de cancelación: [`CancelSaleReasonDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/CancelSaleReasonDialog.kt).
   - Previsualización térmica: [`TicketReceiptPreviewDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/TicketReceiptPreviewDialog.kt).
   - Autorización al vuelo: [`SupervisorAuthDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/auth/SupervisorAuthDialog.kt).
 - **Gestor de Estado:** [`SalesViewModel.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/SalesViewModel.kt), [`SalesUiState.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/SalesUiState.kt).
 - **Servicio Backend:** [`SalesService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/sales/SalesService.kt).
-- **Rutas HTTP:** [`Application.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/Application.kt) (`POST /api/v1/sales`, `GET /api/v1/sales`, `GET /api/v1/sales/{id}`, `POST /api/v1/sales/{id}/cancel`).
+- **Rutas HTTP:** [`Application.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/Application.kt) (`POST /api/v1/sales`, `GET /api/v1/sales`, `GET /api/v1/sales/{id}`, `POST /api/v1/sales/{id}/cancel`, `POST /api/v1/sales/{id}/refund`, `GET /api/v1/sales/{id}/refunds`).
 
 ---
 
@@ -134,6 +142,8 @@ sequenceDiagram
 | **Suma de pagos insuficiente** | El botón de confirmar cobro permanece deshabilitado mostrando *"Faltan $XX.XX"*. |
 | **Intento de fiar sin cliente** | El selector de método Crédito bloquea la captura exigiendo seleccionar primero a un cliente con saldo disponible. |
 | **Cancelación de ticket ya cancelado** | El servidor y cliente detectan el estado y muestran advertencia: *"El ticket #X ya se encuentra cancelado."* |
+| **Cancelación de ticket con devoluciones** | Bloqueado con error 400: *"No se puede cancelar una venta que ya cuenta con devoluciones parciales"*. |
+| **Devolución que excede cantidad vendida** | Bloqueado en UI y validado en backend: cantidad máxima retornable = `quantityMillis - refundedQuantityMillis`. |
 | **Descuento mayor al tope sin supervisor** | El diálogo bloquea la aplicación directa y eleva automáticamente a `SupervisorAuthDialog`. |
 | **Falla de conexión en la transacción de cobro** | El cliente reintenta con la misma `Idempotency-Key`; el servidor devuelve la venta ya persistida sin duplicar cargos ni restar doble inventario. |
 
@@ -141,6 +151,8 @@ sequenceDiagram
 
 ## 8. Pruebas Automatizadas
 
+- **Pruebas de Devoluciones Parciales y Stock:** [`SaleRefundModuleTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/SaleRefundModuleTest.kt) (`testPartialRefundStockAndCashSessionIntegrity`).
+- **Pruebas de UI y Formateador de Devoluciones:** [`SaleRefundFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/sales/SaleRefundFeatureTest.kt) (`testPromptRefundSaleAndDismiss`, `testCashierRoleRequiresSupervisorElevationForRefund`, `testEscPosReceiptPrinterSaleRefundFormat`).
 - **Pruebas de Descuentos Libres y Autorización:** [`DiscountFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/sales/DiscountFeatureTest.kt) (`testApplyLineDiscountDirectlyWhenUnderThreshold`, `testApplyDiscountAboveThresholdRequestsSupervisor`, `testEscPosReceiptPrinterIncludesDiscounts`).
 - **Pruebas de Reglas de Precios y Descuento:** [`PricingRulesDiscountTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/core/src/commonTest/kotlin/mx/nexuspos/core/PricingRulesDiscountTest.kt) (`testCalculateLineTotalWithPercentageDiscount`, `testCalculateLineTotalWithFixedCentsDiscount`, `testDiscountCannotExceedTotal`).
 - **Pruebas de Pagos Mixtos:** [`MixedPaymentFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/sales/MixedPaymentFeatureTest.kt) (`testSplitPaymentCashAndCard`, `testSplitPaymentWithCreditRequiresCustomer`, `testEmptyPaymentsRejected`).

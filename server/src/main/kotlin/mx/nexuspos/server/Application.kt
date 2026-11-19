@@ -38,6 +38,7 @@ import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
+import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.ParkSaleRequest
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
@@ -503,6 +504,19 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val cancelled = salesService.cancelSale(id, req)
                 broadcastEventJson("sale.cancelled", jsonConfig.encodeToString(cancelled))
                 call.respond(cancelled)
+            }
+
+            post("/sales/{id}/refund") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de venta requerido")
+                val req = call.receive<CreateSaleRefundRequest>()
+                val refund = salesService.refundSale(id, req)
+                broadcastEventJson("sale.refunded", jsonConfig.encodeToString(refund))
+                call.respond(HttpStatusCode.Created, refund)
+            }
+
+            get("/sales/{id}/refunds") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de venta requerido")
+                call.respond(salesService.getRefundsBySaleId(id))
             }
 
             // Financial & Daily Reports

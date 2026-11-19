@@ -149,7 +149,7 @@ class CashSessionService(private val db: DatabaseFactory) {
                 SELECT COALESCE(SUM(sp.amount_cents), 0) as cash_total
                 FROM sale_payments sp
                 JOIN sales s ON sp.sale_id = s.id
-                WHERE s.cash_session_id = ? AND sp.method = 'CASH' AND s.status = 'COMPLETED'
+                WHERE s.cash_session_id = ? AND sp.method = 'CASH' AND s.status != 'CANCELLED'
                 """.trimIndent()
             )
             salesStmt.setString(1, sessionId)
@@ -196,11 +196,26 @@ class CashSessionService(private val db: DatabaseFactory) {
             movRs.close()
             movStmt.close()
 
+            // 4. Sum refunds in cash for this cash session
+            val refStmt = conn.prepareStatement(
+                """
+                SELECT COALESCE(SUM(total_cents), 0) as total_refunds
+                FROM sale_refunds
+                WHERE cash_session_id = ? AND refund_method = 'CASH'
+                """.trimIndent()
+            )
+            refStmt.setString(1, sessionId)
+            val refRs = refStmt.executeQuery()
+            refRs.next()
+            val refundsCashCents = refRs.getLong("total_refunds")
+            refRs.close()
+            refStmt.close()
+
             // Formula RN-CAJ-04: initial + salesCash + creditPaymentsCash + cashIn - cashOut - refunds
-            val expectedCash = initialFund + salesCashCents + creditPaymentsCashCents + cashInCents - cashOutCents
+            val expectedCash = initialFund + salesCashCents + creditPaymentsCashCents + cashInCents - cashOutCents - refundsCashCents
             val diff = countedCash?.let { it - expectedCash } ?: storedDifference
 
-            // 4. Query denominations
+            // 5. Query denominations
             val denomList = mutableListOf<CashDenominationCountDto>()
             val denomQuery = conn.prepareStatement(
                 """
@@ -238,7 +253,7 @@ class CashSessionService(private val db: DatabaseFactory) {
                 creditPaymentsCashCents = creditPaymentsCashCents,
                 cashInCents = cashInCents,
                 cashOutCents = cashOutCents,
-                refundsCashCents = 0L,
+                refundsCashCents = refundsCashCents,
                 expectedCashCents = expectedCash,
                 countedCashCents = countedCash,
                 differenceCents = diff,

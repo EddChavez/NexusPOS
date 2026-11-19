@@ -21,6 +21,11 @@ sealed interface SupervisorAction {
         val discountCents: Long,
         val reason: String = "Descuento especial"
     ) : SupervisorAction
+    data class RefundSale(
+        val saleId: String,
+        val folio: Long,
+        val request: mx.nexuspos.contracts.sales.CreateSaleRefundRequest
+    ) : SupervisorAction
 }
 
 data class SupervisorAuthState(

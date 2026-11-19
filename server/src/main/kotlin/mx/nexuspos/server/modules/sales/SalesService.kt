@@ -9,7 +9,9 @@ import mx.nexuspos.core.Quantity
 import mx.nexuspos.server.modules.system.SettingsService
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.*
+import java.sql.Connection
 import java.util.UUID
+import kotlin.math.roundToLong
 
 class SalesService(
     private val db: DatabaseFactory,
@@ -545,7 +547,13 @@ class SalesService(
 
             // Fetch Lines
             val lineStmt = conn.prepareStatement(
-                "SELECT id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, discount_cents, discount_percent FROM sale_lines WHERE sale_id = ?"
+                """
+                SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
+                       sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent,
+                       COALESCE((SELECT SUM(srl.quantity_millis) FROM sale_refund_lines srl WHERE srl.sale_line_id = sl.id), 0) as refunded_quantity_millis
+                FROM sale_lines sl
+                WHERE sl.sale_id = ?
+                """.trimIndent()
             )
             lineStmt.setString(1, saleId)
             val lineRs = lineStmt.executeQuery()
@@ -563,7 +571,8 @@ class SalesService(
                         taxCents = lineRs.getLong("tax_cents"),
                         totalCents = lineRs.getLong("total_cents"),
                         discountCents = lineRs.getLong("discount_cents"),
-                        discountPercent = lineRs.getDouble("discount_percent")
+                        discountPercent = lineRs.getDouble("discount_percent"),
+                        refundedQuantityMillis = lineRs.getLong("refunded_quantity_millis")
                     )
                 )
             }
@@ -592,6 +601,8 @@ class SalesService(
             payRs.close()
             payStmt.close()
 
+            val refunds = getRefundsBySaleIdInternal(conn, saleId)
+
             SaleResponse(
                 id = saleId,
                 folio = folio,
@@ -606,7 +617,8 @@ class SalesService(
                 discountCents = discountCents,
                 lines = lines,
                 payments = payments,
-                createdAt = createdAt
+                createdAt = createdAt,
+                refunds = refunds
             )
         }
     }
@@ -616,6 +628,17 @@ class SalesService(
             val sale = getSaleById(saleId)
             if (sale.status != "COMPLETED") {
                 throw ValidationException("Solo se pueden cancelar ventas con estado COMPLETED")
+            }
+
+            val refCheckStmt = conn.prepareStatement("SELECT COUNT(*) FROM sale_refunds WHERE sale_id = ?")
+            refCheckStmt.setString(1, saleId)
+            val refCheckRs = refCheckStmt.executeQuery()
+            refCheckRs.next()
+            val existingRefunds = refCheckRs.getInt(1)
+            refCheckRs.close()
+            refCheckStmt.close()
+            if (existingRefunds > 0) {
+                throw ValidationException("No se puede cancelar una venta que ya tiene devoluciones registradas. Realice una devolución por las partidas restantes.")
             }
 
             val now = System.currentTimeMillis()
@@ -814,7 +837,13 @@ class SalesService(
 
             headers.map { h ->
                 val lineStmt = conn.prepareStatement(
-                    "SELECT id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, discount_cents, discount_percent FROM sale_lines WHERE sale_id = ?"
+                    """
+                    SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
+                           sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent,
+                           COALESCE((SELECT SUM(srl.quantity_millis) FROM sale_refund_lines srl WHERE srl.sale_line_id = sl.id), 0) as refunded_quantity_millis
+                    FROM sale_lines sl
+                    WHERE sl.sale_id = ?
+                    """.trimIndent()
                 )
                 lineStmt.setString(1, h.id)
                 val lineRs = lineStmt.executeQuery()
@@ -832,7 +861,8 @@ class SalesService(
                             taxCents = lineRs.getLong("tax_cents"),
                             totalCents = lineRs.getLong("total_cents"),
                             discountCents = lineRs.getLong("discount_cents"),
-                            discountPercent = lineRs.getDouble("discount_percent")
+                            discountPercent = lineRs.getDouble("discount_percent"),
+                            refundedQuantityMillis = lineRs.getLong("refunded_quantity_millis")
                         )
                     )
                 }
@@ -860,6 +890,8 @@ class SalesService(
                 payRs.close()
                 payStmt.close()
 
+                val refunds = getRefundsBySaleIdInternal(conn, h.id)
+
                 SaleResponse(
                     id = h.id,
                     folio = h.folio,
@@ -874,9 +906,546 @@ class SalesService(
                     discountCents = h.discountCents,
                     lines = lines,
                     payments = payments,
-                    createdAt = h.createdAt
+                    createdAt = h.createdAt,
+                    refunds = refunds
                 )
             }
+        }
+    }
+
+    private fun getRefundsBySaleIdInternal(conn: Connection, saleId: String): List<SaleRefundResponse> {
+        val stmt = conn.prepareStatement(
+            """
+            SELECT r.id, r.folio, r.sale_id, s.folio as sale_folio, r.cash_session_id,
+                   u.name as cashier_name, su.name as supervisor_name,
+                   r.reason, r.notes, r.refund_method, r.subtotal_cents, r.tax_cents, r.total_cents, r.created_at
+            FROM sale_refunds r
+            JOIN sales s ON r.sale_id = s.id
+            JOIN users u ON r.user_id = u.id
+            LEFT JOIN users su ON r.authorized_by_user_id = su.id
+            WHERE r.sale_id = ?
+            ORDER BY r.created_at ASC
+            """.trimIndent()
+        )
+        stmt.setString(1, saleId)
+        val rs = stmt.executeQuery()
+
+        data class RefHeader(
+            val id: String,
+            val folio: Long,
+            val saleId: String,
+            val saleFolio: Long,
+            val cashSessionId: String,
+            val cashierName: String,
+            val supervisorName: String?,
+            val reason: String,
+            val notes: String,
+            val refundMethod: String,
+            val subtotalCents: Long,
+            val taxCents: Long,
+            val totalCents: Long,
+            val createdAt: Long
+        )
+
+        val headers = mutableListOf<RefHeader>()
+        while (rs.next()) {
+            headers.add(
+                RefHeader(
+                    id = rs.getString("id"),
+                    folio = rs.getLong("folio"),
+                    saleId = rs.getString("sale_id"),
+                    saleFolio = rs.getLong("sale_folio"),
+                    cashSessionId = rs.getString("cash_session_id"),
+                    cashierName = rs.getString("cashier_name"),
+                    supervisorName = rs.getString("supervisor_name"),
+                    reason = rs.getString("reason"),
+                    notes = rs.getString("notes"),
+                    refundMethod = rs.getString("refund_method"),
+                    subtotalCents = rs.getLong("subtotal_cents"),
+                    taxCents = rs.getLong("tax_cents"),
+                    totalCents = rs.getLong("total_cents"),
+                    createdAt = rs.getLong("created_at")
+                )
+            )
+        }
+        rs.close()
+        stmt.close()
+
+        return headers.map { h ->
+            val lStmt = conn.prepareStatement(
+                """
+                SELECT id, sale_line_id, product_id, presentation_id, description,
+                       quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, reenter_stock
+                FROM sale_refund_lines
+                WHERE refund_id = ?
+                """.trimIndent()
+            )
+            lStmt.setString(1, h.id)
+            val lRs = lStmt.executeQuery()
+            val lines = mutableListOf<SaleRefundLineResponse>()
+            while (lRs.next()) {
+                lines.add(
+                    SaleRefundLineResponse(
+                        id = lRs.getString("id"),
+                        saleLineId = lRs.getString("sale_line_id"),
+                        productId = lRs.getString("product_id"),
+                        presentationId = lRs.getString("presentation_id"),
+                        description = lRs.getString("description"),
+                        quantityMillis = lRs.getLong("quantity_millis"),
+                        unitPriceCents = lRs.getLong("unit_price_cents"),
+                        taxRate = lRs.getDouble("tax_rate"),
+                        taxCents = lRs.getLong("tax_cents"),
+                        totalCents = lRs.getLong("total_cents"),
+                        reenterStock = lRs.getBoolean("reenter_stock")
+                    )
+                )
+            }
+            lRs.close()
+            lStmt.close()
+
+            SaleRefundResponse(
+                id = h.id,
+                folio = h.folio,
+                saleId = h.saleId,
+                saleFolio = h.saleFolio,
+                cashSessionId = h.cashSessionId,
+                cashierName = h.cashierName,
+                authorizedByName = h.supervisorName,
+                reason = h.reason,
+                notes = h.notes,
+                refundMethod = h.refundMethod,
+                subtotalCents = h.subtotalCents,
+                taxCents = h.taxCents,
+                totalCents = h.totalCents,
+                lines = lines,
+                createdAt = h.createdAt
+            )
+        }
+    }
+
+    fun getRefundsBySaleId(saleId: String): List<SaleRefundResponse> {
+        return db.inTransaction { conn ->
+            getRefundsBySaleIdInternal(conn, saleId)
+        }
+    }
+
+    fun refundSale(saleId: String, request: CreateSaleRefundRequest): SaleRefundResponse {
+        return db.inTransaction { conn ->
+            // 1. Fetch Sale and lock
+            val saleStmt = conn.prepareStatement(
+                "SELECT id, folio, cash_session_id, user_id, customer_id, status, subtotal_cents, tax_cents, total_cents FROM sales WHERE id = ? FOR UPDATE"
+            )
+            saleStmt.setString(1, saleId)
+            val saleRs = saleStmt.executeQuery()
+            if (!saleRs.next()) {
+                saleRs.close()
+                saleStmt.close()
+                throw NotFoundException("Venta '$saleId' no encontrada")
+            }
+            val saleFolio = saleRs.getLong("folio")
+            val saleCustomerId = saleRs.getString("customer_id")
+            val currentSaleStatus = saleRs.getString("status")
+            saleRs.close()
+            saleStmt.close()
+
+            if (currentSaleStatus == "CANCELLED") {
+                throw ValidationException("No se pueden realizar devoluciones sobre una venta cancelada")
+            }
+            if (currentSaleStatus == "REFUNDED") {
+                throw ValidationException("Esta venta ya ha sido devuelta en su totalidad")
+            }
+            if (request.lines.isEmpty()) {
+                throw ValidationException("Debe especificar al menos una partida a devolver")
+            }
+
+            // 2. Validate Active Cash Session
+            val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ?")
+            sessStmt.setString(1, request.cashSessionId)
+            val sessRs = sessStmt.executeQuery()
+            if (!sessRs.next()) {
+                sessRs.close()
+                sessStmt.close()
+                throw ValidationException("La sesión de caja '${request.cashSessionId}' no existe")
+            }
+            val sessStatus = sessRs.getString("status")
+            sessRs.close()
+            sessStmt.close()
+            if (sessStatus != "OPEN") {
+                throw SessionClosedException("La sesión de caja '${request.cashSessionId}' no está abierta para procesar devoluciones")
+            }
+
+            // 3. Supervisor PIN check if cashier is CASHIER or supervisorPin provided
+            val userStmt = conn.prepareStatement("SELECT role FROM users WHERE id = ?")
+            userStmt.setString(1, request.cashierUserId)
+            val userRs = userStmt.executeQuery()
+            val cashierRole = if (userRs.next()) userRs.getString("role") else "CASHIER"
+            userRs.close()
+            userStmt.close()
+
+            var authorizedByUserId: String? = null
+            if (cashierRole == "CASHIER" || !request.supervisorPin.isNullOrBlank()) {
+                val pin = request.supervisorPin
+                if (pin.isNullOrBlank()) {
+                    throw ValidationException("Las devoluciones de mercancía requieren autorización de supervisor.")
+                }
+                val supStmt = conn.prepareStatement(
+                    "SELECT id, pin_hash FROM users WHERE role IN ('ADMIN', 'SUPERVISOR') AND is_active = TRUE"
+                )
+                val supRs = supStmt.executeQuery()
+                while (supRs.next()) {
+                    val supId = supRs.getString("id")
+                    val hash = supRs.getString("pin_hash")
+                    if (Security.verifyPin(pin, hash)) {
+                        authorizedByUserId = supId
+                        break
+                    }
+                }
+                supRs.close()
+                supStmt.close()
+
+                if (authorizedByUserId == null) {
+                    throw ValidationException("PIN de supervisor incorrecto o no autorizado")
+                }
+            }
+
+            // 4. Validate Lines and compute refund totals
+            data class ValidatedRefundLine(
+                val saleLineId: String,
+                val productId: String?,
+                val presentationId: String?,
+                val description: String,
+                val quantityMillis: Long,
+                val unitPriceCents: Long,
+                val taxRate: Double,
+                val taxCents: Long,
+                val totalCents: Long,
+                val reenterStock: Boolean,
+                val usesInventory: Boolean
+            )
+
+            val validatedLines = mutableListOf<ValidatedRefundLine>()
+            var refundSubtotalCents = 0L
+            var refundTaxCents = 0L
+            var refundTotalCents = 0L
+
+            for (reqLine in request.lines) {
+                if (reqLine.quantityMillis <= 0L) {
+                    throw ValidationException("La cantidad a devolver debe ser mayor a 0")
+                }
+
+                // Fetch original line
+                val lineStmt = conn.prepareStatement(
+                    """
+                    SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
+                           sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents,
+                           p.uses_inventory
+                    FROM sale_lines sl
+                    LEFT JOIN products p ON sl.product_id = p.id
+                    WHERE sl.id = ? AND sl.sale_id = ?
+                    """.trimIndent()
+                )
+                lineStmt.setString(1, reqLine.saleLineId)
+                lineStmt.setString(2, saleId)
+                val lineRs = lineStmt.executeQuery()
+                if (!lineRs.next()) {
+                    lineRs.close()
+                    lineStmt.close()
+                    throw ValidationException("La partida '${reqLine.saleLineId}' no pertenece a la venta '$saleId'")
+                }
+
+                val origQtyMillis = lineRs.getLong("quantity_millis")
+                val origTotalCents = lineRs.getLong("total_cents")
+                val origUnitPriceCents = lineRs.getLong("unit_price_cents")
+                val taxRate = lineRs.getDouble("tax_rate")
+                val prodId = lineRs.getString("product_id")
+                val presId = lineRs.getString("presentation_id")
+                val desc = lineRs.getString("description")
+                val usesInventory = lineRs.getBoolean("uses_inventory")
+                lineRs.close()
+                lineStmt.close()
+
+                // Fetch already refunded quantity for this line
+                val refCountStmt = conn.prepareStatement(
+                    "SELECT COALESCE(SUM(quantity_millis), 0) as already_refunded FROM sale_refund_lines WHERE sale_line_id = ?"
+                )
+                refCountStmt.setString(1, reqLine.saleLineId)
+                val refCountRs = refCountStmt.executeQuery()
+                refCountRs.next()
+                val alreadyRefunded = refCountRs.getLong("already_refunded")
+                refCountRs.close()
+                refCountStmt.close()
+
+                val returnable = origQtyMillis - alreadyRefunded
+                if (reqLine.quantityMillis > returnable) {
+                    throw ValidationException(
+                        "No se puede devolver ${reqLine.quantityMillis / 1000.0} de '$desc'. Máximo disponible a devolver: ${returnable / 1000.0}"
+                    )
+                }
+
+                // Proportional refund calculation:
+                val lineRefundCents = ((origTotalCents.toDouble() * reqLine.quantityMillis) / origQtyMillis).roundToLong()
+                val lineTaxCents = if (taxRate > 0.0) {
+                    ((lineRefundCents.toDouble() * taxRate) / (1.0 + taxRate)).roundToLong()
+                } else 0L
+                val lineSubtotalCents = lineRefundCents - lineTaxCents
+
+                refundSubtotalCents += lineSubtotalCents
+                refundTaxCents += lineTaxCents
+                refundTotalCents += lineRefundCents
+
+                validatedLines.add(
+                    ValidatedRefundLine(
+                        saleLineId = reqLine.saleLineId,
+                        productId = prodId,
+                        presentationId = presId,
+                        description = desc,
+                        quantityMillis = reqLine.quantityMillis,
+                        unitPriceCents = origUnitPriceCents,
+                        taxRate = taxRate,
+                        taxCents = lineTaxCents,
+                        totalCents = lineRefundCents,
+                        reenterStock = reqLine.reenterStock,
+                        usesInventory = usesInventory
+                    )
+                )
+            }
+
+            // 5. Get Next Refund Folio
+            val counterStmt = conn.prepareStatement("SELECT current_value FROM counters WHERE name = 'sale_refund_folio' FOR UPDATE")
+            val counterRs = counterStmt.executeQuery()
+            counterRs.next()
+            val nextRefundFolio = counterRs.getLong("current_value") + 1L
+            counterRs.close()
+            counterStmt.close()
+
+            val updateCounterStmt = conn.prepareStatement("UPDATE counters SET current_value = ? WHERE name = 'sale_refund_folio'")
+            updateCounterStmt.setLong(1, nextRefundFolio)
+            updateCounterStmt.executeUpdate()
+            updateCounterStmt.close()
+
+            val refundId = "ref-" + UUID.randomUUID().toString().take(8)
+            val now = System.currentTimeMillis()
+
+            // 6. Insert sale_refunds
+            val insertRefundStmt = conn.prepareStatement(
+                """
+                INSERT INTO sale_refunds (id, folio, sale_id, cash_session_id, user_id, authorized_by_user_id, refund_method, reason, notes, subtotal_cents, tax_cents, total_cents, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent()
+            )
+            insertRefundStmt.setString(1, refundId)
+            insertRefundStmt.setLong(2, nextRefundFolio)
+            insertRefundStmt.setString(3, saleId)
+            insertRefundStmt.setString(4, request.cashSessionId)
+            insertRefundStmt.setString(5, request.cashierUserId)
+            insertRefundStmt.setString(6, authorizedByUserId)
+            insertRefundStmt.setString(7, request.refundMethod.uppercase())
+            insertRefundStmt.setString(8, request.reason.uppercase())
+            insertRefundStmt.setString(9, request.notes)
+            insertRefundStmt.setLong(10, refundSubtotalCents)
+            insertRefundStmt.setLong(11, refundTaxCents)
+            insertRefundStmt.setLong(12, refundTotalCents)
+            insertRefundStmt.setLong(13, now)
+            insertRefundStmt.executeUpdate()
+            insertRefundStmt.close()
+
+            // 7. Insert sale_refund_lines and adjust stock if reenter_stock
+            val insertLineStmt = conn.prepareStatement(
+                """
+                INSERT INTO sale_refund_lines (id, refund_id, sale_line_id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, reenter_stock, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent()
+            )
+
+            val refundLinesResponse = mutableListOf<SaleRefundLineResponse>()
+
+            for (vl in validatedLines) {
+                val rLineId = "refl-" + UUID.randomUUID().toString().take(8)
+                insertLineStmt.setString(1, rLineId)
+                insertLineStmt.setString(2, refundId)
+                insertLineStmt.setString(3, vl.saleLineId)
+                insertLineStmt.setString(4, vl.productId)
+                insertLineStmt.setString(5, vl.presentationId)
+                insertLineStmt.setString(6, vl.description)
+                insertLineStmt.setLong(7, vl.quantityMillis)
+                insertLineStmt.setLong(8, vl.unitPriceCents)
+                insertLineStmt.setDouble(9, vl.taxRate)
+                insertLineStmt.setLong(10, vl.taxCents)
+                insertLineStmt.setLong(11, vl.totalCents)
+                insertLineStmt.setBoolean(12, vl.reenterStock)
+                insertLineStmt.setLong(13, now)
+                insertLineStmt.executeUpdate()
+
+                // Stock adjustment
+                if (vl.reenterStock && vl.usesInventory && vl.productId != null) {
+                    var factorMillis = 1000L
+                    if (!vl.presentationId.isNullOrBlank()) {
+                        val presStmt = conn.prepareStatement("SELECT factor_millis FROM product_presentations WHERE id = ?")
+                        presStmt.setString(1, vl.presentationId)
+                        val presRs = presStmt.executeQuery()
+                        if (presRs.next()) {
+                            factorMillis = presRs.getLong("factor_millis")
+                        }
+                        presRs.close()
+                        presStmt.close()
+                    }
+                    val addBaseMillis = (vl.quantityMillis * factorMillis) / 1000L
+
+                    val updateStockStmt = conn.prepareStatement(
+                        "UPDATE stock_balances SET quantity_millis = quantity_millis + ?, updated_at = ? WHERE product_id = ?"
+                    )
+                    updateStockStmt.setLong(1, addBaseMillis)
+                    updateStockStmt.setLong(2, now)
+                    updateStockStmt.setString(3, vl.productId)
+                    updateStockStmt.executeUpdate()
+                    updateStockStmt.close()
+
+                    val movStmt = conn.prepareStatement(
+                        "INSERT INTO stock_movements (id, product_id, type, quantity_millis, reason, reference, user_id, created_at) VALUES (?, ?, 'REFUND', ?, ?, ?, ?, ?)"
+                    )
+                    movStmt.setString(1, "rmov-" + UUID.randomUUID().toString().take(8))
+                    movStmt.setString(2, vl.productId)
+                    movStmt.setLong(3, addBaseMillis)
+                    movStmt.setString(4, "Devolución ticket folio #$saleFolio (Nota #$nextRefundFolio): ${request.reason}")
+                    movStmt.setString(5, refundId)
+                    movStmt.setString(6, request.cashierUserId)
+                    movStmt.setLong(7, now)
+                    movStmt.executeUpdate()
+                    movStmt.close()
+                }
+
+                refundLinesResponse.add(
+                    SaleRefundLineResponse(
+                        id = rLineId,
+                        saleLineId = vl.saleLineId,
+                        productId = vl.productId,
+                        presentationId = vl.presentationId,
+                        description = vl.description,
+                        quantityMillis = vl.quantityMillis,
+                        unitPriceCents = vl.unitPriceCents,
+                        taxRate = vl.taxRate,
+                        taxCents = vl.taxCents,
+                        totalCents = vl.totalCents,
+                        reenterStock = vl.reenterStock
+                    )
+                )
+            }
+            insertLineStmt.close()
+
+            // 8. Financial adjustments: Cash Session vs Customer Credit
+            if (request.refundMethod.uppercase() == "CREDIT") {
+                if (saleCustomerId.isNullOrBlank()) {
+                    throw ValidationException("No se puede reembolsar a crédito porque la venta no tiene cliente asociado")
+                }
+                val custStmt = conn.prepareStatement("SELECT current_balance_cents FROM customers WHERE id = ? FOR UPDATE")
+                custStmt.setString(1, saleCustomerId)
+                val custRs = custStmt.executeQuery()
+                if (custRs.next()) {
+                    val currentBal = custRs.getLong("current_balance_cents")
+                    val newBal = (currentBal - refundTotalCents).coerceAtLeast(0L)
+
+                    val updateCustStmt = conn.prepareStatement("UPDATE customers SET current_balance_cents = ?, updated_at = ? WHERE id = ?")
+                    updateCustStmt.setLong(1, newBal)
+                    updateCustStmt.setLong(2, now)
+                    updateCustStmt.setString(3, saleCustomerId)
+                    updateCustStmt.executeUpdate()
+                    updateCustStmt.close()
+
+                    val cmovStmt = conn.prepareStatement(
+                        """
+                        INSERT INTO credit_movements (id, customer_id, type, amount_cents, balance_after_cents, sale_id, cash_session_id, description, user_id, created_at)
+                        VALUES (?, ?, 'REFUND', ?, ?, ?, ?, ?, ?, ?)
+                        """.trimIndent()
+                    )
+                    cmovStmt.setString(1, "cmov-" + UUID.randomUUID().toString().take(8))
+                    cmovStmt.setString(2, saleCustomerId)
+                    cmovStmt.setLong(3, refundTotalCents)
+                    cmovStmt.setLong(4, newBal)
+                    cmovStmt.setString(5, saleId)
+                    cmovStmt.setString(6, request.cashSessionId)
+                    cmovStmt.setString(7, "Reembolso ticket folio #$saleFolio (Nota #$nextRefundFolio)")
+                    cmovStmt.setString(8, request.cashierUserId)
+                    cmovStmt.setLong(9, now)
+                    cmovStmt.executeUpdate()
+                    cmovStmt.close()
+                }
+                custRs.close()
+                custStmt.close()
+            } else {
+                // Deduct cash from active cash session
+                val updateCashStmt = conn.prepareStatement(
+                    "UPDATE cash_sessions SET expected_cash_cents = expected_cash_cents - ? WHERE id = ?"
+                )
+                updateCashStmt.setLong(1, refundTotalCents)
+                updateCashStmt.setString(2, request.cashSessionId)
+                updateCashStmt.executeUpdate()
+                updateCashStmt.close()
+            }
+
+            // 9. Update Sale Status (PARTIALLY_REFUNDED vs REFUNDED)
+            val allLinesStmt = conn.prepareStatement(
+                """
+                SELECT sl.id, sl.quantity_millis,
+                       COALESCE((SELECT SUM(srl.quantity_millis) FROM sale_refund_lines srl WHERE srl.sale_line_id = sl.id), 0) as total_refunded
+                FROM sale_lines sl
+                WHERE sl.sale_id = ?
+                """.trimIndent()
+            )
+            allLinesStmt.setString(1, saleId)
+            val allLinesRs = allLinesStmt.executeQuery()
+            var allFullyRefunded = true
+            while (allLinesRs.next()) {
+                val q = allLinesRs.getLong("quantity_millis")
+                val ref = allLinesRs.getLong("total_refunded")
+                if (ref < q) {
+                    allFullyRefunded = false
+                }
+            }
+            allLinesRs.close()
+            allLinesStmt.close()
+
+            val newSaleStatus = if (allFullyRefunded) "REFUNDED" else "PARTIALLY_REFUNDED"
+            val updateSaleStmt = conn.prepareStatement("UPDATE sales SET status = ? WHERE id = ?")
+            updateSaleStmt.setString(1, newSaleStatus)
+            updateSaleStmt.setString(2, saleId)
+            updateSaleStmt.executeUpdate()
+            updateSaleStmt.close()
+
+            // 10. Fetch cashier & supervisor names for response
+            val namesStmt = conn.prepareStatement(
+                "SELECT id, name FROM users WHERE id IN (?, ?)"
+            )
+            namesStmt.setString(1, request.cashierUserId)
+            namesStmt.setString(2, authorizedByUserId ?: "")
+            val namesRs = namesStmt.executeQuery()
+            var cashierName = "Cajero"
+            var supervisorName: String? = null
+            while (namesRs.next()) {
+                val uid = namesRs.getString("id")
+                val nm = namesRs.getString("name")
+                if (uid == request.cashierUserId) cashierName = nm
+                if (uid == authorizedByUserId) supervisorName = nm
+            }
+            namesRs.close()
+            namesStmt.close()
+
+            SaleRefundResponse(
+                id = refundId,
+                folio = nextRefundFolio,
+                saleId = saleId,
+                saleFolio = saleFolio,
+                cashSessionId = request.cashSessionId,
+                cashierName = cashierName,
+                authorizedByName = supervisorName,
+                reason = request.reason.uppercase(),
+                notes = request.notes,
+                refundMethod = request.refundMethod.uppercase(),
+                subtotalCents = refundSubtotalCents,
+                taxCents = refundTaxCents,
+                totalCents = refundTotalCents,
+                lines = refundLinesResponse,
+                createdAt = now
+            )
         }
     }
 }

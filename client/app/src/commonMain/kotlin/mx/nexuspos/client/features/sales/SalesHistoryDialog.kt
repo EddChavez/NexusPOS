@@ -46,6 +46,7 @@ fun SalesHistoryDialog(
     onReload: () -> Unit,
     onReprintTicket: (SaleResponse) -> Unit,
     onCancelSale: (SaleResponse) -> Unit,
+    onRefundSale: (SaleResponse) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     // Filter sales in memory
@@ -55,6 +56,7 @@ fun SalesHistoryDialog(
             val matchesStatus = when (statusFilter) {
                 "COMPLETED" -> sale.status == "COMPLETED"
                 "CANCELLED" -> sale.status == "CANCELLED"
+                "REFUNDED" -> sale.status in listOf("REFUNDED", "PARTIALLY_REFUNDED")
                 else -> true
             }
             matchesFolio && matchesStatus
@@ -185,6 +187,11 @@ fun SalesHistoryDialog(
                                     selected = statusFilter == "CANCELLED",
                                     onClick = { onStatusFilterChanged("CANCELLED") }
                                 )
+                                FilterTabButton(
+                                    label = "Devueltos",
+                                    selected = statusFilter == "REFUNDED",
+                                    onClick = { onStatusFilterChanged("REFUNDED") }
+                                )
                             }
                         }
 
@@ -233,7 +240,8 @@ fun SalesHistoryDialog(
                             SaleDetailPanel(
                                 sale = selectedSale,
                                 onReprint = { onReprintTicket(selectedSale) },
-                                onCancel = { onCancelSale(selectedSale) }
+                                onCancel = { onCancelSale(selectedSale) },
+                                onRefund = { onRefundSale(selectedSale) }
                             )
                         } else {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -355,15 +363,22 @@ private fun SaleCardItem(sale: SaleResponse, isSelected: Boolean, onClick: () ->
                     color = if (isCancelled) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurface
                 )
 
+                val (statusLabel, statusBg, statusFg) = when (sale.status) {
+                    "CANCELLED" -> Triple("CANCELADA", Color(0xFFFEE2E2), Color(0xFFB91C1C))
+                    "PARTIALLY_REFUNDED" -> Triple("DEV. PARCIAL", Color(0xFFFEF3C7), Color(0xFFB45309))
+                    "REFUNDED" -> Triple("DEVUELTA", Color(0xFFF3E8FF), Color(0xFF7E22CE))
+                    else -> Triple("COMPLETADA", Color(0xFFD1FAE5), Color(0xFF047857))
+                }
+
                 Surface(
-                    color = if (isCancelled) Color(0xFFFEE2E2) else Color(0xFFD1FAE5),
+                    color = statusBg,
                     shape = RoundedCornerShape(4.dp)
                 ) {
                     Text(
-                        text = if (isCancelled) "CANCELADA" else "COMPLETADA",
+                        text = statusLabel,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = if (isCancelled) Color(0xFFB91C1C) else Color(0xFF047857),
+                        color = statusFg,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
@@ -376,9 +391,22 @@ private fun SaleCardItem(sale: SaleResponse, isSelected: Boolean, onClick: () ->
 private fun SaleDetailPanel(
     sale: SaleResponse,
     onReprint: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onRefund: () -> Unit
 ) {
     val isCancelled = sale.status == "CANCELLED"
+    val isFullyRefunded = sale.status == "REFUNDED"
+    val isPartiallyRefunded = sale.status == "PARTIALLY_REFUNDED"
+    val canRefund = sale.status in listOf("COMPLETED", "PARTIALLY_REFUNDED")
+    val canCancel = sale.status == "COMPLETED" && sale.refunds.isEmpty()
+
+    val (statusLabel, statusBg, statusFg) = when (sale.status) {
+        "CANCELLED" -> Triple("CANCELADA", Color(0xFFFEE2E2), Color(0xFFB91C1C))
+        "REFUNDED" -> Triple("DEVUELTA", Color(0xFFEDE9FE), Color(0xFF6D28D9))
+        "PARTIALLY_REFUNDED" -> Triple("DEV. PARCIAL", Color(0xFFFEF3C7), Color(0xFFB45309))
+        else -> Triple("COMPLETADA", Color(0xFFD1FAE5), Color(0xFF047857))
+    }
+
     val dateStr = remember(sale.createdAt) {
         try {
             SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date(sale.createdAt))
@@ -414,14 +442,14 @@ private fun SaleDetailPanel(
                 }
 
                 Surface(
-                    color = if (isCancelled) Color(0xFFFEE2E2) else Color(0xFFD1FAE5),
+                    color = statusBg,
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(
-                        text = if (isCancelled) "CANCELADA" else "COMPLETADA",
+                        text = statusLabel,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
-                        color = if (isCancelled) Color(0xFFB91C1C) else Color(0xFF047857),
+                        color = statusFg,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
@@ -447,13 +475,82 @@ private fun SaleDetailPanel(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(text = line.description, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                Text(
-                                    text = "${Quantity(line.quantityMillis).format()} x ${Money(line.unitPriceCents).format()}",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "${Quantity(line.quantityMillis).format()} x ${Money(line.unitPriceCents).format()}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (line.refundedQuantityMillis > 0L) {
+                                        Surface(
+                                            color = Color(0xFFFEF3C7),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "Devuelto: ${Quantity(line.refundedQuantityMillis).format()}",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFB45309),
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                             Text(text = Money(line.totalCents).format(), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+
+            // Refund notes breakdown if any
+            if (sale.refunds.isNotEmpty()) {
+                Divider(color = NexusTheme.colors.borderSubtle, thickness = 1.dp)
+                Text(
+                    text = "Notas de Devolución Emitidas (${sale.refunds.size}):",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = Color(0xFFB45309)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    sale.refunds.forEach { ref ->
+                        val refDate = try {
+                            SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ref.createdAt))
+                        } catch (e: Exception) { "" }
+                        Surface(
+                            color = Color(0xFFFFFBEB),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Nota #${ref.folio} • $refDate (${ref.refundMethod})",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFF92400E)
+                                    )
+                                    Text(
+                                        text = "Motivo: ${ref.reason}",
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    text = "-${Money(ref.totalCents).format()}",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.5.sp,
+                                    color = Color(0xFFDC2626)
+                                )
+                            }
                         }
                     }
                 }
@@ -501,10 +598,10 @@ private fun SaleDetailPanel(
 
         Spacer(Modifier.height(10.dp))
 
-        // Actions: Reprint Ticket and Cancel Sale
+        // Actions: Reprint Ticket, Refund Lines, and Cancel Sale
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Button(
                 onClick = onReprint,
@@ -513,26 +610,43 @@ private fun SaleDetailPanel(
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Reimprimir Ticket", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(Modifier.width(4.dp))
+                Text("Reimprimir", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+            }
+
+            Button(
+                onClick = onRefund,
+                enabled = canRefund,
+                modifier = Modifier.weight(1f).height(44.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFD97706),
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Text(
+                    text = if (isFullyRefunded) "Devuelta" else "Devolución",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.5.sp
+                )
             }
 
             OutlinedButton(
                 onClick = onCancel,
-                enabled = !isCancelled,
+                enabled = canCancel,
                 modifier = Modifier.weight(1f).height(44.dp),
                 shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, if (!isCancelled) Color(0xFFDC2626) else MaterialTheme.colorScheme.outline),
+                border = BorderStroke(1.dp, if (canCancel) Color(0xFFDC2626) else MaterialTheme.colorScheme.outline),
                 colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = if (!isCancelled) Color(0xFFDC2626) else MaterialTheme.colorScheme.outline
+                    contentColor = if (canCancel) Color(0xFFDC2626) else MaterialTheme.colorScheme.outline
                 )
             ) {
                 Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(
-                    text = if (isCancelled) "Ticket Cancelado" else "Cancelar Venta",
+                    text = if (isCancelled) "Cancelado" else "Cancelar",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
+                    fontSize = 11.5.sp
                 )
             }
         }

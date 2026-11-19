@@ -124,6 +124,10 @@ fun SupervisorAuthDialog(
                             "Aplicar descuento de $${target.discountCents / 100.0} pesos que requiere autorización."
                         }
                     )
+                    is SupervisorAction.RefundSale -> Pair(
+                        "Devolución de Mercancía Ticket #${target.folio}",
+                        "Motivo: ${target.request.reason}. Se autorizará la devolución de ${target.request.lines.size} partida(s)."
+                    )
                     null -> Pair("Acción Protegida", "Requiere PIN de Encargado o Administrador.")
                 }
 

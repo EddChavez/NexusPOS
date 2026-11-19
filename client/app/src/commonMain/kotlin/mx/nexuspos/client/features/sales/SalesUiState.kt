@@ -79,6 +79,8 @@ data class SalesUiState(
     val salesHistoryStatusFilter: String? = null,
     val isShowingCancelReasonDialog: Boolean = false,
     val salePendingCancel: SaleResponse? = null,
+    val isShowingRefundDialog: Boolean = false,
+    val salePendingRefund: SaleResponse? = null,
     val reprintTicketPreview: String? = null,
     val lastCompletedSale: SaleResponse? = null,
     val parkedSalesCount: Int = 0,

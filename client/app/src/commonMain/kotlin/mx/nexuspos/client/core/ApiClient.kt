@@ -38,10 +38,12 @@ import mx.nexuspos.contracts.inventory.InventorySummaryDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.inventory.StockMovementDto
 import mx.nexuspos.contracts.sales.CancelSaleRequest
+import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.ParkSaleRequest
 import mx.nexuspos.contracts.sales.ParkedSaleResponse
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
+import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
 
@@ -576,6 +578,37 @@ open class ApiClient(
                 contentType(ContentType.Application.Json)
                 setBody(CancelSaleRequest(reason = reason, authorizedByUserId = authorizedByUserId))
             }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun refundSale(id: String, req: CreateSaleRefundRequest): Result<SaleRefundResponse> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/sales/$id/refund") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getSaleRefunds(id: String): Result<List<SaleRefundResponse>> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/sales/$id/refunds")
             if (res.status.isSuccess()) {
                 Result.success(res.body())
             } else {

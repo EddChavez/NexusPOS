@@ -49,8 +49,12 @@ data class SaleLineItemResponse(
     val taxCents: Long,
     val totalCents: Long,
     val discountCents: Long = 0L,
-    val discountPercent: Double = 0.0
-)
+    val discountPercent: Double = 0.0,
+    val refundedQuantityMillis: Long = 0L
+) {
+    val returnableQuantityMillis: Long
+        get() = (quantityMillis - refundedQuantityMillis).coerceAtLeast(0L)
+}
 
 @Serializable
 data class SalePaymentResponse(
@@ -77,7 +81,8 @@ data class SaleResponse(
     val discountCents: Long = 0L,
     val lines: List<SaleLineItemResponse>,
     val payments: List<SalePaymentResponse>,
-    val createdAt: Long
+    val createdAt: Long,
+    val refunds: List<SaleRefundResponse> = emptyList()
 )
 
 @Serializable

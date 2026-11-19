@@ -329,11 +329,24 @@ fun main() = application {
                         isSupervisorApproved = true
                     )
                 }
+                is SupervisorAction.RefundSale -> {
+                    viewModel.executeRefundSale(action.saleId, action.request, isSupervisorApproved = true)
+                }
             }
         }
 
         viewModel.onDiscountSupervisorRequired = { action ->
             authViewModel.requestSupervisorElevation(action)
+        }
+
+        viewModel.onRefundSupervisorRequired = { action ->
+            authViewModel.requestSupervisorElevation(action)
+        }
+
+        viewModel.onPrintSaleRefund = { refund ->
+            CoroutineScope(Dispatchers.IO).launch {
+                printerDispatcher.printSaleRefund(refund, null, printerConfig)
+            }
         }
 
         // 4. Cash Cut & Shift reports hooks

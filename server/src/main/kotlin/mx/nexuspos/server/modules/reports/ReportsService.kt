@@ -26,7 +26,7 @@ class ReportsService(private val db: DatabaseFactory) {
             val completedSql = """
                 SELECT COALESCE(SUM(s.total_cents), 0) as total_sales, COUNT(s.id) as count_completed
                 FROM sales s
-                WHERE s.status = 'COMPLETED'
+                WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
                   AND s.created_at >= ? AND s.created_at <= ?
                   AND (? IS NULL OR s.cash_session_id = ?)
             """.trimIndent()
@@ -67,7 +67,7 @@ class ReportsService(private val db: DatabaseFactory) {
                 SELECT sp.method, COALESCE(SUM(sp.amount_cents), 0) as method_total
                 FROM sale_payments sp
                 JOIN sales s ON sp.sale_id = s.id
-                WHERE s.status = 'COMPLETED'
+                WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
                   AND s.created_at >= ? AND s.created_at <= ?
                   AND (? IS NULL OR s.cash_session_id = ?)
                 GROUP BY sp.method
@@ -143,7 +143,7 @@ class ReportsService(private val db: DatabaseFactory) {
                 FROM sale_lines sl
                 JOIN sales s ON sl.sale_id = s.id
                 LEFT JOIN products p ON sl.product_id = p.id
-                WHERE s.status = 'COMPLETED'
+                WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
                   AND s.created_at >= ? AND s.created_at <= ?
                   AND (? IS NULL OR s.cash_session_id = ?)
             """.trimIndent()
