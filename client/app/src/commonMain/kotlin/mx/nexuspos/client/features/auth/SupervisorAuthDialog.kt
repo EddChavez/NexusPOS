@@ -116,6 +116,14 @@ fun SupervisorAuthDialog(
                         "Cancelación de Venta Folio #${target.folio}",
                         "Motivo: ${target.reason}. Esta acción revertirá inventario, caja y crédito de forma atómica."
                     )
+                    is SupervisorAction.ApplyDiscount -> Pair(
+                        "Autorización de Descuento Especial",
+                        if (target.discountPercent > 0.0) {
+                            "Aplicar descuento del ${target.discountPercent}% que excede el límite permitido sin supervisor."
+                        } else {
+                            "Aplicar descuento de $${target.discountCents / 100.0} pesos que requiere autorización."
+                        }
+                    )
                     null -> Pair("Acción Protegida", "Requiere PIN de Encargado o Administrador.")
                 }
 

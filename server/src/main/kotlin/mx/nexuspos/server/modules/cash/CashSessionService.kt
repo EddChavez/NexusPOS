@@ -200,6 +200,31 @@ class CashSessionService(private val db: DatabaseFactory) {
             val expectedCash = initialFund + salesCashCents + creditPaymentsCashCents + cashInCents - cashOutCents
             val diff = countedCash?.let { it - expectedCash } ?: storedDifference
 
+            // 4. Query denominations
+            val denomList = mutableListOf<CashDenominationCountDto>()
+            val denomQuery = conn.prepareStatement(
+                """
+                SELECT denomination_cents, is_coin, pieces, total_cents
+                FROM cash_session_denominations
+                WHERE session_id = ?
+                ORDER BY is_coin ASC, denomination_cents DESC
+                """.trimIndent()
+            )
+            denomQuery.setString(1, sessionId)
+            val denomRs = denomQuery.executeQuery()
+            while (denomRs.next()) {
+                denomList.add(
+                    CashDenominationCountDto(
+                        denominationCents = denomRs.getLong("denomination_cents"),
+                        isCoin = denomRs.getBoolean("is_coin"),
+                        pieces = denomRs.getInt("pieces"),
+                        totalCents = denomRs.getLong("total_cents")
+                    )
+                )
+            }
+            denomRs.close()
+            denomQuery.close()
+
             CashSessionSummary(
                 sessionId = sessionId,
                 registerId = regId,
@@ -217,7 +242,8 @@ class CashSessionService(private val db: DatabaseFactory) {
                 expectedCashCents = expectedCash,
                 countedCashCents = countedCash,
                 differenceCents = diff,
-                status = status
+                status = status,
+                denominations = denomList
             )
         }
     }
@@ -248,13 +274,36 @@ class CashSessionService(private val db: DatabaseFactory) {
             stmt.setString(6, sessionId)
             stmt.executeUpdate()
             stmt.close()
+
+            if (request.denominations.isNotEmpty()) {
+                val denomInsert = conn.prepareStatement(
+                    """
+                    INSERT INTO cash_session_denominations (id, session_id, denomination_cents, is_coin, pieces, total_cents, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent()
+                )
+                for (d in request.denominations) {
+                    val dId = "csd-" + UUID.randomUUID().toString().take(8)
+                    denomInsert.setString(1, dId)
+                    denomInsert.setString(2, sessionId)
+                    denomInsert.setLong(3, d.denominationCents)
+                    denomInsert.setBoolean(4, d.isCoin)
+                    denomInsert.setInt(5, d.pieces)
+                    denomInsert.setLong(6, d.totalCents)
+                    denomInsert.setLong(7, now)
+                    denomInsert.addBatch()
+                }
+                denomInsert.executeBatch()
+                denomInsert.close()
+            }
         }
 
         return summary.copy(
             closedAt = now,
             countedCashCents = request.countedCashCents,
             differenceCents = difference,
-            status = "CLOSED"
+            status = "CLOSED",
+            denominations = request.denominations
         )
     }
 

@@ -85,7 +85,9 @@ class SettingsViewModel(
                         ticketHeader = dto.ticketHeader,
                         ticketFooter = dto.ticketFooter,
                         currencySymbol = dto.currencySymbol,
-                        allowNegativeStock = dto.allowNegativeStock
+                        allowNegativeStock = dto.allowNegativeStock,
+                        blindCashCountEnabled = dto.blindCashCountEnabled,
+                        maxCashierDiscountPercent = dto.maxCashierDiscountPercent
                     )
                 }
             }.onFailure { err ->
@@ -137,7 +139,9 @@ class SettingsViewModel(
                 ticketHeader = s.ticketHeader,
                 ticketFooter = s.ticketFooter,
                 currencySymbol = s.currencySymbol,
-                allowNegativeStock = s.allowNegativeStock
+                allowNegativeStock = s.allowNegativeStock,
+                blindCashCountEnabled = s.blindCashCountEnabled,
+                maxCashierDiscountPercent = s.maxCashierDiscountPercent
             )
             val res = apiClient.updateSettings(dto)
             res.onSuccess {
@@ -165,7 +169,9 @@ class SettingsViewModel(
                 ticketHeader = s.ticketHeader,
                 ticketFooter = s.ticketFooter,
                 currencySymbol = s.currencySymbol,
-                allowNegativeStock = newValue
+                allowNegativeStock = newValue,
+                blindCashCountEnabled = s.blindCashCountEnabled,
+                maxCashierDiscountPercent = s.maxCashierDiscountPercent
             )
             apiClient.updateSettings(dto).onSuccess {
                 _uiState.update { it.copy(successBanner = if (newValue) "Política cambiada a Flexible (stock negativo permitido)" else "Política cambiada a Estricto (stock negativo bloqueado)") }
@@ -173,6 +179,58 @@ class SettingsViewModel(
             }.onFailure { err ->
                 // Revert on failure
                 _uiState.update { it.copy(allowNegativeStock = !newValue, errorBanner = err.message) }
+            }
+        }
+    }
+
+    fun toggleBlindCashCount() {
+        val newValue = !_uiState.value.blindCashCountEnabled
+        _uiState.update { it.copy(blindCashCountEnabled = newValue) }
+        val s = _uiState.value
+        scope.launch {
+            val dto = SettingsDto(
+                storeName = s.storeName,
+                storeAddress = s.storeAddress,
+                storePhone = s.storePhone,
+                storeTaxId = s.storeTaxId,
+                ticketHeader = s.ticketHeader,
+                ticketFooter = s.ticketFooter,
+                currencySymbol = s.currencySymbol,
+                allowNegativeStock = s.allowNegativeStock,
+                blindCashCountEnabled = newValue,
+                maxCashierDiscountPercent = s.maxCashierDiscountPercent
+            )
+            apiClient.updateSettings(dto).onSuccess {
+                _uiState.update { it.copy(successBanner = if (newValue) "Modo Arqueo Ciego ACTIVADO (esperado oculto en caja)" else "Modo Arqueo Ciego DESACTIVADO") }
+                autoDismissBanner()
+            }.onFailure { err ->
+                _uiState.update { it.copy(blindCashCountEnabled = !newValue, errorBanner = err.message) }
+            }
+        }
+    }
+
+    fun onMaxCashierDiscountPercentChanged(v: Double) {
+        val safe = v.coerceIn(0.0, 100.0)
+        _uiState.update { it.copy(maxCashierDiscountPercent = safe) }
+        val s = _uiState.value
+        scope.launch {
+            val dto = SettingsDto(
+                storeName = s.storeName,
+                storeAddress = s.storeAddress,
+                storePhone = s.storePhone,
+                storeTaxId = s.storeTaxId,
+                ticketHeader = s.ticketHeader,
+                ticketFooter = s.ticketFooter,
+                currencySymbol = s.currencySymbol,
+                allowNegativeStock = s.allowNegativeStock,
+                blindCashCountEnabled = s.blindCashCountEnabled,
+                maxCashierDiscountPercent = safe
+            )
+            apiClient.updateSettings(dto).onSuccess {
+                _uiState.update { it.copy(successBanner = "Límite de descuento para cajeros actualizado a $safe%") }
+                autoDismissBanner()
+            }.onFailure { err ->
+                _uiState.update { it.copy(errorBanner = err.message) }
             }
         }
     }

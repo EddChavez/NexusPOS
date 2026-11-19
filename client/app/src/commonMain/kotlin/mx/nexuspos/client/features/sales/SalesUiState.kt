@@ -23,6 +23,8 @@ data class CartLine(
     val unitPrice: Money,
     val taxRate: Double,
     val total: Money,
+    val discountCents: Long = 0L,
+    val discountPercent: Double = 0.0,
     val currentStockMillis: Long? = null,
     val isWeighed: Boolean = unit == ProductUnit.KILOGRAM
 )
@@ -67,6 +69,8 @@ data class SalesUiState(
     val isShowingSearchCatalogDialog: Boolean = false,
     val isShowingCashInDialog: Boolean = false,
     val isShowingCashOutDialog: Boolean = false,
+    val isShowingDiscountDialog: Boolean = false,
+    val maxCashierDiscountPercent: Double = 10.0,
     val isShowingSalesHistory: Boolean = false,
     val shiftSales: List<SaleResponse> = emptyList(),
     val selectedShiftSale: SaleResponse? = null,

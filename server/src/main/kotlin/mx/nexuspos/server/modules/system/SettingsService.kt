@@ -18,6 +18,8 @@ class SettingsService(private val db: DatabaseFactory) {
             var ticketFooter = "Conserve su ticket para cualquier aclaración."
             var allowNegativeStock = true
             var currencySymbol = "$"
+            var blindCashCountEnabled = false
+            var maxCashierDiscountPercent = 10.0
 
             while (rs.next()) {
                 when (rs.getString("setting_key")) {
@@ -29,6 +31,8 @@ class SettingsService(private val db: DatabaseFactory) {
                     "ticket_footer" -> ticketFooter = rs.getString("setting_value")
                     "allow_negative_stock" -> allowNegativeStock = rs.getString("setting_value").toBoolean()
                     "currency_symbol" -> currencySymbol = rs.getString("setting_value")
+                    "blind_cash_count_enabled" -> blindCashCountEnabled = rs.getString("setting_value").toBoolean()
+                    "max_cashier_discount_percent" -> maxCashierDiscountPercent = rs.getString("setting_value").toDoubleOrNull() ?: 10.0
                 }
             }
             rs.close()
@@ -42,7 +46,9 @@ class SettingsService(private val db: DatabaseFactory) {
                 ticketHeader = ticketHeader,
                 ticketFooter = ticketFooter,
                 allowNegativeStock = allowNegativeStock,
-                currencySymbol = currencySymbol
+                currencySymbol = currencySymbol,
+                blindCashCountEnabled = blindCashCountEnabled,
+                maxCashierDiscountPercent = maxCashierDiscountPercent
             )
         }
     }
@@ -60,7 +66,9 @@ class SettingsService(private val db: DatabaseFactory) {
                 "ticket_header" to settings.ticketHeader,
                 "ticket_footer" to settings.ticketFooter,
                 "allow_negative_stock" to settings.allowNegativeStock.toString(),
-                "currency_symbol" to settings.currencySymbol
+                "currency_symbol" to settings.currencySymbol,
+                "blind_cash_count_enabled" to settings.blindCashCountEnabled.toString(),
+                "max_cashier_discount_percent" to settings.maxCashierDiscountPercent.toString()
             )
             for ((k, v) in map) {
                 updateStmt.setString(1, v)

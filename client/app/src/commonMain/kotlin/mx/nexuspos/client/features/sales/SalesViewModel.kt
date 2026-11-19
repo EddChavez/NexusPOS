@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.core.ServerConnectionState
+import mx.nexuspos.client.features.auth.SupervisorAction
 import mx.nexuspos.client.features.header.ScaleReading
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
@@ -973,9 +974,13 @@ class SalesViewModel(
                     quantityMillis = line.quantity.millis,
                     expectedUnitPriceCents = line.unitPrice.cents,
                     expectedTotalCents = line.total.cents,
-                    taxRate = line.taxRate
+                    taxRate = line.taxRate,
+                    discountCents = line.discountCents,
+                    discountPercent = line.discountPercent
                 )
             }
+
+            val totalDiscountCents = state.cartLines.sumOf { it.discountCents }
 
             val saleReq = CreateSaleRequest(
                 idempotencyKey = UUID.randomUUID().toString(),
@@ -984,7 +989,8 @@ class SalesViewModel(
                 customerId = state.selectedCustomer?.id,
                 lines = linesReq,
                 payments = payments,
-                expectedTotalCents = state.total.cents
+                expectedTotalCents = state.total.cents,
+                discountCents = totalDiscountCents
             )
 
             apiClient.completeSale(saleReq).onSuccess { sale ->
@@ -1043,15 +1049,95 @@ class SalesViewModel(
         _uiState.update { it.copy(errorMessage = null, successMessage = null) }
     }
 
+    var onDiscountSupervisorRequired: ((SupervisorAction.ApplyDiscount) -> Unit)? = null
+
+    fun showDiscountDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingDiscountDialog = show) }
+    }
+
+    fun applyDiscount(
+        targetLineId: String?,
+        discountPercent: Double,
+        discountCents: Long,
+        isSupervisorApproved: Boolean = false
+    ) {
+        val state = _uiState.value
+        val isCashier = state.activeCashierRole == "CASHIER"
+
+        if (discountPercent > state.maxCashierDiscountPercent && isCashier && !isSupervisorApproved) {
+            showDiscountDialog(false)
+            onDiscountSupervisorRequired?.invoke(
+                SupervisorAction.ApplyDiscount(
+                    lineId = targetLineId,
+                    discountPercent = discountPercent,
+                    discountCents = discountCents
+                )
+            )
+            return
+        }
+
+        if (targetLineId != null) {
+            val updatedLines = state.cartLines.map { line ->
+                if (line.id == targetLineId) {
+                    val (newTotal, totalDisc) = PricingRules.calculateLineTotalWithDiscount(
+                        line.unitPrice,
+                        line.quantity,
+                        discountPercent,
+                        discountCents
+                    )
+                    line.copy(
+                        total = newTotal,
+                        discountCents = totalDisc.cents,
+                        discountPercent = discountPercent
+                    )
+                } else line
+            }
+            _uiState.update {
+                recalculateTotals(it.copy(
+                    cartLines = updatedLines,
+                    isShowingDiscountDialog = false,
+                    successMessage = "Descuento aplicado correctamente."
+                ))
+            }
+        } else {
+            if (state.cartLines.isEmpty()) {
+                _uiState.update { it.copy(errorMessage = "El carrito está vacío para aplicar descuento.") }
+                return
+            }
+            val updatedLines = state.cartLines.map { line ->
+                val (newTotal, totalDisc) = PricingRules.calculateLineTotalWithDiscount(
+                    line.unitPrice,
+                    line.quantity,
+                    discountPercent,
+                    discountCents
+                )
+                line.copy(
+                    total = newTotal,
+                    discountCents = totalDisc.cents,
+                    discountPercent = discountPercent
+                )
+            }
+            _uiState.update {
+                recalculateTotals(it.copy(
+                    cartLines = updatedLines,
+                    isShowingDiscountDialog = false,
+                    successMessage = "Descuento global aplicado a la venta."
+                ))
+            }
+        }
+    }
+
     private fun recalculateTotals(state: SalesUiState): SalesUiState {
         var subtotal = Money.ZERO
         var tax = Money.ZERO
+        var discount = Money.ZERO
 
         for (line in state.cartLines) {
             val lineTax = PricingRules.extractTaxFromTotal(line.total, line.taxRate)
             val lineNet = line.total - lineTax
             subtotal += lineNet
             tax += lineTax
+            discount += Money(line.discountCents)
         }
 
         val total = subtotal + tax
@@ -1072,6 +1158,7 @@ class SalesViewModel(
             subtotal = subtotal,
             tax = tax,
             total = total,
+            discount = discount,
             tickets = updatedTickets
         )
     }

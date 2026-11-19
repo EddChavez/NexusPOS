@@ -57,6 +57,7 @@ fun SalesScreen(
                         is CaptureBarEvent.CommonArticles -> viewModel.showCommonArticlesDialog(true)
                         is CaptureBarEvent.SearchCatalog -> viewModel.showSearchCatalogDialog(true)
                         is CaptureBarEvent.ApplyWholesale -> viewModel.onApplyWholesalePrice()
+                        is CaptureBarEvent.OpenDiscount -> viewModel.showDiscountDialog(true)
                         is CaptureBarEvent.CashIn -> viewModel.showCashInDialog(true)
                         is CaptureBarEvent.CashOut -> viewModel.showCashOutDialog(true)
                         is CaptureBarEvent.WeighBulk -> {
@@ -188,6 +189,21 @@ fun SalesScreen(
             GenericProductDialog(
                 onConfirm = { name, priceCents -> viewModel.addGenericProduct(name, priceCents) },
                 onDismiss = { viewModel.showGenericProductDialog(false) }
+            )
+        }
+
+        if (state.isShowingDiscountDialog) {
+            val selectedLine = state.cartLines.firstOrNull { it.id == state.selectedCartLineId }
+            ApplyDiscountDialog(
+                isOpen = true,
+                selectedLine = selectedLine,
+                cartLines = state.cartLines,
+                maxCashierDiscountPercent = state.maxCashierDiscountPercent,
+                isCashierRole = state.activeCashierRole == "CASHIER",
+                onDismiss = { viewModel.showDiscountDialog(false) },
+                onApplyDiscount = { targetLineId, percent, fixedCents ->
+                    viewModel.applyDiscount(targetLineId, percent, fixedCents)
+                }
             )
         }
 

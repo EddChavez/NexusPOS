@@ -43,21 +43,31 @@ class CashCutViewModel(
     fun loadCurrentSession(regId: String = registerId) {
         _uiState.update { it.copy(isLoadingSession = true, errorMessage = null) }
         scope.launch {
+            val settings = apiClient.getSettings().getOrNull()
+            val blindEnabled = settings?.blindCashCountEnabled ?: false
+
             val res = apiClient.getCurrentSession(regId)
             res.onSuccess { session ->
                 _uiState.update {
                     if (session != null) {
+                        val initCountedCents = if (blindEnabled) 0L else (if (it.countedCashCents == 0L) session.expectedCashCents else it.countedCashCents)
+                        val initCountedText = if (blindEnabled) "" else (if (it.countedCashText.isBlank()) (session.expectedCashCents / 100.0).toString() else it.countedCashText)
+                        val diff = if (blindEnabled) 0L else (initCountedCents - session.expectedCashCents)
+
                         it.copy(
                             activeSession = session,
                             isLoadingSession = false,
-                            countedCashText = if (it.countedCashText.isBlank()) (session.expectedCashCents / 100.0).toString() else it.countedCashText,
-                            countedCashCents = if (it.countedCashCents == 0L) session.expectedCashCents else it.countedCashCents,
-                            differenceCents = if (it.countedCashCents == 0L) 0L else (it.countedCashCents - session.expectedCashCents)
+                            isBlindCashCountEnabled = blindEnabled,
+                            countedCashText = initCountedText,
+                            countedCashCents = initCountedCents,
+                            differenceCents = diff,
+                            denominations = it.denominations.ifEmpty { session.denominations }
                         )
                     } else {
                         it.copy(
                             activeSession = null,
-                            isLoadingSession = false
+                            isLoadingSession = false,
+                            isBlindCashCountEnabled = blindEnabled
                         )
                     }
                 }
@@ -69,6 +79,44 @@ class CashCutViewModel(
                     )
                 }
             }
+        }
+    }
+
+    fun onDenominationPiecesChanged(denominationCents: Long, isCoin: Boolean, pieces: Int) {
+        _uiState.update { state ->
+            val existing = state.denominations.toMutableList()
+            val idx = existing.indexOfFirst { it.denominationCents == denominationCents && it.isCoin == isCoin }
+            val newEntry = mx.nexuspos.contracts.cash.CashDenominationCountDto(
+                denominationCents = denominationCents,
+                isCoin = isCoin,
+                pieces = pieces
+            )
+            if (idx >= 0) {
+                if (pieces > 0) existing[idx] = newEntry else existing.removeAt(idx)
+            } else if (pieces > 0) {
+                existing.add(newEntry)
+            }
+
+            val totalDenomCents = existing.sumOf { it.totalCents }
+            val expected = state.activeSession?.expectedCashCents ?: 0L
+            state.copy(
+                denominations = existing,
+                countedCashCents = totalDenomCents,
+                countedCashText = (totalDenomCents / 100.0).toString(),
+                differenceCents = totalDenomCents - expected
+            )
+        }
+    }
+
+    fun onResetDenominations() {
+        _uiState.update { state ->
+            val expected = state.activeSession?.expectedCashCents ?: 0L
+            state.copy(
+                denominations = emptyList(),
+                countedCashCents = 0L,
+                countedCashText = "",
+                differenceCents = -expected
+            )
         }
     }
 
@@ -125,7 +173,8 @@ class CashCutViewModel(
         scope.launch {
             val req = CloseSessionRequest(
                 countedCashCents = state.countedCashCents,
-                notes = state.notesText.trim()
+                notes = state.notesText.trim(),
+                denominations = state.denominations
             )
             val res = apiClient.closeSession(session.sessionId, req)
             res.onSuccess { closedSession ->

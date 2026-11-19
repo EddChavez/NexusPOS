@@ -19,6 +19,8 @@ Garantizar el control, la trazabilidad y la reconciliación matemática del dine
   1. **Pestaña 1 — Corte de Turno:**
      - Tarjetas KPI: Fondo Inicial, Ventas Efectivo, Abonos Cobrados de Crédito, Entradas, Salidas y **Efectivo Esperado en Caja**.
      - Panel de Arqueo Físico: Campo para captura del efectivo contado por el cajero con cálculo dinámico de diferencia en vivo (`differenceCents`) y badge visual (**Cuadrado Exacto**, **Sobrante (Excedente)** o **Faltante**).
+     - **Calculadora por Denominaciones:** Selector interactivo de billetes ($1000, $500, $200, $100, $50, $20) y monedas ($20, $10, $5, $2, $1, $0.50) con conteo de piezas y subtotal automático sincronizado con el campo de conteo total.
+     - **Modo Arqueo Ciego (Blind Count):** Configurable a nivel sucursal (`blind_cash_count_enabled`); oculta el saldo esperado y las diferencias numéricas durante el conteo físico para evitar manipulación del arqueo.
      - **Corte X (Arqueo Parcial):** Genera e imprime un ticket informativo con el estado actual de la caja manteniendo el turno abierto (`OPEN`) para continuar operando.
      - **Corte Z (Cierre Oficial):** Envía el cierre al servidor (`POST /api/v1/cash-sessions/{id}/close`), emite el pulso de apertura al cajón de dinero, imprime el ticket térmico oficial con renglones de firma para cajero y supervisor, y marca la sesión como `CLOSED`.
      - Botón `[F7] Abrir Cajón` para verificación física del efectivo.
@@ -29,8 +31,7 @@ Garantizar el control, la trazabilidad y la reconciliación matemática del dine
      - Botón para imprimir ticket térmico del reporte financiero diario.
 
 ### Queda fuera (Fases futuras):
-- Conteo desglosado por denominaciones individuales de billetes/monedas (Fase 2 - Pilar 2).
-- Modo de arqueo ciego donde el cajero no ve el esperado hasta finalizar (Fase 2 - Pilar 2).
+- Cortes por turnos múltiples simultáneos en una sola máquina física (se opera una caja por máquina).
 
 ---
 
@@ -97,13 +98,14 @@ flowchart TD
 
 - **Vistas UI Compose:**
   - Pantalla principal de cortes: [`CashCutScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutScreen.kt).
+  - Calculadora interactiva por denominaciones: [`DenominationCalculator.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/DenominationCalculator.kt).
   - Diálogo de fondo inicial: [`CashSessionDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashSessionDialog.kt).
 - **Gestor de Estado:** [`CashCutViewModel.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutViewModel.kt), [`CashCutUiState.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutUiState.kt).
 - **Servicios Backend:**
   - [`CashSessionService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/cash/CashSessionService.kt).
   - [`ReportsService.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/main/kotlin/mx/nexuspos/server/modules/reports/ReportsService.kt).
 - **Contratos DTO:**
-  - [`CashSessionDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/cash/CashSessionDtos.kt) (`CashSessionSummary`, `DailyFinancialReportDto`, `OpenCashSessionRequest`, `CloseCashSessionRequest`).
+  - [`CashSessionDtos.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/contracts/src/commonMain/kotlin/mx/nexuspos/contracts/cash/CashSessionDtos.kt) (`CashSessionSummary`, `CashDenominationCountDto`, `DailyFinancialReportDto`, `OpenSessionRequest`, `CloseSessionRequest`).
 - **Formateador Térmico:** [`EscPosReceiptPrinter.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/main/kotlin/mx/nexuspos/desktop/hardware/EscPosReceiptPrinter.kt) (`formatCashCutText`, `formatDailyReportText`).
 - **Endpoints:**
   - `POST /api/v1/cash-sessions`
@@ -117,10 +119,12 @@ flowchart TD
 
 ## 7. Pruebas Automatizadas
 
-- **Pruebas de Backend Integrado:** [`ReportsModuleTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ReportsModuleTest.kt).
-  - `testDailyFinancialReportEndpoint`: Verificación de ventas, costos, COGS, ganancia bruta estimada y margen de utilidad.
+- **Pruebas de Backend Integrado:**
+  - [`CashSessionDenominationsTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/CashSessionDenominationsTest.kt): Persistencia de denominaciones en `cash_session_denominations` y auditoría de modo ciego.
+  - [`ReportsModuleTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ReportsModuleTest.kt): Verificación de ventas, costos, COGS, ganancia bruta estimada y margen de utilidad.
 - **Pruebas de Frontend Desktop:** [`CashCutFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/cash/CashCutFeatureTest.kt).
   - `testCountingDifferenceCalculation`: Validación matemática de arqueo exacto, sobrante y faltante.
+  - `testDenominationCalculatorUpdatesCountedAndDifference`: Calculadora interactiva de billetes y monedas que actualiza en tiempo real el conteo físico y la diferencia.
   - `testPerformCorteXDispatchesPrintWithoutClosing`: Corte X emite ticket manteniendo el turno `OPEN`.
-  - `testPerformCorteZClosesSessionAndTriggersDrawerAndPrint`: Corte Z cierra sesión en servidor, emite pulso al cajón y manda a imprimir.
+  - `testPerformCorteZClosesSessionAndTriggersDrawerAndPrint`: Corte Z cierra sesión en servidor, emite pulso al cajón y manda a imprimir con desglose de denominaciones.
   - `testDailyFinancialReportLoadingAndReceiptFormatting`: Carga y formateo de bytes del reporte diario.

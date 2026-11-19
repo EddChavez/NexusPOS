@@ -67,6 +67,8 @@ class SalesService(
                 val taxRate: Double,
                 val taxCents: Long,
                 val totalCents: Long,
+                val discountCents: Long,
+                val discountPercent: Double,
                 val factorMillis: Long,
                 val usesInventory: Boolean
             )
@@ -119,14 +121,42 @@ class SalesService(
                     )
                 }
 
-                val lineTotal = PricingRules.calculateLineTotal(
+                val (lineTotal, lineDisc) = PricingRules.calculateLineTotalWithDiscount(
                     Money.fromCents(currentPriceCents),
-                    Quantity.fromMillis(line.quantityMillis)
+                    Quantity.fromMillis(line.quantityMillis),
+                    line.discountPercent,
+                    line.discountCents
                 )
                 val lineTax = PricingRules.extractTaxFromTotal(lineTotal, taxRate)
 
                 calculatedSubtotalCents += (lineTotal.cents - lineTax.cents)
                 calculatedTaxCents += lineTax.cents
+
+                // Validate discount against maxCashierDiscountPercent if exceeding threshold
+                if (line.discountPercent > settings.maxCashierDiscountPercent) {
+                    val supPin = request.supervisorAuthPin
+                    if (supPin.isNullOrBlank()) {
+                        throw ValidationException("El descuento del ${line.discountPercent}% excede el límite permitido sin supervisor (${settings.maxCashierDiscountPercent}%). Se requiere autorización de supervisor.")
+                    }
+                    val supStmt = conn.prepareStatement(
+                        "SELECT name, pin_hash FROM users WHERE role IN ('ADMIN', 'SUPERVISOR') AND is_active = TRUE"
+                    )
+                    val supRs = supStmt.executeQuery()
+                    var authorizedSupervisor: String? = null
+                    while (supRs.next()) {
+                        val hash = supRs.getString("pin_hash")
+                        if (Security.verifyPin(supPin, hash)) {
+                            authorizedSupervisor = supRs.getString("name")
+                            break
+                        }
+                    }
+                    supRs.close()
+                    supStmt.close()
+
+                    if (authorizedSupervisor == null) {
+                        throw ForbiddenException("PIN de supervisor inválido o no autorizado para autorizar descuento")
+                    }
+                }
 
                 validatedLines.add(
                     ValidatedLine(
@@ -138,6 +168,8 @@ class SalesService(
                         taxRate = taxRate,
                         taxCents = lineTax.cents,
                         totalCents = lineTotal.cents,
+                        discountCents = lineDisc.cents,
+                        discountPercent = line.discountPercent,
                         factorMillis = factorMillis,
                         usesInventory = usesInventory
                     )
@@ -278,10 +310,12 @@ class SalesService(
             val saleId = "sale-" + UUID.randomUUID().toString().take(8)
             val now = System.currentTimeMillis()
 
+            val totalDiscountCents = validatedLines.sumOf { it.discountCents }.coerceAtLeast(request.discountCents)
+
             val insertSaleStmt = conn.prepareStatement(
                 """
-                INSERT INTO sales (id, folio, cash_session_id, user_id, customer_id, status, subtotal_cents, tax_cents, total_cents, idempotency_key, created_at)
-                VALUES (?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?)
+                INSERT INTO sales (id, folio, cash_session_id, user_id, customer_id, status, subtotal_cents, tax_cents, total_cents, discount_cents, idempotency_key, created_at)
+                VALUES (?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?)
                 """.trimIndent()
             )
             insertSaleStmt.setString(1, saleId)
@@ -292,16 +326,17 @@ class SalesService(
             insertSaleStmt.setLong(6, calculatedSubtotalCents)
             insertSaleStmt.setLong(7, calculatedTaxCents)
             insertSaleStmt.setLong(8, calculatedTotalCents)
-            insertSaleStmt.setString(9, request.idempotencyKey)
-            insertSaleStmt.setLong(10, now)
+            insertSaleStmt.setLong(9, totalDiscountCents)
+            insertSaleStmt.setString(10, request.idempotencyKey)
+            insertSaleStmt.setLong(11, now)
             insertSaleStmt.executeUpdate()
             insertSaleStmt.close()
 
             // 9. Record Lines & Deduct Stock
             val insertLineStmt = conn.prepareStatement(
                 """
-                INSERT INTO sale_lines (id, sale_id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sale_lines (id, sale_id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, discount_cents, discount_percent)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent()
             )
             val updateStockStmt = conn.prepareStatement(
@@ -324,6 +359,8 @@ class SalesService(
                 insertLineStmt.setDouble(8, vl.taxRate)
                 insertLineStmt.setLong(9, vl.taxCents)
                 insertLineStmt.setLong(10, vl.totalCents)
+                insertLineStmt.setLong(11, vl.discountCents)
+                insertLineStmt.setDouble(12, vl.discountPercent)
                 insertLineStmt.executeUpdate()
 
                 lineResponses.add(
@@ -336,7 +373,9 @@ class SalesService(
                         unitPriceCents = vl.unitPriceCents,
                         taxRate = vl.taxRate,
                         taxCents = vl.taxCents,
-                        totalCents = vl.totalCents
+                        totalCents = vl.totalCents,
+                        discountCents = vl.discountCents,
+                        discountPercent = vl.discountPercent
                     )
                 )
 
@@ -445,6 +484,7 @@ class SalesService(
                 subtotalCents = calculatedSubtotalCents,
                 taxCents = calculatedTaxCents,
                 totalCents = calculatedTotalCents,
+                discountCents = totalDiscountCents,
                 lines = lineResponses,
                 payments = paymentResponses,
                 createdAt = now
@@ -471,7 +511,7 @@ class SalesService(
                 """
                 SELECT s.id, s.folio, s.cash_session_id, s.user_id, u.name as cashier_name,
                        s.customer_id, c.name as customer_name, c.credit_limit_cents, c.current_balance_cents,
-                       s.status, s.subtotal_cents, s.tax_cents, s.total_cents, s.created_at
+                       s.status, s.subtotal_cents, s.tax_cents, s.total_cents, s.discount_cents, s.created_at
                 FROM sales s
                 JOIN users u ON s.user_id = u.id
                 LEFT JOIN customers c ON s.customer_id = c.id
@@ -498,13 +538,14 @@ class SalesService(
             val subtotal = rs.getLong("subtotal_cents")
             val tax = rs.getLong("tax_cents")
             val total = rs.getLong("total_cents")
+            val discountCents = rs.getLong("discount_cents")
             val createdAt = rs.getLong("created_at")
             rs.close()
             stmt.close()
 
             // Fetch Lines
             val lineStmt = conn.prepareStatement(
-                "SELECT id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents FROM sale_lines WHERE sale_id = ?"
+                "SELECT id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, discount_cents, discount_percent FROM sale_lines WHERE sale_id = ?"
             )
             lineStmt.setString(1, saleId)
             val lineRs = lineStmt.executeQuery()
@@ -520,7 +561,9 @@ class SalesService(
                         unitPriceCents = lineRs.getLong("unit_price_cents"),
                         taxRate = lineRs.getDouble("tax_rate"),
                         taxCents = lineRs.getLong("tax_cents"),
-                        totalCents = lineRs.getLong("total_cents")
+                        totalCents = lineRs.getLong("total_cents"),
+                        discountCents = lineRs.getLong("discount_cents"),
+                        discountPercent = lineRs.getDouble("discount_percent")
                     )
                 )
             }
@@ -560,6 +603,7 @@ class SalesService(
                 subtotalCents = subtotal,
                 taxCents = tax,
                 totalCents = total,
+                discountCents = discountCents,
                 lines = lines,
                 payments = payments,
                 createdAt = createdAt
@@ -683,7 +727,7 @@ class SalesService(
                 """
                 SELECT s.id, s.folio, s.cash_session_id, s.user_id, u.name as cashier_name,
                        s.customer_id, c.name as customer_name, c.credit_limit_cents, c.current_balance_cents,
-                       s.status, s.subtotal_cents, s.tax_cents, s.total_cents, s.created_at
+                       s.status, s.subtotal_cents, s.tax_cents, s.total_cents, s.discount_cents, s.created_at
                 FROM sales s
                 JOIN users u ON s.user_id = u.id
                 LEFT JOIN customers c ON s.customer_id = c.id
@@ -737,6 +781,7 @@ class SalesService(
                 val subtotal: Long,
                 val tax: Long,
                 val total: Long,
+                val discountCents: Long,
                 val createdAt: Long
             )
 
@@ -759,6 +804,7 @@ class SalesService(
                         subtotal = rs.getLong("subtotal_cents"),
                         tax = rs.getLong("tax_cents"),
                         total = rs.getLong("total_cents"),
+                        discountCents = rs.getLong("discount_cents"),
                         createdAt = rs.getLong("created_at")
                     )
                 )
@@ -768,7 +814,7 @@ class SalesService(
 
             headers.map { h ->
                 val lineStmt = conn.prepareStatement(
-                    "SELECT id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents FROM sale_lines WHERE sale_id = ?"
+                    "SELECT id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, discount_cents, discount_percent FROM sale_lines WHERE sale_id = ?"
                 )
                 lineStmt.setString(1, h.id)
                 val lineRs = lineStmt.executeQuery()
@@ -784,7 +830,9 @@ class SalesService(
                             unitPriceCents = lineRs.getLong("unit_price_cents"),
                             taxRate = lineRs.getDouble("tax_rate"),
                             taxCents = lineRs.getLong("tax_cents"),
-                            totalCents = lineRs.getLong("total_cents")
+                            totalCents = lineRs.getLong("total_cents"),
+                            discountCents = lineRs.getLong("discount_cents"),
+                            discountPercent = lineRs.getDouble("discount_percent")
                         )
                     )
                 }
@@ -823,6 +871,7 @@ class SalesService(
                     subtotalCents = h.subtotal,
                     taxCents = h.tax,
                     totalCents = h.total,
+                    discountCents = h.discountCents,
                     lines = lines,
                     payments = payments,
                     createdAt = h.createdAt

@@ -100,11 +100,22 @@ class EscPosReceiptPrinter(
             if (item.quantityMillis != 1000L) {
                 sb.appendLine("  @ ${Money(item.unitPriceCents).format()} c/u")
             }
+            if (item.discountCents > 0L) {
+                val discStr = if (item.discountPercent > 0.0) {
+                    "  (Desc. ${item.discountPercent.toInt()}%: -${Money(item.discountCents).format()})"
+                } else {
+                    "  (Descuento: -${Money(item.discountCents).format()})"
+                }
+                sb.appendLine(discStr)
+            }
         }
         sb.appendLine(sep)
 
         // Totals
         sb.appendLine(formatRow("SUBTOTAL:", Money(sale.subtotalCents).format()))
+        if (sale.discountCents > 0L) {
+            sb.appendLine(formatRow("DESCUENTO:", "-${Money(sale.discountCents).format()}"))
+        }
         sb.appendLine(formatRow("IVA:", Money(sale.taxCents).format()))
         sb.appendLine(formatRow("TOTAL:", Money(sale.totalCents).format()))
         sb.appendLine(thinSep)
@@ -200,6 +211,27 @@ class EscPosReceiptPrinter(
                 else -> "-${Money(-diffCents).format()} (Faltante)"
             }
             sb.appendLine(formatRow("DIFERENCIA (Arqueo):", diffStr))
+        }
+
+        if (session.denominations.isNotEmpty()) {
+            sb.appendLine(thinSep)
+            sb.appendLine(centerText("-- DESGLOSE DE EFECTIVO --"))
+            val bills = session.denominations.filter { !it.isCoin && it.pieces > 0 }
+            if (bills.isNotEmpty()) {
+                sb.appendLine("BILLETES:")
+                for (b in bills) {
+                    val label = "  ${Money(b.denominationCents).format()} x ${b.pieces}"
+                    sb.appendLine(formatRow(label, Money(b.totalCents).format()))
+                }
+            }
+            val coins = session.denominations.filter { it.isCoin && it.pieces > 0 }
+            if (coins.isNotEmpty()) {
+                sb.appendLine("MONEDAS:")
+                for (c in coins) {
+                    val label = "  ${Money(c.denominationCents).format()} x ${c.pieces}"
+                    sb.appendLine(formatRow(label, Money(c.totalCents).format()))
+                }
+            }
         }
 
         if (isFinalZCut) {

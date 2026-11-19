@@ -19,9 +19,18 @@ data class CashMovementRequest(
 )
 
 @Serializable
+data class CashDenominationCountDto(
+    val denominationCents: Long,
+    val isCoin: Boolean,
+    val pieces: Int,
+    val totalCents: Long = denominationCents * pieces
+)
+
+@Serializable
 data class CloseSessionRequest(
     val countedCashCents: Long,
-    val notes: String = ""
+    val notes: String = "",
+    val denominations: List<CashDenominationCountDto> = emptyList()
 )
 
 @Serializable
@@ -42,7 +51,8 @@ data class CashSessionSummary(
     val expectedCashCents: Long, // initial + salesCash + creditPaymentsCash + cashIn - cashOut - refundsCash
     val countedCashCents: Long? = null,
     val differenceCents: Long? = null, // counted - expected
-    val status: String // OPEN, CLOSED
+    val status: String, // OPEN, CLOSED
+    val denominations: List<CashDenominationCountDto> = emptyList()
 )
 
 @Serializable

@@ -51,6 +51,7 @@ sealed interface CaptureBarEvent {
     data object CommonArticles : CaptureBarEvent      // [Ctrl+P]
     data object SearchCatalog : CaptureBarEvent       // [F10]
     data object ApplyWholesale : CaptureBarEvent      // [F11]
+    data object OpenDiscount : CaptureBarEvent        // [Ctrl+D]
     data object CashIn : CaptureBarEvent              // [F7]
     data object CashOut : CaptureBarEvent             // [F8]
     data object WeighBulk : CaptureBarEvent           // [F9]

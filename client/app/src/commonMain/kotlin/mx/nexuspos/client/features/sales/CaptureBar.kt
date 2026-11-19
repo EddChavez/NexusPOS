@@ -361,6 +361,11 @@ fun CaptureBar(
                         onClick = { onEvent(CaptureBarEvent.ApplyWholesale) }
                     )
                     ShortcutActionChip(
+                        shortcut = "Ctrl+D",
+                        label = "Descuento",
+                        onClick = { onEvent(CaptureBarEvent.OpenDiscount) }
+                    )
+                    ShortcutActionChip(
                         shortcut = "F7",
                         label = "Entradas",
                         onClick = { onEvent(CaptureBarEvent.CashIn) }

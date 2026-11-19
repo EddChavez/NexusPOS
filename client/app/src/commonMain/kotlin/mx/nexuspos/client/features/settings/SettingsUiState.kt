@@ -17,6 +17,8 @@ data class SettingsUiState(
     val currencySymbol: String = "$",
     // Policies
     val allowNegativeStock: Boolean = true,
+    val blindCashCountEnabled: Boolean = false,
+    val maxCashierDiscountPercent: Double = 10.0,
     // Users
     val users: List<UserDto> = emptyList(),
     val isLoadingUsers: Boolean = false,

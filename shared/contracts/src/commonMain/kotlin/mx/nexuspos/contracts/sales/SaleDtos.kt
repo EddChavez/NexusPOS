@@ -10,7 +10,9 @@ data class SaleLineItemRequest(
     val quantityMillis: Long, // 1000 = 1 pieza, 250 = 0.250 kg
     val expectedUnitPriceCents: Long,
     val expectedTotalCents: Long,
-    val taxRate: Double = 0.0
+    val taxRate: Double = 0.0,
+    val discountCents: Long = 0L,
+    val discountPercent: Double = 0.0
 )
 
 @Serializable
@@ -31,7 +33,8 @@ data class CreateSaleRequest(
     val supervisorAuthReason: String? = null,
     val lines: List<SaleLineItemRequest>,
     val payments: List<SalePaymentRequest>,
-    val expectedTotalCents: Long
+    val expectedTotalCents: Long,
+    val discountCents: Long = 0L
 )
 
 @Serializable
@@ -44,7 +47,9 @@ data class SaleLineItemResponse(
     val unitPriceCents: Long,
     val taxRate: Double,
     val taxCents: Long,
-    val totalCents: Long
+    val totalCents: Long,
+    val discountCents: Long = 0L,
+    val discountPercent: Double = 0.0
 )
 
 @Serializable
@@ -69,6 +74,7 @@ data class SaleResponse(
     val subtotalCents: Long,
     val taxCents: Long,
     val totalCents: Long,
+    val discountCents: Long = 0L,
     val lines: List<SaleLineItemResponse>,
     val payments: List<SalePaymentResponse>,
     val createdAt: Long

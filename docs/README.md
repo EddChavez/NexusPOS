@@ -111,6 +111,7 @@ La terminal de venta está diseñada para ser operada a máxima velocidad sin ne
 | **Ctrl+R** | Reimprimir | Reimprime el ticket de la última venta concretada en el turno. |
 | **Ctrl+H** | Historial Turno | Consulta ventas del turno, reimprime tickets y gestiona cancelaciones. |
 | **Ctrl+P** | Artículos Comunes | Menú de selección rápida de bolsas, recargas y envases. |
+| **Ctrl+D** | Descuentos | Diálogo para aplicar descuento en porcentaje (%) o monto ($) con PIN. |
 | **Ctrl+L** | Cambiar Cajero | Bloquea la terminal para cambio de turno preservando los artículos del carrito. |
 
 ---

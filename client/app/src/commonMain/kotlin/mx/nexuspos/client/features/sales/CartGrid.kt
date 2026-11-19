@@ -371,14 +371,26 @@ private fun CartGridRow(
             }
 
             // 6. [IMPORTE]
-            Text(
-                text = line.total.format(),
-                fontWeight = FontWeight.Black,
-                fontSize = 14.sp,
-                color = NexusTheme.colors.actionPrimary,
-                textAlign = TextAlign.End,
-                modifier = Modifier.weight(0.13f).padding(horizontal = 4.dp)
-            )
+            Column(
+                modifier = Modifier.weight(0.13f).padding(horizontal = 4.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                Text(
+                    text = line.total.format(),
+                    fontWeight = FontWeight.Black,
+                    fontSize = 14.sp,
+                    color = NexusTheme.colors.actionPrimary,
+                    textAlign = TextAlign.End
+                )
+                if (line.discountCents > 0L) {
+                    Text(
+                        text = if (line.discountPercent > 0.0) "-${line.discountPercent.toInt()}%" else "-$${line.discountCents / 100.0}",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NexusTheme.colors.dangerText
+                    )
+                }
+            }
 
             // 7. [EXISTENCIA]
             Box(

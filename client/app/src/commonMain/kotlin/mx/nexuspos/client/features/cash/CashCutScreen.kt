@@ -469,13 +469,13 @@ private fun ShiftCutView(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = Money(session.expectedCashCents).format(),
+                            text = if (state.isBlindCashCountEnabled) "*** Oculto (Arqueo Ciego) ***" else Money(session.expectedCashCents).format(),
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.primary
+                            color = if (state.isBlindCashCountEnabled) NexusTheme.colors.textSecondary else MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "Fondo Inicial + Ventas Efectivo + Abonos Fiado + Entradas - Retiros",
+                            text = if (state.isBlindCashCountEnabled) "Modo Arqueo Ciego activo: el importe esperado está protegido contra manipulación." else "Fondo Inicial + Ventas Efectivo + Abonos Fiado + Entradas - Retiros",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
@@ -495,6 +495,12 @@ private fun ShiftCutView(
                     color = NexusTheme.colors.textPrimary
                 )
 
+                DenominationCalculator(
+                    denominations = state.denominations,
+                    onPiecesChanged = viewModel::onDenominationPiecesChanged,
+                    onReset = viewModel::onResetDenominations
+                )
+
                 Surface(
                     color = NexusTheme.colors.bgSurfaceSubtle,
                     shape = RoundedCornerShape(10.dp),
@@ -508,7 +514,7 @@ private fun ShiftCutView(
                         OutlinedTextField(
                             value = state.countedCashText,
                             onValueChange = viewModel::onCountedCashChanged,
-                            label = { Text("Efectivo Físico Contado ($)") },
+                            label = { Text("Efectivo Físico Contado Total ($)") },
                             singleLine = true,
                             textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -516,25 +522,43 @@ private fun ShiftCutView(
                         )
 
                         // Indicador visual de Diferencia
-                        val diff = state.differenceCents
-                        val (diffText, diffColor, diffBg) = when {
-                            diff == 0L -> Triple("Cuadrado Exacto ($0.00)", NexusTheme.colors.textGreen, NexusTheme.colors.surfaceGreen)
-                            diff > 0L -> Triple("Sobrante: +${Money(diff).format()}", Color(0xFF1565C0), Color(0xFFE3F2FD))
-                            else -> Triple("Faltante: -${Money(-diff).format()}", MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.errorContainer)
-                        }
-
-                        Surface(
-                            color = diffBg,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                        if (state.isBlindCashCountEnabled) {
+                            Surface(
+                                color = NexusTheme.colors.bgSurfaceSubtle,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Diferencia de Arqueo:", fontWeight = FontWeight.Bold, color = diffColor)
-                                Text(diffText, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = diffColor)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Diferencia de Arqueo:", fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary)
+                                    Text("Se revelará al cerrar turno [Corte Z]", fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = NexusTheme.colors.textSecondary)
+                                }
+                            }
+                        } else {
+                            val diff = state.differenceCents
+                            val (diffText, diffColor, diffBg) = when {
+                                diff == 0L -> Triple("Cuadrado Exacto ($0.00)", NexusTheme.colors.textGreen, NexusTheme.colors.surfaceGreen)
+                                diff > 0L -> Triple("Sobrante: +${Money(diff).format()}", Color(0xFF1565C0), Color(0xFFE3F2FD))
+                                else -> Triple("Faltante: -${Money(-diff).format()}", MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.errorContainer)
+                            }
+
+                            Surface(
+                                color = diffBg,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Diferencia de Arqueo:", fontWeight = FontWeight.Bold, color = diffColor)
+                                    Text(diffText, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = diffColor)
+                                }
                             }
                         }
 

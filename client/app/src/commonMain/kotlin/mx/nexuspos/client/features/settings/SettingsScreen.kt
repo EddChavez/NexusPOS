@@ -499,6 +499,75 @@ private fun PoliciesTab(state: SettingsUiState, viewModel: SettingsViewModel) {
                             modifier = Modifier.weight(1f)
                         )
                     }
+
+                    HorizontalDivider(color = NexusTheme.colors.borderSubtle)
+
+                    // Blind Cash Count Policy
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Modo de Arqueo Ciego en Cortes de Turno [F6]",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = NexusTheme.colors.textPrimary
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = if (state.blindCashCountEnabled)
+                                    "Modo: Arqueo Ciego ACTIVO — El cajero no ve el esperado ni diferencias al contar"
+                                else
+                                    "Modo: Transparente — El saldo esperado y diferencia se muestran en vivo",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (state.blindCashCountEnabled) NexusTheme.colors.accent else NexusTheme.colors.textSecondary
+                            )
+                        }
+
+                        Switch(
+                            checked = state.blindCashCountEnabled,
+                            onCheckedChange = { viewModel.toggleBlindCashCount() }
+                        )
+                    }
+
+                    HorizontalDivider(color = NexusTheme.colors.borderSubtle)
+
+                    // Max Cashier Discount Limit
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Límite Máximo de Descuento para Cajero (%)",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = NexusTheme.colors.textPrimary
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "Descuentos superiores a este porcentaje requerirán autorización por PIN de Supervisor.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NexusTheme.colors.textSecondary
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf(5.0, 10.0, 15.0, 20.0).forEach { pct ->
+                                FilterChip(
+                                    selected = state.maxCashierDiscountPercent == pct,
+                                    onClick = { viewModel.onMaxCashierDiscountPercentChanged(pct) },
+                                    label = { Text("${pct.toInt()}%", fontSize = 12.sp) }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

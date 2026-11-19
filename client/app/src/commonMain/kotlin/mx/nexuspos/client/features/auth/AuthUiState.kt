@@ -15,6 +15,12 @@ sealed interface SupervisorAction {
     data object AccessSettings : SupervisorAction
     data class AdjustInventory(val product: ProductDto) : SupervisorAction
     data class CancelSale(val saleId: String, val folio: Long, val reason: String) : SupervisorAction
+    data class ApplyDiscount(
+        val lineId: String?,
+        val discountPercent: Double,
+        val discountCents: Long,
+        val reason: String = "Descuento especial"
+    ) : SupervisorAction
 }
 
 data class SupervisorAuthState(

@@ -47,4 +47,25 @@ object PricingRules {
         val taxCents = (net.cents * taxRate).roundToLong()
         return Money(taxCents)
     }
+
+    /**
+     * Calculates the line total applying a discount (either percentage or fixed cents).
+     * Returns a Pair of (finalLineTotal, discountAmount).
+     */
+    fun calculateLineTotalWithDiscount(
+        unitPrice: Money,
+        quantity: Quantity,
+        discountPercent: Double = 0.0,
+        discountCents: Long = 0L
+    ): Pair<Money, Money> {
+        val baseTotal = calculateLineTotal(unitPrice, quantity)
+        val percentDiscount = if (discountPercent > 0.0) {
+            ((baseTotal.cents * discountPercent) / 100.0).roundToLong()
+        } else {
+            0L
+        }
+        val totalDiscount = (percentDiscount + discountCents).coerceAtMost(baseTotal.cents)
+        val finalTotalCents = (baseTotal.cents - totalDiscount).coerceAtLeast(0L)
+        return Pair(Money(finalTotalCents), Money(totalDiscount))
+    }
 }

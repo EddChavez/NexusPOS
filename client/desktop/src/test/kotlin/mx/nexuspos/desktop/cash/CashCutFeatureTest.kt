@@ -21,10 +21,15 @@ class CashCutFeatureTest {
 
     private class FakeCashApiClient(
         var activeSession: CashSessionSummary? = null,
-        var dailyReport: DailyFinancialReportDto? = null
+        var dailyReport: DailyFinancialReportDto? = null,
+        var settings: SettingsDto = SettingsDto(blindCashCountEnabled = false)
     ) : ApiClient() {
         var closedSessionRequest: CloseSessionRequest? = null
         var openedSessionRequest: OpenSessionRequest? = null
+
+        override suspend fun getSettings(): Result<SettingsDto> {
+            return Result.success(settings)
+        }
 
         override suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> {
             return Result.success(activeSession)
@@ -290,5 +295,61 @@ class CashCutFeatureTest {
         assertNotNull(vm.uiState.value.activeSession)
         assertEquals("OPEN", vm.uiState.value.activeSession?.status)
         assertEquals(60000L, vm.uiState.value.activeSession?.expectedCashCents)
+    }
+
+    @Test
+    fun testDenominationCalculatorUpdatesCountedAndDifference() {
+        val sampleSession = CashSessionSummary(
+            sessionId = "sess-100",
+            registerId = "caja-1",
+            registerName = "Caja Principal",
+            cashierId = "user-1",
+            cashierName = "Don Pepe",
+            openedAt = 1000L,
+            initialFundCents = 50000L,
+            salesCashCents = 100000L,
+            creditPaymentsCashCents = 0L,
+            cashInCents = 0L,
+            cashOutCents = 0L,
+            refundsCashCents = 0L,
+            expectedCashCents = 150000L, // $1,500.00
+            status = "OPEN"
+        )
+        val fakeApi = FakeCashApiClient(activeSession = sampleSession)
+        val vm = CashCutViewModel(fakeApi, CoroutineScope(Dispatchers.Unconfined))
+
+        // Initial reset
+        vm.onResetDenominations()
+        assertEquals(0L, vm.uiState.value.countedCashCents)
+        assertEquals(-150000L, vm.uiState.value.differenceCents)
+
+        // Add 2 billetes de $500 ($1,000.00)
+        vm.onDenominationPiecesChanged(denominationCents = 50000L, isCoin = false, pieces = 2)
+        assertEquals(100000L, vm.uiState.value.countedCashCents)
+        assertEquals(-50000L, vm.uiState.value.differenceCents)
+
+        // Add 5 billetes de $100 ($500.00) -> Total $1,500.00 (Exact match)
+        vm.onDenominationPiecesChanged(denominationCents = 10000L, isCoin = false, pieces = 5)
+        assertEquals(150000L, vm.uiState.value.countedCashCents)
+        assertEquals(0L, vm.uiState.value.differenceCents)
+
+        // Perform Corte Z
+        vm.performCorteZ()
+        assertNotNull(fakeApi.closedSessionRequest)
+        assertEquals(150000L, fakeApi.closedSessionRequest?.countedCashCents)
+        assertEquals(2, fakeApi.closedSessionRequest?.denominations?.size)
+
+        // Verify ESC/POS prints denomination breakdown
+        val printer = EscPosReceiptPrinter(columnWidth = 40)
+        val closedSessionWithDenoms = sampleSession.copy(
+            countedCashCents = 150000L,
+            status = "CLOSED",
+            denominations = fakeApi.closedSessionRequest!!.denominations
+        )
+        val cutTicket = printer.formatCashCutText(closedSessionWithDenoms, isFinalZCut = true)
+        assertTrue(cutTicket.contains("-- DESGLOSE DE EFECTIVO --"))
+        assertTrue(cutTicket.contains("BILLETES:"))
+        assertTrue(cutTicket.contains("$500.00 x 2"))
+        assertTrue(cutTicket.contains("$100.00 x 5"))
     }
 }

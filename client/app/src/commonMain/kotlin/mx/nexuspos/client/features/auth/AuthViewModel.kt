@@ -163,6 +163,7 @@ class AuthViewModel(
             is SupervisorAction.AccessSettings -> "SETTINGS"
             is SupervisorAction.AdjustInventory -> "ADJUST_INVENTORY"
             is SupervisorAction.CancelSale -> "CANCEL_SALE"
+            is SupervisorAction.ApplyDiscount -> "APPLY_DISCOUNT"
         }
 
         scope.launch {

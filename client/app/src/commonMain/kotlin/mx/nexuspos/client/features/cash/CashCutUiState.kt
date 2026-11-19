@@ -16,6 +16,8 @@ data class CashCutUiState(
     val countedCashText: String = "",
     val countedCashCents: Long = 0L,
     val differenceCents: Long = 0L, // counted - expected
+    val denominations: List<mx.nexuspos.contracts.cash.CashDenominationCountDto> = emptyList(),
+    val isBlindCashCountEnabled: Boolean = false,
     val notesText: String = "",
     val isClosingSession: Boolean = false,
     val isSessionClosedJustNow: Boolean = false,

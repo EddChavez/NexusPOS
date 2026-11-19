@@ -11,7 +11,9 @@ data class SettingsDto(
     val ticketHeader: String = "¡Gracias por su compra!",
     val ticketFooter: String = "Conserve su ticket para cualquier aclaración.",
     val allowNegativeStock: Boolean = true,
-    val currencySymbol: String = "$"
+    val currencySymbol: String = "$",
+    val blindCashCountEnabled: Boolean = false,
+    val maxCashierDiscountPercent: Double = 10.0
 )
 
 @Serializable

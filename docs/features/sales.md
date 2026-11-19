@@ -31,6 +31,12 @@ Permitir a los cajeros registrar productos a máxima velocidad (mediante escáne
   - Diálogo de captura de motivos [`CancelSaleReasonDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/CancelSaleReasonDialog.kt) con razones predefinidas y notas adicionales.
   - Reversión atómica en servidor: reingreso a stock (Kardex `REFUND`), reversión de deuda a cliente (`REVERSAL`), y deducción de efectivo de caja en `expected_cash_cents`.
   - Elevación de privilegios: cajeros con rol `CASHIER` requieren obligatoriamente autorización con PIN de supervisor para cancelar.
+- **Descuentos Libres en Línea y Globales (`Ctrl+D`):**
+  - Diálogo interactivo [`ApplyDiscountDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/ApplyDiscountDialog.kt) accesible por atajo de teclado y botón en la barra de captura.
+  - Soporta modalidades por porcentaje (%) con presets rápidos (5%, 10%, 15%, 20%, 25%) o por importe fijo en pesos ($).
+  - Puede aplicarse a la partida seleccionada del carrito o prorratearse proporcionalmente sobre todo el carrito.
+  - Validación de política: los descuentos mayores al límite configurable del cajero (`maxCashierDiscountPercent`, default 10%) solicitan automáticamente autorización mediante PIN de supervisor.
+  - Desglose contable transparente reflejado en la parrilla de venta, en el servidor y en el ticket impreso ESC/POS.
 
 ### Queda fuera:
 - Facturación electrónica CFDI 4.0 con timbrado PAC (Fase 3).
@@ -101,6 +107,7 @@ sequenceDiagram
   3. Si hubo cobro en efectivo, descuenta el importe cobrado de `cash_sessions.expected_cash_cents`, garantizando que el arqueo de caja `[F6]` no presente faltantes ficticios.
 - **RN-VEN-07 (Reimpresión Auditable):** Todo ticket reimpreso debe incluir visiblemente el encabezado `*** COPIA DE REIMPRESIÓN ***`.
 - **RN-VEN-08 (Elevación de Supervisor para Cancelaciones):** Un cajero regular (`CASHIER`) no puede cancelar ventas sin la aprobación de un usuario con rol `ADMIN` o `SUPERVISOR` validada mediante PIN de 4 dígitos.
+- **RN-VEN-09 (Políticas y Descuentos Libres):** Los descuentos libres en línea o globales pueden definirse en porcentaje o en centavos fijos sin exceder el importe total de la partida. Si un cajero aplica un descuento superior al límite establecido en los parámetros de la tienda (`maxCashierDiscountPercent`), se requiere autorización al vuelo mediante PIN de supervisor. El descuento reduce el importe de la venta y se desglosa contablemente en el ticket térmico.
 
 ---
 
@@ -108,6 +115,7 @@ sequenceDiagram
 
 - **Vistas UI Compose:**
   - Pantalla principal: [`SalesScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/SalesScreen.kt).
+  - Diálogo de descuentos: [`ApplyDiscountDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/ApplyDiscountDialog.kt).
   - Modal multi-pago: [`MultiPaymentCheckoutDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/MultiPaymentCheckoutDialog.kt).
   - Historial de ventas: [`SalesHistoryDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/SalesHistoryDialog.kt).
   - Motivo de cancelación: [`CancelSaleReasonDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/sales/CancelSaleReasonDialog.kt).
@@ -126,12 +134,15 @@ sequenceDiagram
 | **Suma de pagos insuficiente** | El botón de confirmar cobro permanece deshabilitado mostrando *"Faltan $XX.XX"*. |
 | **Intento de fiar sin cliente** | El selector de método Crédito bloquea la captura exigiendo seleccionar primero a un cliente con saldo disponible. |
 | **Cancelación de ticket ya cancelado** | El servidor y cliente detectan el estado y muestran advertencia: *"El ticket #X ya se encuentra cancelado."* |
+| **Descuento mayor al tope sin supervisor** | El diálogo bloquea la aplicación directa y eleva automáticamente a `SupervisorAuthDialog`. |
 | **Falla de conexión en la transacción de cobro** | El cliente reintenta con la misma `Idempotency-Key`; el servidor devuelve la venta ya persistida sin duplicar cargos ni restar doble inventario. |
 
 ---
 
 ## 8. Pruebas Automatizadas
 
+- **Pruebas de Descuentos Libres y Autorización:** [`DiscountFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/sales/DiscountFeatureTest.kt) (`testApplyLineDiscountDirectlyWhenUnderThreshold`, `testApplyDiscountAboveThresholdRequestsSupervisor`, `testEscPosReceiptPrinterIncludesDiscounts`).
+- **Pruebas de Reglas de Precios y Descuento:** [`PricingRulesDiscountTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/shared/core/src/commonTest/kotlin/mx/nexuspos/core/PricingRulesDiscountTest.kt) (`testCalculateLineTotalWithPercentageDiscount`, `testCalculateLineTotalWithFixedCentsDiscount`, `testDiscountCannotExceedTotal`).
 - **Pruebas de Pagos Mixtos:** [`MixedPaymentFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/sales/MixedPaymentFeatureTest.kt) (`testSplitPaymentCashAndCard`, `testSplitPaymentWithCreditRequiresCustomer`, `testEmptyPaymentsRejected`).
 - **Pruebas de Historial y Cancelación:** [`SalesHistoryFeatureTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/desktop/src/test/kotlin/mx/nexuspos/desktop/sales/SalesHistoryFeatureTest.kt) (`testOpenSalesHistoryLoadsShiftSales`, `testReprintTicketGeneratesLegend`, `testExecuteCancelSaleUpdatesStatus`).
 - **Pruebas Backend Integradas:** [`ServerComprehensiveTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ServerComprehensiveTest.kt) (`testSalesHistoryAndCancellationFlow`).

@@ -321,7 +321,19 @@ fun main() = application {
                 is SupervisorAction.CancelSale -> {
                     viewModel.executeCancelSale(action.saleId, action.reason, supervisorUserId = "usr-admin")
                 }
+                is SupervisorAction.ApplyDiscount -> {
+                    viewModel.applyDiscount(
+                        targetLineId = action.lineId,
+                        discountPercent = action.discountPercent,
+                        discountCents = action.discountCents,
+                        isSupervisorApproved = true
+                    )
+                }
             }
+        }
+
+        viewModel.onDiscountSupervisorRequired = { action ->
+            authViewModel.requestSupervisorElevation(action)
         }
 
         // 4. Cash Cut & Shift reports hooks
@@ -557,6 +569,13 @@ fun main() = application {
                         } else false
                     }
 
+                    Key.D -> {
+                        if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
+                            viewModel.showDiscountDialog(true)
+                            true
+                        } else false
+                    }
+
                     Key.F10 -> {
                         if (activeModule == AppModule.SALES) {
                             viewModel.showSearchCatalogDialog(true)
@@ -610,6 +629,7 @@ fun main() = application {
                         val hasOpenDialogs = salesState.isShowingCashPayment ||
                                 salesState.isShowingCustomerDialog ||
                                 salesState.isShowingSessionDialog ||
+                                salesState.isShowingDiscountDialog ||
                                 salesState.isWeighingProduct != null ||
                                 salesState.isShowingGenericProductDialog ||
                                 salesState.isShowingCommonArticlesDialog ||
@@ -623,6 +643,7 @@ fun main() = application {
                         if (hasOpenDialogs) {
                             viewModel.showCashPaymentDialog(false)
                             viewModel.showCustomerDialog(false)
+                            viewModel.showDiscountDialog(false)
                             viewModel.dismissWeighingDialog()
                             viewModel.showSessionDialog(false)
                             viewModel.showGenericProductDialog(false)
