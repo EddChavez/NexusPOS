@@ -14,6 +14,7 @@ import kotlin.test.*
 class SalesScaleFeatureTest {
 
     private class MockScaleSalesApiClient : ApiClient() {
+        override suspend fun checkHealth(): Boolean = true
         val sampleBulkProduct = ProductDto(
             id = "prod-manzana",
             sku = "MANZ-KG",

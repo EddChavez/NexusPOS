@@ -385,13 +385,14 @@ fun main() = application {
         }
     }
 
-    val headerState = remember(activeModule, scaleReading, salesState.connectionState, salesState.activeCashierName, salesState.activeCashierRole, appConfig.registerId) {
+    val headerState = remember(activeModule, scaleReading, salesState.connectionState, salesState.activeCashierName, salesState.activeCashierRole, appConfig.registerId, salesState.offlinePendingSalesCount) {
         TopHeaderUiState(
             brandTitle = "NexusPOS",
             brandSubtitle = "Abarrotes & Miscelánea",
             activeModule = activeModule,
             scaleReading = scaleReading,
             connectionState = salesState.connectionState,
+            offlinePendingSalesCount = salesState.offlinePendingSalesCount,
             registerId = appConfig.registerId,
             cashierName = salesState.activeCashierName,
             cashierRole = salesState.activeCashierRole
@@ -728,14 +729,17 @@ fun main() = application {
                                 }
                             },
                             onLogout = { authViewModel.lockTerminal() },
-                            onSwitchCashier = { authViewModel.lockTerminal() }
+                            onSwitchCashier = { authViewModel.lockTerminal() },
+                            onSyncOffline = { viewModel.openOfflineSyncDialog() }
                         )
                     },
                     bottomBar = {
                         SystemFooter(
                             networkStatus = salesState.connectionState,
+                            offlinePendingCount = salesState.offlinePendingSalesCount,
                             scaleReading = scaleReading,
-                            versionText = "NexusPOS v2.4 Desktop • © 2026"
+                            versionText = "NexusPOS v2.4 Desktop • © 2026",
+                            onSyncClick = { viewModel.openOfflineSyncDialog() }
                         )
                     }
                 ) { innerPadding ->

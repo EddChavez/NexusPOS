@@ -6,6 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,6 +30,7 @@ fun TopHeader(
     onModuleSelected: (AppModule) -> Unit,
     onLogout: () -> Unit,
     onSwitchCashier: (() -> Unit)? = null,
+    onSyncOffline: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -64,7 +67,8 @@ fun TopHeader(
             RightStatusSection(
                 state = state,
                 onLogout = onLogout,
-                onSwitchCashier = onSwitchCashier
+                onSwitchCashier = onSwitchCashier,
+                onSyncOffline = onSyncOffline
             )
         }
     }
@@ -160,6 +164,7 @@ private fun RightStatusSection(
     state: TopHeaderUiState,
     onLogout: () -> Unit,
     onSwitchCashier: (() -> Unit)? = null,
+    onSyncOffline: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -167,6 +172,47 @@ private fun RightStatusSection(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Indicador de Modo Contingencia (Offline) si no hay conexión
+        if (state.connectionState == ServerConnectionState.NO_SERVER) {
+            Surface(
+                color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, Color(0xFFF59E0B))
+            ) {
+                Text(
+                    text = "⚠️ MODO OFFLINE",
+                    color = Color(0xFFD97706),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        // Chip interactivo si hay ventas pendientes de sincronizar
+        if (state.offlinePendingSalesCount > 0) {
+            Surface(
+                color = Color(0xFF3B82F6).copy(alpha = 0.15f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, Color(0xFF3B82F6)),
+                modifier = Modifier.clickable { onSyncOffline?.invoke() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(13.dp))
+                    Text(
+                        text = "${state.offlinePendingSalesCount} pendientes",
+                        color = Color(0xFF2563EB),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
         // Identificador de Sesión (Caja, Cajero y Rol)
         SessionIdentifierWidget(
             registerId = state.registerId,

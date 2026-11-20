@@ -22,6 +22,8 @@ class ParkedSalesFeatureTest {
         var lastRetrieveRequest: Pair<String, RetrieveParkedSaleRequest>? = null
         var lastDiscardId: String? = null
 
+        override suspend fun checkHealth(): Boolean = true
+
         override suspend fun parkSale(req: ParkSaleRequest): Result<ParkedSaleResponse> {
             lastParkSaleRequest = req
             val parked = ParkedSaleResponse(

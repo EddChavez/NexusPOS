@@ -20,6 +20,9 @@ class MixedPaymentFeatureTest {
         var lastCreateSaleRequest: CreateSaleRequest? = null
         var nextFolio = 501L
 
+        override suspend fun checkHealth(): Boolean = true
+        override suspend fun getCurrentSession(registerId: String): Result<mx.nexuspos.contracts.cash.CashSessionSummary?> = Result.success(null)
+
         override suspend fun completeSale(request: CreateSaleRequest): Result<SaleResponse> {
             lastCreateSaleRequest = request
 

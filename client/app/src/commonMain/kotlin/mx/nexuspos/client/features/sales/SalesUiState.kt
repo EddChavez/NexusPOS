@@ -93,6 +93,10 @@ data class SalesUiState(
     val isShowingParkSaleDialog: Boolean = false,
     val isShowingParkedSalesListDialog: Boolean = false,
     val isLoadingParkedSales: Boolean = false,
+    val offlinePendingSalesCount: Int = 0,
+    val isShowingOfflineSyncDialog: Boolean = false,
+    val isSyncingOfflineSales: Boolean = false,
+    val offlineSyncMessage: String? = null,
     val errorMessage: String? = null,
     val successMessage: String? = null
 )

@@ -22,6 +22,10 @@ dependencies {
     testImplementation(libs.kotlinx.datetime)
 }
 
+tasks.test {
+    systemProperty("nexuspos.test.inmemory", "true")
+}
+
 compose.desktop {
     application {
         mainClass = "mx.nexuspos.desktop.MainKt"

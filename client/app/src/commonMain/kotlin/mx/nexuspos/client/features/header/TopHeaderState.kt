@@ -37,6 +37,7 @@ data class TopHeaderUiState(
     val activeModule: AppModule = AppModule.SALES,
     val scaleReading: ScaleReading = ScaleReading(),
     val connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
+    val offlinePendingSalesCount: Int = 0,
     val registerId: String = "01",
     val cashierName: String = "Don Pepe",
     val cashierRole: String = "CASHIER"
@@ -48,4 +49,5 @@ sealed interface TopHeaderEvent {
     data object SwitchCashier : TopHeaderEvent
     data object ClickScale : TopHeaderEvent
     data object ClickConnection : TopHeaderEvent
+    data object ClickSyncOffline : TopHeaderEvent
 }

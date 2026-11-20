@@ -3,6 +3,7 @@ package mx.nexuspos.client.features.footer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.HorizontalDivider
@@ -33,9 +34,11 @@ import mx.nexuspos.client.features.header.ScaleStatus
 @Composable
 fun SystemFooter(
     networkStatus: ServerConnectionState = ServerConnectionState.CONNECTED,
+    offlinePendingCount: Int = 0,
     scaleReading: ScaleReading = ScaleReading(),
     versionText: String = "NexusPOS v2.4 Desktop • © 2026",
     onScaleClick: (() -> Unit)? = null,
+    onSyncClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -59,7 +62,11 @@ fun SystemFooter(
                 // =====================================================================
                 // 1. INDICADOR DEL SERVIDOR (IZQUIERDA)
                 // =====================================================================
-                ServerStatusSection(networkStatus = networkStatus)
+                ServerStatusSection(
+                    networkStatus = networkStatus,
+                    offlinePendingCount = offlinePendingCount,
+                    onSyncClick = onSyncClick
+                )
 
                 // =====================================================================
                 // 2. INFORMACIÓN DEL SISTEMA (CENTRO)
@@ -97,24 +104,30 @@ fun SystemFooter(
 @Composable
 fun StatusBar(
     networkStatus: ServerConnectionState = ServerConnectionState.CONNECTED,
+    offlinePendingCount: Int = 0,
     scaleReading: ScaleReading = ScaleReading(),
     versionText: String = "NexusPOS v2.4 Desktop • © 2026",
     onScaleClick: (() -> Unit)? = null,
+    onSyncClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) = SystemFooter(
     networkStatus = networkStatus,
+    offlinePendingCount = offlinePendingCount,
     scaleReading = scaleReading,
     versionText = versionText,
     onScaleClick = onScaleClick,
+    onSyncClick = onSyncClick,
     modifier = modifier
 )
 
 /**
- * Sección izquierda: Estado de conexión con el servidor local con texto fijo "Nexus Lan Server".
+ * Sección izquierda: Estado de conexión con el servidor local con texto fijo "Nexus Lan Server" y contador de contingencia.
  */
 @Composable
 private fun ServerStatusSection(
-    networkStatus: ServerConnectionState
+    networkStatus: ServerConnectionState,
+    offlinePendingCount: Int = 0,
+    onSyncClick: (() -> Unit)? = null
 ) {
     val display = networkStatus.toFooterDisplay()
 
@@ -134,6 +147,22 @@ private fun ServerStatusSection(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface
         )
+
+        if (offlinePendingCount > 0) {
+            Surface(
+                color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.clickable { onSyncClick?.invoke() }
+            ) {
+                Text(
+                    text = "• $offlinePendingCount pendientes [🔄]",
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFD97706),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
+        }
     }
 }
 

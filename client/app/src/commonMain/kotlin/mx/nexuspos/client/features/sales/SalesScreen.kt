@@ -78,6 +78,49 @@ fun SalesScreen(
                 }
             )
 
+            // Banner de Modo Contingencia (Offline) cuando no hay conexión al servidor central LAN
+            if (state.connectionState == ServerConnectionState.NO_SERVER) {
+                Surface(
+                    color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("⚠️", fontSize = 16.sp)
+                            Column {
+                                Text(
+                                    text = "MODO CONTINGENCIA (Sin conexión al servidor central)",
+                                    color = Color(0xFFB45309),
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Cobros en Efectivo o Tarjeta permitidos. Las ventas se guardan localmente.",
+                                    color = Color(0xFF92400E),
+                                    fontSize = 11.5.sp
+                                )
+                            }
+                        }
+                        if (state.offlinePendingSalesCount > 0) {
+                            Button(
+                                onClick = { viewModel.openOfflineSyncDialog() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("${state.offlinePendingSalesCount} pendientes [Ver]", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Alerts / Messages
             FeedbackMessageHost(
                 errorMessage = state.errorMessage,
@@ -380,6 +423,19 @@ fun SalesScreen(
                 onSend = onOpenWhatsApp,
                 onCopyText = onCopyText,
                 onDismiss = { viewModel.closeWhatsAppDialog() }
+            )
+        }
+
+        if (state.isShowingOfflineSyncDialog) {
+            mx.nexuspos.client.features.offline.OfflineSyncDialog(
+                isOpen = true,
+                queuedSales = viewModel.saleQueue.getAll(),
+                connectionState = state.connectionState,
+                isSyncing = state.isSyncingOfflineSales,
+                syncMessage = state.offlineSyncMessage,
+                onSyncNow = { viewModel.triggerOfflineSync() },
+                onClearSynced = { viewModel.clearSyncedOfflineSales() },
+                onDismiss = { viewModel.closeOfflineSyncDialog() }
             )
         }
     }

@@ -11,6 +11,11 @@ import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.auth.SupervisorAction
 import mx.nexuspos.client.features.header.ScaleReading
+import mx.nexuspos.client.features.offline.LocalPersistenceProvider
+import mx.nexuspos.client.features.offline.OfflineCatalogCache
+import mx.nexuspos.client.features.offline.OfflineSaleQueue
+import mx.nexuspos.client.features.offline.OfflineSyncManager
+import mx.nexuspos.client.features.offline.getDefaultPersistenceProvider
 import mx.nexuspos.client.features.whatsapp.WhatsAppMessageFormatter
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
@@ -24,7 +29,9 @@ import mx.nexuspos.contracts.sales.ParkedSaleItemDto
 import mx.nexuspos.contracts.sales.ParkedSaleResponse
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.sales.SaleLineItemRequest
+import mx.nexuspos.contracts.sales.SaleLineItemResponse
 import mx.nexuspos.contracts.sales.SalePaymentRequest
+import mx.nexuspos.contracts.sales.SalePaymentResponse
 import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
@@ -36,18 +43,35 @@ import java.util.UUID
 
 class SalesViewModel(
     val apiClient: ApiClient = ApiClient(),
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main)
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main),
+    val persistenceProvider: LocalPersistenceProvider = getDefaultPersistenceProvider()
 ) {
+    val catalogCache = OfflineCatalogCache(persistenceProvider)
+    val saleQueue = OfflineSaleQueue(persistenceProvider)
+    val syncManager = OfflineSyncManager(apiClient, saleQueue, scope)
+
     private val _uiState = MutableStateFlow(SalesUiState())
     val uiState: StateFlow<SalesUiState> = _uiState.asStateFlow()
 
     var currentSettings: SettingsDto? = null
 
     init {
+        _uiState.update { it.copy(offlinePendingSalesCount = saleQueue.pendingCount()) }
         checkServerConnection()
         loadActiveSession()
         loadParkedSales()
         loadSettings()
+        preloadCatalogCache()
+    }
+
+    fun preloadCatalogCache() {
+        scope.launch {
+            apiClient.searchProducts().onSuccess { prods ->
+                if (prods.isNotEmpty()) {
+                    catalogCache.saveCatalog(prods)
+                }
+            }
+        }
     }
 
     fun loadSettings() {
@@ -76,13 +100,58 @@ class SalesViewModel(
         _uiState.update { it.copy(isShowingWhatsAppDialog = false) }
     }
 
+    fun openOfflineSyncDialog() {
+        _uiState.update { it.copy(isShowingOfflineSyncDialog = true) }
+    }
+
+    fun closeOfflineSyncDialog() {
+        _uiState.update { it.copy(isShowingOfflineSyncDialog = false) }
+    }
+
+    fun triggerOfflineSync() {
+        if (_uiState.value.isSyncingOfflineSales) return
+        _uiState.update { it.copy(isSyncingOfflineSales = true, offlineSyncMessage = "Sincronizando...") }
+        syncManager.triggerSync { result ->
+            _uiState.update {
+                it.copy(
+                    isSyncingOfflineSales = false,
+                    offlinePendingSalesCount = saleQueue.pendingCount(),
+                    offlineSyncMessage = if (result.failed == 0) {
+                        "¡Sincronización completada! ${result.succeeded} venta(s) enviadas."
+                    } else {
+                        "Sincronizadas: ${result.succeeded}, Fallidas: ${result.failed}."
+                    },
+                    successMessage = if (result.succeeded > 0 && result.failed == 0) {
+                        "¡Sincronización exitosa! Se transmitieron ${result.succeeded} venta(s) de contingencia al servidor central."
+                    } else it.successMessage
+                )
+            }
+            if (result.succeeded > 0) {
+                loadShiftSales()
+                loadActiveSession()
+            }
+        }
+    }
+
+    fun clearSyncedOfflineSales() {
+        saleQueue.clearSynced()
+        _uiState.update { it.copy(offlinePendingSalesCount = saleQueue.pendingCount()) }
+    }
+
     fun checkServerConnection() {
         scope.launch {
             val isHealthy = apiClient.checkHealth()
+            val wasOffline = _uiState.value.connectionState == ServerConnectionState.NO_SERVER
             _uiState.update {
                 it.copy(
                     connectionState = if (isHealthy) ServerConnectionState.CONNECTED else ServerConnectionState.NO_SERVER
                 )
+            }
+            if (isHealthy && (wasOffline || saleQueue.pendingCount() > 0)) {
+                preloadCatalogCache()
+                if (saleQueue.pendingCount() > 0) {
+                    triggerOfflineSync()
+                }
             }
         }
     }
@@ -118,6 +187,37 @@ class SalesViewModel(
         if (input.isBlank()) return
 
         _uiState.update { it.copy(scannerStatus = ScannerStatus.PROCESSING) }
+
+        // Búsqueda inmediata en caché local si estamos sin conexión al servidor central
+        if (_uiState.value.connectionState == ServerConnectionState.NO_SERVER) {
+            val cachedProd = catalogCache.findProductByBarcode(input) ?: catalogCache.searchProducts(input).firstOrNull()
+            if (cachedProd != null) {
+                val pres = cachedProd.presentations.firstOrNull { it.barcode == input } ?: cachedProd.presentations.firstOrNull()
+                if (pres != null) {
+                    if (cachedProd.baseUnit.equals("KG", ignoreCase = true)) {
+                        val scale = scaleReadingProvider?.invoke()
+                        val autoAccept = autoAcceptScaleWeightProvider?.invoke() == true
+                        if (scale != null && scale.isStableWeight && autoAccept) {
+                            addProductPresentation(cachedProd, pres, Quantity.fromDouble(scale.weightKg))
+                            _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
+                        } else {
+                            _uiState.update {
+                                it.copy(
+                                    scannerInput = "",
+                                    isWeighingProduct = Pair(cachedProd, pres),
+                                    errorMessage = null
+                                )
+                            }
+                        }
+                    } else {
+                        addProductPresentation(cachedProd, pres, Quantity.ONE)
+                        _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
+                    }
+                    _uiState.update { it.copy(scannerStatus = ScannerStatus.READY) }
+                    return
+                }
+            }
+        }
 
         scope.launch {
             try {
@@ -187,10 +287,37 @@ class SalesViewModel(
                         }
                     }
                 }.onFailure { err ->
+                    _uiState.update { it.copy(connectionState = ServerConnectionState.NO_SERVER) }
+                    // Respaldo de contingencia: buscar en caché local
+                    val cachedProd = catalogCache.findProductByBarcode(input) ?: catalogCache.searchProducts(input).firstOrNull()
+                    if (cachedProd != null) {
+                        val pres = cachedProd.presentations.firstOrNull { it.barcode == input } ?: cachedProd.presentations.firstOrNull()
+                        if (pres != null) {
+                            if (cachedProd.baseUnit.equals("KG", ignoreCase = true)) {
+                                val scale = scaleReadingProvider?.invoke()
+                                val autoAccept = autoAcceptScaleWeightProvider?.invoke() == true
+                                if (scale != null && scale.isStableWeight && autoAccept) {
+                                    addProductPresentation(cachedProd, pres, Quantity.fromDouble(scale.weightKg))
+                                    _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
+                                } else {
+                                    _uiState.update {
+                                        it.copy(
+                                            scannerInput = "",
+                                            isWeighingProduct = Pair(cachedProd, pres),
+                                            errorMessage = null
+                                        )
+                                    }
+                                }
+                            } else {
+                                addProductPresentation(cachedProd, pres, Quantity.ONE)
+                                _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
+                            }
+                            return@launch
+                        }
+                    }
                     _uiState.update {
                         it.copy(
-                            errorMessage = "Error al buscar producto: ${err.message}",
-                            connectionState = ServerConnectionState.NO_SERVER
+                            errorMessage = "Sin conexión al servidor central y producto '$input' no encontrado en caché local"
                         )
                     }
                 }
@@ -1021,6 +1148,12 @@ class SalesViewModel(
 
     fun checkoutCredit() {
         val state = _uiState.value
+        if (state.connectionState == ServerConnectionState.NO_SERVER) {
+            _uiState.update {
+                it.copy(errorMessage = "En Modo Contingencia (sin servidor LAN) solo se permiten pagos en Efectivo o Tarjeta.")
+            }
+            return
+        }
         if (state.selectedCustomer == null) {
             _uiState.update { it.copy(errorMessage = "Debe seleccionar un cliente para venta a crédito (fiado).") }
             return
@@ -1037,24 +1170,29 @@ class SalesViewModel(
 
     fun checkoutMultiPayment(payments: List<SalePaymentRequest>) {
         val state = _uiState.value
-        if (state.connectionState == ServerConnectionState.NO_SERVER) {
-            _uiState.update {
-                it.copy(errorMessage = "Sin servidor: No es posible cobrar mientras el servidor central no esté disponible en la LAN. El carrito se conserva intacto.")
-            }
-            return
-        }
-
-        val sess = state.activeSession
-        if (sess == null || sess.status != "OPEN") {
-            _uiState.update {
-                it.copy(errorMessage = "Debe abrir una sesión de caja antes de realizar ventas.")
-            }
-            return
-        }
+        val isOffline = state.connectionState == ServerConnectionState.NO_SERVER
 
         if (payments.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "Debe especificar al menos una forma de pago.") }
             return
+        }
+
+        if (isOffline) {
+            val hasRestricted = payments.any { it.method == "CREDIT" || it.method == "LOYALTY" }
+            if (hasRestricted) {
+                _uiState.update {
+                    it.copy(errorMessage = "En Modo Contingencia (sin servidor LAN) solo se permiten pagos en Efectivo o Tarjeta.")
+                }
+                return
+            }
+        } else {
+            val sess = state.activeSession
+            if (sess == null || sess.status != "OPEN") {
+                _uiState.update {
+                    it.copy(errorMessage = "Debe abrir una sesión de caja antes de realizar ventas.")
+                }
+                return
+            }
         }
 
         val hasCredit = payments.any { it.method == "CREDIT" }
@@ -1079,10 +1217,11 @@ class SalesViewModel(
             }
 
             val totalDiscountCents = state.cartLines.sumOf { it.discountCents }
+            val sessionId = state.activeSession?.sessionId ?: "contingency-session"
 
             val saleReq = CreateSaleRequest(
                 idempotencyKey = UUID.randomUUID().toString(),
-                cashSessionId = sess.sessionId,
+                cashSessionId = sessionId,
                 cashierUserId = state.activeCashierId,
                 customerId = state.selectedCustomer?.id,
                 lines = linesReq,
@@ -1090,6 +1229,91 @@ class SalesViewModel(
                 expectedTotalCents = state.total.cents,
                 discountCents = totalDiscountCents
             )
+
+            if (isOffline) {
+                val queuedSale = saleQueue.enqueue(saleReq)
+                val localFolio = queuedSale.localFolio
+
+                val cashPay = payments.firstOrNull { it.method == "CASH" }
+                val cashChangeCents = if (cashPay != null && cashPay.receivedCents > cashPay.amountCents) {
+                    cashPay.receivedCents - cashPay.amountCents
+                } else 0L
+                val changeMsg = if (cashChangeCents > 0L) {
+                    " | Cambio: $${cashChangeCents / 100.0}"
+                } else ""
+
+                val offlineSale = SaleResponse(
+                    id = "offline-$localFolio",
+                    folio = localFolio.replace("OFF-", "").toLongOrNull() ?: 9999L,
+                    cashSessionId = sessionId,
+                    cashierName = state.activeCashierName,
+                    customerName = state.selectedCustomer?.name,
+                    status = "COMPLETED",
+                    subtotalCents = state.subtotal.cents,
+                    taxCents = state.tax.cents,
+                    totalCents = state.total.cents,
+                    lines = linesReq.mapIndexed { idx, l ->
+                        SaleLineItemResponse(
+                            id = "line-off-$idx",
+                            productId = l.productId,
+                            presentationId = l.presentationId,
+                            description = l.description,
+                            quantityMillis = l.quantityMillis,
+                            unitPriceCents = l.expectedUnitPriceCents,
+                            taxRate = l.taxRate,
+                            taxCents = ((l.expectedTotalCents * l.taxRate) / (1 + l.taxRate)).toLong(),
+                            totalCents = l.expectedTotalCents,
+                            discountCents = l.discountCents,
+                            discountPercent = l.discountPercent
+                        )
+                    },
+                    payments = payments.mapIndexed { idx, p ->
+                        val payChange = (p.receivedCents - p.amountCents).coerceAtLeast(0L)
+                        SalePaymentResponse(
+                            id = "pay-off-$idx",
+                            method = p.method,
+                            amountCents = p.amountCents,
+                            receivedCents = p.receivedCents,
+                            changeCents = payChange,
+                            reference = p.reference
+                        )
+                    },
+                    createdAt = queuedSale.createdAt,
+                    loyaltyReward = null
+                )
+
+                onSaleCompleted?.invoke(offlineSale)
+
+                _uiState.update { s ->
+                    val clearedTickets = s.tickets.map { t ->
+                        if (t.id == s.activeTicketId) {
+                            t.copy(
+                                cartLines = emptyList(),
+                                subtotal = Money.ZERO,
+                                tax = Money.ZERO,
+                                total = Money.ZERO,
+                                selectedCustomer = null
+                            )
+                        } else t
+                    }
+
+                    s.copy(
+                        tickets = clearedTickets,
+                        cartLines = emptyList(),
+                        subtotal = Money.ZERO,
+                        tax = Money.ZERO,
+                        total = Money.ZERO,
+                        selectedCustomer = null,
+                        selectedCartLineId = null,
+                        isShowingCashPayment = false,
+                        lastCompletedSale = offlineSale,
+                        offlinePendingSalesCount = saleQueue.pendingCount(),
+                        successMessage = "Venta registrada en Modo Contingencia (#$localFolio)$changeMsg. Se sincronizará al volver la red.",
+                        errorMessage = null
+                    )
+                }
+                return@launch
+            }
 
             apiClient.completeSale(saleReq).onSuccess { sale ->
                 onSaleCompleted?.invoke(sale)

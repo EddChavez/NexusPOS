@@ -70,7 +70,8 @@ class EscPosReceiptPrinter(
     fun formatSaleReceiptText(
         sale: SaleResponse,
         settings: SettingsDto? = null,
-        isReprint: Boolean = false
+        isReprint: Boolean = false,
+        isContingency: Boolean = false
     ): String {
         val sb = StringBuilder()
         val sep = "=".repeat(columnWidth)
@@ -82,13 +83,19 @@ class EscPosReceiptPrinter(
         settings?.storePhone?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText("Tel: $it")) }
         sb.appendLine(sep)
 
-        if (isReprint) {
+        val isOffline = isContingency || sale.id.startsWith("offline-")
+        if (isOffline) {
+            sb.appendLine(centerText("*** MODO CONTINGENCIA (OFFLINE) ***"))
+            sb.appendLine(centerText("* VENTA PENDIENTE DE SINCRONIZAR *"))
+            sb.appendLine(thinSep)
+        } else if (isReprint) {
             sb.appendLine(centerText("*** COPIA DE REIMPRESIÓN ***"))
             sb.appendLine(thinSep)
         }
 
         // Sale metadata
-        sb.appendLine("Folio: #${sale.folio}")
+        val folioStr = if (sale.id.startsWith("offline-")) "#" + sale.id.removePrefix("offline-") else "#${sale.folio}"
+        sb.appendLine("Folio: $folioStr")
         sb.appendLine("Fecha: ${formatTimestamp(sale.createdAt)}")
         sb.appendLine("Cajero: ${sale.cashierName}")
         sb.appendLine(thinSep)

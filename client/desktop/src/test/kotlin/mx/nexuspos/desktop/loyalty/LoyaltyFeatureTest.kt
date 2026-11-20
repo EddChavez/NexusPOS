@@ -25,6 +25,9 @@ class LoyaltyFeatureTest {
         var lastSaleRequest: CreateSaleRequest? = null
         var lastAdjustRequest: AdjustLoyaltyBalanceRequest? = null
         val movements = mutableListOf<LoyaltyMovementDto>()
+
+        override suspend fun checkHealth(): Boolean = true
+        override suspend fun getCurrentSession(registerId: String): Result<mx.nexuspos.contracts.cash.CashSessionSummary?> = Result.success(null)
         var customer = CustomerDto(
             id = "cust-1",
             folio = "CLI-0001",
