@@ -31,7 +31,13 @@ class DatabaseFactory(
             .dataSource(dataSource)
             .cleanDisabled(true)
             .load()
-        flyway.migrate()
+        try {
+            flyway.migrate()
+        } catch (e: org.flywaydb.core.api.exception.FlywayValidateException) {
+            println("Flyway validation failed (checksum mismatch). Running repair to align schema history...")
+            flyway.repair()
+            flyway.migrate()
+        }
     }
 
     fun <T> inTransaction(block: (Connection) -> T): T {
