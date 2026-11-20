@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -55,6 +56,19 @@ fun CustomersScreen(
                 viewModel.submitPayment(cashSessionId, cashierUserId, amountCents, method, notes)
             },
             onDismiss = { viewModel.closePaymentDialog() }
+        )
+    }
+
+    if (state.showLoyaltyDialog && state.selectedCustomer != null) {
+        CustomerLoyaltyDialog(
+            isOpen = true,
+            customer = state.selectedCustomer,
+            movements = state.loyaltyMovements,
+            isLoading = state.isLoyaltyLoading,
+            onAdjustBalance = { amountCents, reason ->
+                viewModel.adjustLoyaltyBalance(amountCents, reason, cashierUserId)
+            },
+            onDismiss = { viewModel.closeLoyaltyDialog() }
         )
     }
 
@@ -106,6 +120,7 @@ fun CustomersScreen(
                 onPayment = { viewModel.openPaymentDialog(false) },
                 onLiquidate = { viewModel.openPaymentDialog(true) },
                 onDeactivate = { cust -> viewModel.deactivateCustomer(cust) },
+                onOpenLoyalty = { cust -> viewModel.openLoyaltyDialog(cust) },
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
@@ -322,11 +337,20 @@ private fun CustomerListItem(
                     fontSize = 13.sp,
                     color = if (hasDebt) NexusTheme.colors.dangerText else NexusTheme.colors.actionPrimary
                 )
-                Text(
-                    text = if (!customer.creditEnabled) "Sin Crédito" else if (!customer.hasCreditLimit) "Ilimitado" else "Disp: $${"%.0f".format(customer.availableCreditCents / 100.0)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NexusTheme.colors.textSecondary
-                )
+                if (customer.loyaltyBalanceCents > 0L) {
+                    Text(
+                        text = "Monedero: $${"%.2f".format(customer.loyaltyBalanceCents / 100.0)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF059669)
+                    )
+                } else {
+                    Text(
+                        text = if (!customer.creditEnabled) "Sin Crédito" else if (!customer.hasCreditLimit) "Ilimitado" else "Disp: $${"%.0f".format(customer.availableCreditCents / 100.0)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NexusTheme.colors.textSecondary
+                    )
+                }
             }
         }
     }
@@ -341,6 +365,7 @@ private fun CustomerDetailPanel(
     onPayment: () -> Unit,
     onLiquidate: () -> Unit,
     onDeactivate: (CustomerDto) -> Unit,
+    onOpenLoyalty: (CustomerDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -368,7 +393,8 @@ private fun CustomerDetailPanel(
                     onEdit = { onEdit(customer) },
                     onPayment = onPayment,
                     onLiquidate = onLiquidate,
-                    onDeactivate = { onDeactivate(customer) }
+                    onDeactivate = { onDeactivate(customer) },
+                    onOpenLoyalty = { onOpenLoyalty(customer) }
                 )
 
                 // 2. METRICAS FINANCIERAS DE CREDITO
@@ -393,7 +419,8 @@ private fun CustomerHeaderCard(
     onEdit: () -> Unit,
     onPayment: () -> Unit,
     onLiquidate: () -> Unit,
-    onDeactivate: () -> Unit
+    onDeactivate: () -> Unit,
+    onOpenLoyalty: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -472,6 +499,16 @@ private fun CustomerHeaderCard(
             }
 
             OutlinedButton(
+                onClick = onOpenLoyalty,
+                border = BorderStroke(1.dp, Color(0xFF059669)),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFF059669))
+                Spacer(Modifier.width(4.dp))
+                Text("Monedero ($${"%.2f".format(customer.loyaltyBalanceCents / 100.0)})", color = Color(0xFF059669), fontWeight = FontWeight.Bold)
+            }
+
+            OutlinedButton(
                 onClick = onEdit,
                 border = BorderStroke(1.dp, NexusTheme.colors.btnSecondaryBorder),
                 shape = RoundedCornerShape(6.dp)
@@ -511,6 +548,14 @@ private fun CustomerCreditMetricsRow(customer: CustomerDto) {
             title = "Crédito Disponible",
             value = if (!customer.creditEnabled) "$0.00" else if (!customer.hasCreditLimit) "ILIMITADO" else "$${"%.2f".format(customer.availableCreditCents / 100.0)}",
             valueColor = NexusTheme.colors.totalDisplay,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Monedero Electrónico
+        CreditMetricBox(
+            title = "Monedero Electrónico",
+            value = "$${"%.2f".format(customer.loyaltyBalanceCents / 100.0)}",
+            valueColor = if (customer.loyaltyBalanceCents > 0L) Color(0xFF059669) else NexusTheme.colors.textSecondary,
             modifier = Modifier.weight(1f)
         )
     }

@@ -568,6 +568,108 @@ private fun PoliciesTab(state: SettingsUiState, viewModel: SettingsViewModel) {
                             }
                         }
                     }
+
+                    HorizontalDivider(color = NexusTheme.colors.borderSubtle)
+
+                    // Loyalty Program / Monedero Electrónico
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Programa de Monedero Electrónico y Puntos",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = NexusTheme.colors.textPrimary
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = if (state.loyaltyEnabled)
+                                    "Monedero ACTIVO — Los clientes registrados acumulan saldo en compras"
+                                else
+                                    "Monedero INACTIVO — No se acumula ni redime saldo",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (state.loyaltyEnabled) NexusTheme.colors.actionPrimary else NexusTheme.colors.textSecondary
+                            )
+                        }
+
+                        Switch(
+                            checked = state.loyaltyEnabled,
+                            onCheckedChange = { viewModel.toggleLoyaltyEnabled() }
+                        )
+                    }
+
+                    if (state.loyaltyEnabled) {
+                        // Cashback % selector
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Porcentaje de Cashback (%)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NexusTheme.colors.textPrimary
+                                )
+                                Text(
+                                    text = "Porcentaje abonado al monedero sobre el dinero real pagado por el cliente",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NexusTheme.colors.textSecondary
+                                )
+                            }
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(1.0, 2.0, 3.0, 5.0).forEach { pct ->
+                                    FilterChip(
+                                        selected = state.loyaltyCashbackPercent == pct,
+                                        onClick = { viewModel.onLoyaltyCashbackPercentChanged(pct) },
+                                        label = { Text("${pct.toInt()}%", fontSize = 12.sp) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Min redeem selector
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Monto Mínimo de Canje ($)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NexusTheme.colors.textPrimary
+                                )
+                                Text(
+                                    text = "Saldo mínimo requerido para poder redimir en caja",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NexusTheme.colors.textSecondary
+                                )
+                            }
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(0L to "$0 (Sin mín)", 500L to "$5", 1000L to "$10", 2000L to "$20").forEach { (cents, label) ->
+                                    FilterChip(
+                                        selected = state.loyaltyMinRedeemCents == cents,
+                                        onClick = { viewModel.onLoyaltyMinRedeemCentsChanged(cents) },
+                                        label = { Text(label, fontSize = 12.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

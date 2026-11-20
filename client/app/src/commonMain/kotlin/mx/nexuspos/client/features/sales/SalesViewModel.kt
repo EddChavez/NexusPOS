@@ -1086,6 +1086,13 @@ class SalesViewModel(
                         " | Crédito restante: $${remCredit / 100.0}"
                     } else ""
 
+                    val loyaltyReward = sale.loyaltyReward
+                    val loyaltyMsg = if (loyaltyReward != null && loyaltyReward.earnedCents > 0L) {
+                        " | ¡Ganó $${"%.2f".format(loyaltyReward.earnedCents / 100.0)} en monedero! (Saldo: $${"%.2f".format(loyaltyReward.finalBalanceCents / 100.0)})"
+                    } else if (loyaltyReward != null && loyaltyReward.redeemedCents > 0L) {
+                        " | Redimió $${"%.2f".format(loyaltyReward.redeemedCents / 100.0)} de monedero (Saldo: $${"%.2f".format(loyaltyReward.finalBalanceCents / 100.0)})"
+                    } else ""
+
                     s.copy(
                         tickets = clearedTickets,
                         cartLines = emptyList(),
@@ -1096,7 +1103,7 @@ class SalesViewModel(
                         selectedCartLineId = null,
                         isShowingCashPayment = false,
                         lastCompletedSale = sale,
-                        successMessage = "Venta folio #${sale.folio} completada con éxito$changeMsg$creditMsg",
+                        successMessage = "Venta folio #${sale.folio} completada con éxito$changeMsg$creditMsg$loyaltyMsg",
                         errorMessage = null
                     )
                 }

@@ -40,6 +40,7 @@ import mx.nexuspos.contracts.inventory.CreateProductLotRequest
 import mx.nexuspos.contracts.inventory.LotExpirationStatus
 import mx.nexuspos.contracts.inventory.LotWriteOffRequest
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
+import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -52,6 +53,7 @@ import mx.nexuspos.server.modules.credit.CreditService
 import mx.nexuspos.server.modules.identity.IdentityService
 import mx.nexuspos.server.modules.inventory.InventoryService
 import mx.nexuspos.server.modules.inventory.ProductLotsService
+import mx.nexuspos.server.modules.loyalty.LoyaltyService
 import mx.nexuspos.server.modules.reports.ReportsService
 import mx.nexuspos.server.modules.sales.ParkedSalesService
 import mx.nexuspos.server.modules.sales.SalesService
@@ -78,6 +80,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val productLotsService = ProductLotsService(dbFactory)
     val cashService = CashSessionService(dbFactory)
     val creditService = CreditService(dbFactory)
+    val loyaltyService = LoyaltyService(dbFactory)
     val settingsService = SettingsService(dbFactory)
     val salesService = SalesService(dbFactory, settingsService)
     val parkedSalesService = ParkedSalesService(dbFactory)
@@ -517,6 +520,26 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             get("/customers/{id}/credit/movements") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
                 call.respond(creditService.getMovements(id))
+            }
+
+            // Customer Loyalty / Monedero Electrónico
+            get("/customers/{id}/loyalty") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
+                call.respond(loyaltyService.getLoyaltyMovements(id))
+            }
+
+            get("/customers/{id}/loyalty/summary") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
+                call.respond(loyaltyService.getLoyaltySummary(id))
+            }
+
+            post("/customers/{id}/loyalty/adjust") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
+                val req = call.receive<AdjustLoyaltyBalanceRequest>()
+                val updated = loyaltyService.adjustLoyaltyBalance(req.copy(customerId = id))
+                broadcastEventJson("customer.loyalty.adjusted", jsonConfig.encodeToString(updated))
+                broadcastEventJson("customer.updated", jsonConfig.encodeToString(updated))
+                call.respond(updated)
             }
 
             // Sales

@@ -138,6 +138,14 @@ fun CustomerSelectionDialog(
                                             fontWeight = FontWeight.Bold,
                                             color = if (!cust.hasCreditLimit || cust.availableCreditCents > 0) NexusTheme.colors.actionPrimary else NexusTheme.colors.dangerText
                                         )
+                                        if (cust.loyaltyBalanceCents > 0L) {
+                                            Text(
+                                                text = "Monedero: $${"%.2f".format(cust.loyaltyBalanceCents / 100.0)}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = androidx.compose.ui.graphics.Color(0xFF059669)
+                                            )
+                                        }
                                     }
                                 }
                             }

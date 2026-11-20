@@ -2,11 +2,16 @@ package mx.nexuspos.client.features.customers
 
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.credit.CustomerStatementDto
+import mx.nexuspos.contracts.loyalty.LoyaltyMovementDto
 
 data class CustomersUiState(
     val customers: List<CustomerDto> = emptyList(),
     val selectedCustomer: CustomerDto? = null,
     val statement: CustomerStatementDto? = null,
+    val loyaltyMovements: List<LoyaltyMovementDto> = emptyList(),
+    val isLoyaltyLoading: Boolean = false,
+    val showLoyaltyDialog: Boolean = false,
+    val showAdjustLoyaltyDialog: Boolean = false,
     val searchQuery: String = "",
     val includeInactive: Boolean = false,
     val isLoading: Boolean = false,

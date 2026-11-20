@@ -20,6 +20,9 @@ class SettingsService(private val db: DatabaseFactory) {
             var currencySymbol = "$"
             var blindCashCountEnabled = false
             var maxCashierDiscountPercent = 10.0
+            var loyaltyEnabled = true
+            var loyaltyCashbackPercent = 1.0
+            var loyaltyMinRedeemCents = 0L
 
             while (rs.next()) {
                 when (rs.getString("setting_key")) {
@@ -33,6 +36,9 @@ class SettingsService(private val db: DatabaseFactory) {
                     "currency_symbol" -> currencySymbol = rs.getString("setting_value")
                     "blind_cash_count_enabled" -> blindCashCountEnabled = rs.getString("setting_value").toBoolean()
                     "max_cashier_discount_percent" -> maxCashierDiscountPercent = rs.getString("setting_value").toDoubleOrNull() ?: 10.0
+                    "loyalty_enabled" -> loyaltyEnabled = rs.getString("setting_value").toBoolean()
+                    "loyalty_cashback_percent" -> loyaltyCashbackPercent = rs.getString("setting_value").toDoubleOrNull() ?: 1.0
+                    "loyalty_min_redeem_cents" -> loyaltyMinRedeemCents = rs.getString("setting_value").toLongOrNull() ?: 0L
                 }
             }
             rs.close()
@@ -48,7 +54,10 @@ class SettingsService(private val db: DatabaseFactory) {
                 allowNegativeStock = allowNegativeStock,
                 currencySymbol = currencySymbol,
                 blindCashCountEnabled = blindCashCountEnabled,
-                maxCashierDiscountPercent = maxCashierDiscountPercent
+                maxCashierDiscountPercent = maxCashierDiscountPercent,
+                loyaltyEnabled = loyaltyEnabled,
+                loyaltyCashbackPercent = loyaltyCashbackPercent,
+                loyaltyMinRedeemCents = loyaltyMinRedeemCents
             )
         }
     }
@@ -68,7 +77,10 @@ class SettingsService(private val db: DatabaseFactory) {
                 "allow_negative_stock" to settings.allowNegativeStock.toString(),
                 "currency_symbol" to settings.currencySymbol,
                 "blind_cash_count_enabled" to settings.blindCashCountEnabled.toString(),
-                "max_cashier_discount_percent" to settings.maxCashierDiscountPercent.toString()
+                "max_cashier_discount_percent" to settings.maxCashierDiscountPercent.toString(),
+                "loyalty_enabled" to settings.loyaltyEnabled.toString(),
+                "loyalty_cashback_percent" to settings.loyaltyCashbackPercent.toString(),
+                "loyalty_min_redeem_cents" to settings.loyaltyMinRedeemCents.toString()
             )
             for ((k, v) in map) {
                 updateStmt.setString(1, v)

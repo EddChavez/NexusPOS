@@ -17,6 +17,9 @@ data class CustomerDto(
     val creditLimitCents: Long = 0L,
     val currentBalanceCents: Long = 0L,
     val availableCreditCents: Long = 0L,
+    val loyaltyBalanceCents: Long = 0L,
+    val totalLoyaltyEarnedCents: Long = 0L,
+    val totalLoyaltyRedeemedCents: Long = 0L,
     val isActive: Boolean = true,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L

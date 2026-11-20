@@ -87,7 +87,10 @@ class SettingsViewModel(
                         currencySymbol = dto.currencySymbol,
                         allowNegativeStock = dto.allowNegativeStock,
                         blindCashCountEnabled = dto.blindCashCountEnabled,
-                        maxCashierDiscountPercent = dto.maxCashierDiscountPercent
+                        maxCashierDiscountPercent = dto.maxCashierDiscountPercent,
+                        loyaltyEnabled = dto.loyaltyEnabled,
+                        loyaltyCashbackPercent = dto.loyaltyCashbackPercent,
+                        loyaltyMinRedeemCents = dto.loyaltyMinRedeemCents
                     )
                 }
             }.onFailure { err ->
@@ -141,7 +144,10 @@ class SettingsViewModel(
                 currencySymbol = s.currencySymbol,
                 allowNegativeStock = s.allowNegativeStock,
                 blindCashCountEnabled = s.blindCashCountEnabled,
-                maxCashierDiscountPercent = s.maxCashierDiscountPercent
+                maxCashierDiscountPercent = s.maxCashierDiscountPercent,
+                loyaltyEnabled = s.loyaltyEnabled,
+                loyaltyCashbackPercent = s.loyaltyCashbackPercent,
+                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents
             )
             val res = apiClient.updateSettings(dto)
             res.onSuccess {
@@ -171,7 +177,10 @@ class SettingsViewModel(
                 currencySymbol = s.currencySymbol,
                 allowNegativeStock = newValue,
                 blindCashCountEnabled = s.blindCashCountEnabled,
-                maxCashierDiscountPercent = s.maxCashierDiscountPercent
+                maxCashierDiscountPercent = s.maxCashierDiscountPercent,
+                loyaltyEnabled = s.loyaltyEnabled,
+                loyaltyCashbackPercent = s.loyaltyCashbackPercent,
+                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents
             )
             apiClient.updateSettings(dto).onSuccess {
                 _uiState.update { it.copy(successBanner = if (newValue) "Política cambiada a Flexible (stock negativo permitido)" else "Política cambiada a Estricto (stock negativo bloqueado)") }
@@ -198,7 +207,10 @@ class SettingsViewModel(
                 currencySymbol = s.currencySymbol,
                 allowNegativeStock = s.allowNegativeStock,
                 blindCashCountEnabled = newValue,
-                maxCashierDiscountPercent = s.maxCashierDiscountPercent
+                maxCashierDiscountPercent = s.maxCashierDiscountPercent,
+                loyaltyEnabled = s.loyaltyEnabled,
+                loyaltyCashbackPercent = s.loyaltyCashbackPercent,
+                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents
             )
             apiClient.updateSettings(dto).onSuccess {
                 _uiState.update { it.copy(successBanner = if (newValue) "Modo Arqueo Ciego ACTIVADO (esperado oculto en caja)" else "Modo Arqueo Ciego DESACTIVADO") }
@@ -224,10 +236,58 @@ class SettingsViewModel(
                 currencySymbol = s.currencySymbol,
                 allowNegativeStock = s.allowNegativeStock,
                 blindCashCountEnabled = s.blindCashCountEnabled,
-                maxCashierDiscountPercent = safe
+                maxCashierDiscountPercent = safe,
+                loyaltyEnabled = s.loyaltyEnabled,
+                loyaltyCashbackPercent = s.loyaltyCashbackPercent,
+                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents
             )
             apiClient.updateSettings(dto).onSuccess {
                 _uiState.update { it.copy(successBanner = "Límite de descuento para cajeros actualizado a $safe%") }
+                autoDismissBanner()
+            }.onFailure { err ->
+                _uiState.update { it.copy(errorBanner = err.message) }
+            }
+        }
+    }
+
+    fun toggleLoyaltyEnabled() {
+        val newValue = !_uiState.value.loyaltyEnabled
+        _uiState.update { it.copy(loyaltyEnabled = newValue) }
+        saveLoyaltySettings(newValue, _uiState.value.loyaltyCashbackPercent, _uiState.value.loyaltyMinRedeemCents)
+    }
+
+    fun onLoyaltyCashbackPercentChanged(percent: Double) {
+        val safe = percent.coerceIn(0.0, 100.0)
+        _uiState.update { it.copy(loyaltyCashbackPercent = safe) }
+        saveLoyaltySettings(_uiState.value.loyaltyEnabled, safe, _uiState.value.loyaltyMinRedeemCents)
+    }
+
+    fun onLoyaltyMinRedeemCentsChanged(cents: Long) {
+        val safe = cents.coerceAtLeast(0L)
+        _uiState.update { it.copy(loyaltyMinRedeemCents = safe) }
+        saveLoyaltySettings(_uiState.value.loyaltyEnabled, _uiState.value.loyaltyCashbackPercent, safe)
+    }
+
+    private fun saveLoyaltySettings(enabled: Boolean, percent: Double, minRedeem: Long) {
+        val s = _uiState.value
+        scope.launch {
+            val dto = SettingsDto(
+                storeName = s.storeName,
+                storeAddress = s.storeAddress,
+                storePhone = s.storePhone,
+                storeTaxId = s.storeTaxId,
+                ticketHeader = s.ticketHeader,
+                ticketFooter = s.ticketFooter,
+                currencySymbol = s.currencySymbol,
+                allowNegativeStock = s.allowNegativeStock,
+                blindCashCountEnabled = s.blindCashCountEnabled,
+                maxCashierDiscountPercent = s.maxCashierDiscountPercent,
+                loyaltyEnabled = enabled,
+                loyaltyCashbackPercent = percent,
+                loyaltyMinRedeemCents = minRedeem
+            )
+            apiClient.updateSettings(dto).onSuccess {
+                _uiState.update { it.copy(successBanner = if (enabled) "Monedero Electrónico ACTIVADO ($percent% cashback)" else "Monedero Electrónico DESACTIVADO") }
                 autoDismissBanner()
             }.onFailure { err ->
                 _uiState.update { it.copy(errorBanner = err.message) }

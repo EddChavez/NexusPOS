@@ -14,6 +14,8 @@ import mx.nexuspos.contracts.credit.CreateCustomerRequest
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.credit.UpdateCustomerRequest
+import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
+import mx.nexuspos.contracts.loyalty.LoyaltyMovementDto
 
 class CustomersViewModel(
     private val apiClient: ApiClient,
@@ -224,6 +226,61 @@ class CustomersViewModel(
                 }
                 loadCustomers()
                 loadCustomerStatement(customer.id)
+            }.onFailure { err ->
+                _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
+            }
+        }
+    }
+
+    fun openLoyaltyDialog(customer: CustomerDto) {
+        _uiState.update { it.copy(showLoyaltyDialog = true, selectedCustomer = customer, isLoyaltyLoading = true) }
+        scope.launch {
+            val res = apiClient.getCustomerLoyaltyMovements(customer.id)
+            res.onSuccess { movs ->
+                _uiState.update { it.copy(loyaltyMovements = movs, isLoyaltyLoading = false) }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLoyaltyLoading = false, errorMessage = err.message) }
+            }
+        }
+    }
+
+    fun closeLoyaltyDialog() {
+        _uiState.update { it.copy(showLoyaltyDialog = false) }
+    }
+
+    fun openAdjustLoyaltyDialog() {
+        _uiState.update { it.copy(showAdjustLoyaltyDialog = true) }
+    }
+
+    fun closeAdjustLoyaltyDialog() {
+        _uiState.update { it.copy(showAdjustLoyaltyDialog = false) }
+    }
+
+    fun adjustLoyaltyBalance(amountCents: Long, reason: String, userId: String = "usr-cajero") {
+        val cust = _uiState.value.selectedCustomer ?: return
+        scope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            val req = AdjustLoyaltyBalanceRequest(
+                customerId = cust.id,
+                amountCents = amountCents,
+                reason = reason,
+                userId = userId
+            )
+            val res = apiClient.adjustCustomerLoyalty(cust.id, req)
+            res.onSuccess { updatedCust ->
+                _uiState.update {
+                    it.copy(
+                        selectedCustomer = updatedCust,
+                        isSubmitting = false,
+                        showAdjustLoyaltyDialog = false,
+                        successMessage = "Saldo de monedero actualizado exitosamente (${if (amountCents >= 0) "+$" else "-$"}${"%.2f".format(kotlin.math.abs(amountCents) / 100.0)})"
+                    )
+                }
+                loadCustomers()
+                val movRes = apiClient.getCustomerLoyaltyMovements(cust.id)
+                movRes.onSuccess { movs ->
+                    _uiState.update { it.copy(loyaltyMovements = movs) }
+                }
             }.onFailure { err ->
                 _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
             }

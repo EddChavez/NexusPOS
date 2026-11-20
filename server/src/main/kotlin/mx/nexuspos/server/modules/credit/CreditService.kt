@@ -123,7 +123,8 @@ class CreditService(private val db: DatabaseFactory) {
         return db.inTransaction { conn ->
             val baseSql = """
                 SELECT id, folio, name, phone, email, rfc, address, notes, credit_enabled, has_credit_limit,
-                       credit_limit_cents, current_balance_cents, is_active, created_at, updated_at
+                       credit_limit_cents, current_balance_cents, loyalty_balance_cents, total_loyalty_earned_cents, total_loyalty_redeemed_cents,
+                       is_active, created_at, updated_at
                 FROM customers
             """.trimIndent()
 
@@ -171,7 +172,8 @@ class CreditService(private val db: DatabaseFactory) {
         val stmt = conn.prepareStatement(
             """
             SELECT id, folio, name, phone, email, rfc, address, notes, credit_enabled, has_credit_limit,
-                   credit_limit_cents, current_balance_cents, is_active, created_at, updated_at
+                   credit_limit_cents, current_balance_cents, loyalty_balance_cents, total_loyalty_earned_cents, total_loyalty_redeemed_cents,
+                   is_active, created_at, updated_at
             FROM customers WHERE id = ?
             """.trimIndent()
         )
@@ -208,6 +210,9 @@ class CreditService(private val db: DatabaseFactory) {
             creditLimitCents = limit,
             currentBalanceCents = balance,
             availableCreditCents = available,
+            loyaltyBalanceCents = rs.getLong("loyalty_balance_cents"),
+            totalLoyaltyEarnedCents = rs.getLong("total_loyalty_earned_cents"),
+            totalLoyaltyRedeemedCents = rs.getLong("total_loyalty_redeemed_cents"),
             isActive = rs.getBoolean("is_active"),
             createdAt = rs.getLong("created_at"),
             updatedAt = rs.getLong("updated_at")

@@ -43,6 +43,9 @@ import mx.nexuspos.contracts.inventory.ProductLotDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.inventory.ReorderSuggestionsReportDto
 import mx.nexuspos.contracts.inventory.StockMovementDto
+import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
+import mx.nexuspos.contracts.loyalty.LoyaltyMovementDto
+import mx.nexuspos.contracts.loyalty.LoyaltySummaryDto
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -513,7 +516,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun searchCustomers(query: String? = null, includeInactive: Boolean = false): Result<List<CustomerDto>> {
+    open suspend fun searchCustomers(query: String? = null, includeInactive: Boolean = false): Result<List<CustomerDto>> {
         return try {
             val res = http.get("$baseUrl/api/v1/customers") {
                 if (!query.isNullOrBlank()) parameter("query", query)
@@ -609,6 +612,51 @@ open class ApiClient(
     suspend fun registerCreditPayment(req: RegisterCreditPaymentRequest): Result<CreditMovementDto> {
         return try {
             val res = http.post("$baseUrl/api/v1/customers/${req.customerId}/credit/payments") {
+                contentType(ContentType.Application.Json)
+                setBody(req)
+            }
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getCustomerLoyaltyMovements(customerId: String): Result<List<LoyaltyMovementDto>> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/customers/$customerId/loyalty")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun getCustomerLoyaltySummary(customerId: String): Result<LoyaltySummaryDto> {
+        return try {
+            val res = http.get("$baseUrl/api/v1/customers/$customerId/loyalty/summary")
+            if (res.status.isSuccess()) {
+                Result.success(res.body())
+            } else {
+                val err = parseError(res)
+                Result.failure(Exception(err.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    open suspend fun adjustCustomerLoyalty(customerId: String, req: AdjustLoyaltyBalanceRequest): Result<CustomerDto> {
+        return try {
+            val res = http.post("$baseUrl/api/v1/customers/$customerId/loyalty/adjust") {
                 contentType(ContentType.Application.Json)
                 setBody(req)
             }

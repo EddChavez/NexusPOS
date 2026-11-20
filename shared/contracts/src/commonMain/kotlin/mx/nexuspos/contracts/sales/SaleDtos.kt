@@ -1,6 +1,7 @@
 package mx.nexuspos.contracts.sales
 
 import kotlinx.serialization.Serializable
+import mx.nexuspos.contracts.loyalty.SaleLoyaltyRewardDto
 
 @Serializable
 data class SaleLineItemRequest(
@@ -82,7 +83,8 @@ data class SaleResponse(
     val lines: List<SaleLineItemResponse>,
     val payments: List<SalePaymentResponse>,
     val createdAt: Long,
-    val refunds: List<SaleRefundResponse> = emptyList()
+    val refunds: List<SaleRefundResponse> = emptyList(),
+    val loyaltyReward: SaleLoyaltyRewardDto? = null
 )
 
 @Serializable

@@ -145,6 +145,9 @@ class EscPosReceiptPrinter(
                 "TRANSFER" -> {
                     sb.appendLine(formatRow("TRANSFERENCIA$refStr:", Money(pay.amountCents).format()))
                 }
+                "LOYALTY" -> {
+                    sb.appendLine(formatRow("MONEDERO ELECTRÓNICO:", Money(pay.amountCents).format()))
+                }
                 "CREDIT" -> {
                     sb.appendLine(centerText("** VENTA A CRÉDITO / FIADO **"))
                     sale.customerName?.let { sb.appendLine("Cliente: $it") }
@@ -161,6 +164,19 @@ class EscPosReceiptPrinter(
                     sb.appendLine(formatRow("PAGO (${pay.method})$refStr:", Money(pay.amountCents).format()))
                 }
             }
+        }
+
+        if (sale.loyaltyReward != null) {
+            val reward = sale.loyaltyReward!!
+            sb.appendLine(thinSep)
+            sb.appendLine(centerText("** MONEDERO ELECTRÓNICO **"))
+            if (reward.redeemedCents > 0L) {
+                sb.appendLine(formatRow("Saldo Redimido:", Money(reward.redeemedCents).format()))
+            }
+            if (reward.earnedCents > 0L) {
+                sb.appendLine(formatRow("Puntos Ganados (${reward.cashbackPercentApplied}%):", "+" + Money(reward.earnedCents).format()))
+            }
+            sb.appendLine(formatRow("Nuevo Saldo Disponible:", Money(reward.finalBalanceCents).format()))
         }
 
         sb.appendLine(sep)
@@ -226,6 +242,7 @@ class EscPosReceiptPrinter(
         val methodLabel = when (refund.refundMethod) {
             "CASH" -> "EFECTIVO (Gaveta)"
             "CREDIT" -> "SALDO A FAVOR (Crédito)"
+            "LOYALTY" -> "MONEDERO ELECTRÓNICO"
             else -> refund.refundMethod
         }
         sb.appendLine(formatRow("MÉTODO REEMBOLSO:", methodLabel))

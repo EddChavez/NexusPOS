@@ -32,6 +32,7 @@ enum class CheckoutPaymentMethod(val label: String, val methodCode: String) {
     CASH("Efectivo", "CASH"),
     CARD("Tarjeta", "CARD"),
     TRANSFER("Transferencia", "TRANSFER"),
+    LOYALTY("Monedero", "LOYALTY"),
     CREDIT("Crédito / Fiado", "CREDIT")
 }
 
@@ -80,6 +81,13 @@ fun MultiPaymentCheckoutDialog(
     // Credit inputs
     var creditAmountText by remember(remainingCents) {
         mutableStateOf(if (remainingCents > 0L) (remainingCents / 100.0).toString() else "")
+    }
+
+    // Loyalty inputs
+    var loyaltyAmountText by remember(remainingCents, selectedCustomer) {
+        val custBalance = selectedCustomer?.loyaltyBalanceCents ?: 0L
+        val maxUsable = minOf(remainingCents, custBalance)
+        mutableStateOf(if (maxUsable > 0L) (maxUsable / 100.0).toString() else "")
     }
 
     // Cash change calculation
@@ -274,6 +282,7 @@ fun MultiPaymentCheckoutDialog(
                                         CheckoutPaymentMethod.CASH -> Icons.Default.Payments
                                         CheckoutPaymentMethod.CARD -> Icons.Default.CreditCard
                                         CheckoutPaymentMethod.TRANSFER -> Icons.Default.AccountBalance
+                                        CheckoutPaymentMethod.LOYALTY -> Icons.Default.AccountBalanceWallet
                                         CheckoutPaymentMethod.CREDIT -> Icons.Default.Receipt
                                     },
                                     contentDescription = null,
@@ -459,6 +468,133 @@ fun MultiPaymentCheckoutDialog(
                                 }
                             }
 
+                            CheckoutPaymentMethod.LOYALTY -> {
+                                Text("Pago con Monedero Electrónico", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                                if (selectedCustomer != null) {
+                                    val loyaltyBal = selectedCustomer.loyaltyBalanceCents
+                                    Surface(
+                                        color = NexusTheme.colors.bgSurface,
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column {
+                                                Text(selectedCustomer.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                Text(
+                                                    "Saldo en Monedero: $${loyaltyBal / 100.0}",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (loyaltyBal > 0) Color(0xFF059669) else NexusTheme.colors.textSecondary
+                                                )
+                                            }
+                                            TextButton(onClick = onRequestSelectCustomer) {
+                                                Text("Cambiar", fontSize = 11.sp)
+                                            }
+                                        }
+                                    }
+
+                                    if (loyaltyBal <= 0L) {
+                                        Text(
+                                            "El cliente no cuenta con saldo acumulado en su monedero electrónico.",
+                                            fontSize = 12.sp,
+                                            color = Color(0xFFDC2626)
+                                        )
+                                    } else {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            val maxUsable = minOf(remainingCents, loyaltyBal)
+                                            FilledTonalButton(
+                                                onClick = {
+                                                    loyaltyAmountText = (maxUsable / 100.0).toString()
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("Pagar Restante ($${maxUsable / 100.0})", fontSize = 11.sp)
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    loyaltyAmountText = (loyaltyBal / 100.0).toString()
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("Usar Todo ($${loyaltyBal / 100.0})", fontSize = 11.sp)
+                                            }
+                                        }
+
+                                        OutlinedTextField(
+                                            value = loyaltyAmountText,
+                                            onValueChange = { loyaltyAmountText = it },
+                                            label = { Text("Importe a Redimir ($)") },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+
+                                        val enteredLoyaltyAmt = ((loyaltyAmountText.toDoubleOrNull() ?: 0.0) * 100.0).toLong()
+                                        val isOverBalance = enteredLoyaltyAmt > loyaltyBal
+
+                                        if (isOverBalance) {
+                                            Text(
+                                                "El monto excede el saldo disponible del cliente ($${loyaltyBal / 100.0})",
+                                                fontSize = 11.sp,
+                                                color = Color(0xFFDC2626)
+                                            )
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                if (enteredLoyaltyAmt > 0L && !isOverBalance) {
+                                                    addedPayments.add(SalePaymentRequest("LOYALTY", enteredLoyaltyAmt, 0L, "Monedero: ${selectedCustomer.name}"))
+                                                }
+                                            },
+                                            enabled = enteredLoyaltyAmt > 0L && !isOverBalance,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Agregar Pago con Monedero")
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        color = Color(0xFFDC2626).copy(alpha = 0.08f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFDC2626).copy(alpha = 0.3f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
+                                                Text("Se requiere seleccionar un cliente para usar su monedero", fontSize = 12.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.Bold)
+                                            }
+                                            Button(
+                                                onClick = onRequestSelectCustomer,
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Seleccionar Cliente")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             CheckoutPaymentMethod.CREDIT -> {
                                 Text("Cargo a Crédito Fiado del Cliente", fontWeight = FontWeight.Bold, fontSize = 13.sp)
 
@@ -572,6 +708,7 @@ fun MultiPaymentCheckoutDialog(
                                                 "CASH" -> Icons.Default.Payments
                                                 "CARD" -> Icons.Default.CreditCard
                                                 "TRANSFER" -> Icons.Default.AccountBalance
+                                                "LOYALTY" -> Icons.Default.AccountBalanceWallet
                                                 else -> Icons.Default.Receipt
                                             },
                                             contentDescription = null,
@@ -584,6 +721,7 @@ fun MultiPaymentCheckoutDialog(
                                                     "CASH" -> "Efectivo"
                                                     "CARD" -> "Tarjeta" + if (p.reference.isNotBlank()) " (${p.reference})" else ""
                                                     "TRANSFER" -> "Transferencia" + if (p.reference.isNotBlank()) " (${p.reference})" else ""
+                                                    "LOYALTY" -> "Monedero Electrónico"
                                                     else -> "Crédito Fiado"
                                                 },
                                                 fontWeight = FontWeight.Bold,

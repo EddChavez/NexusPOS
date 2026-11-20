@@ -19,6 +19,9 @@ data class SettingsUiState(
     val allowNegativeStock: Boolean = true,
     val blindCashCountEnabled: Boolean = false,
     val maxCashierDiscountPercent: Double = 10.0,
+    val loyaltyEnabled: Boolean = true,
+    val loyaltyCashbackPercent: Double = 1.0,
+    val loyaltyMinRedeemCents: Long = 0L,
     // Users
     val users: List<UserDto> = emptyList(),
     val isLoadingUsers: Boolean = false,

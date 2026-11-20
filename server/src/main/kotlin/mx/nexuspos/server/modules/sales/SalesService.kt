@@ -2,6 +2,7 @@ package mx.nexuspos.server.modules.sales
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import mx.nexuspos.contracts.loyalty.SaleLoyaltyRewardDto
 import mx.nexuspos.contracts.sales.*
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.PricingRules
@@ -218,81 +219,141 @@ class SalesService(
             var customerRemainingCreditCents: Long? = null
             var supervisorAuditNote: String? = null
             var finalCustomerBalance: Long? = null
+            var loyaltyReward: SaleLoyaltyRewardDto? = null
 
             val creditPayment = request.payments.firstOrNull { it.method == "CREDIT" }
-            if (creditPayment != null) {
-                if (request.customerId.isNullOrBlank()) {
-                    throw ValidationException("La venta a crédito requiere seleccionar un cliente")
-                }
-                val custStmt = conn.prepareStatement(
-                    "SELECT name, credit_enabled, has_credit_limit, credit_limit_cents, current_balance_cents FROM customers WHERE id = ? FOR UPDATE"
-                )
-                custStmt.setString(1, request.customerId)
-                val custRs = custStmt.executeQuery()
-                if (!custRs.next()) {
+            val loyaltyPayment = request.payments.firstOrNull { it.method == "LOYALTY" }
+
+            if (creditPayment != null || loyaltyPayment != null || !request.customerId.isNullOrBlank()) {
+                val custId = request.customerId
+                if (custId.isNullOrBlank()) {
+                    if (creditPayment != null) {
+                        throw ValidationException("La venta a crédito requiere seleccionar un cliente")
+                    }
+                    if (loyaltyPayment != null) {
+                        throw ValidationException("El pago con monedero electrónico requiere seleccionar un cliente")
+                    }
+                } else {
+                    val custStmt = conn.prepareStatement(
+                        """
+                        SELECT name, credit_enabled, has_credit_limit, credit_limit_cents, current_balance_cents,
+                               loyalty_balance_cents, total_loyalty_earned_cents, total_loyalty_redeemed_cents
+                        FROM customers WHERE id = ? FOR UPDATE
+                        """.trimIndent()
+                    )
+                    custStmt.setString(1, custId)
+                    val custRs = custStmt.executeQuery()
+                    if (!custRs.next()) {
+                        custRs.close()
+                        custStmt.close()
+                        throw NotFoundException("Cliente '$custId' no encontrado")
+                    }
+
+                    customerName = custRs.getString("name")
+                    val creditEnabled = custRs.getBoolean("credit_enabled")
+                    val hasCreditLimit = custRs.getBoolean("has_credit_limit")
+                    val creditLimit = custRs.getLong("credit_limit_cents")
+                    val currentCreditBalance = custRs.getLong("current_balance_cents")
+                    var currentLoyaltyBalance = custRs.getLong("loyalty_balance_cents")
+                    var currentTotalEarned = custRs.getLong("total_loyalty_earned_cents")
+                    var currentTotalRedeemed = custRs.getLong("total_loyalty_redeemed_cents")
+                    val previousLoyaltyBalance = currentLoyaltyBalance
                     custRs.close()
                     custStmt.close()
-                    throw NotFoundException("Cliente '${request.customerId}' no encontrado")
-                }
 
-                customerName = custRs.getString("name")
-                val creditEnabled = custRs.getBoolean("credit_enabled")
-                val hasCreditLimit = custRs.getBoolean("has_credit_limit")
-                val creditLimit = custRs.getLong("credit_limit_cents")
-                val currentBalance = custRs.getLong("current_balance_cents")
-                custRs.close()
-                custStmt.close()
+                    // A. Validar y procesar crédito
+                    var newCreditBalance = currentCreditBalance
+                    if (creditPayment != null) {
+                        if (!creditEnabled) {
+                            throw ValidationException("El cliente '$customerName' no tiene crédito habilitado")
+                        }
+                        newCreditBalance = currentCreditBalance + creditPayment.amountCents
+                        if (hasCreditLimit && newCreditBalance > creditLimit) {
+                            val supPin = request.supervisorAuthPin
+                            if (supPin.isNullOrBlank()) {
+                                throw CreditLimitExceededException(
+                                    "Límite de crédito excedido para '$customerName'. Límite: $${creditLimit / 100.0}, Saldo nuevo sería: $${newCreditBalance / 100.0}. Se requiere autorización de supervisor."
+                                )
+                            }
+                            val supStmt = conn.prepareStatement(
+                                "SELECT name, pin_hash FROM users WHERE role IN ('ADMIN', 'SUPERVISOR') AND is_active = TRUE"
+                            )
+                            val supRs = supStmt.executeQuery()
+                            var authorizedSupervisor: String? = null
+                            while (supRs.next()) {
+                                val hash = supRs.getString("pin_hash")
+                                if (Security.verifyPin(supPin, hash)) {
+                                    authorizedSupervisor = supRs.getString("name")
+                                    break
+                                }
+                            }
+                            supRs.close()
+                            supStmt.close()
+                            if (authorizedSupervisor == null) {
+                                throw ForbiddenException("PIN de supervisor inválido o no autorizado para autorizar sobregiro de crédito")
+                            }
+                            supervisorAuditNote = "Sobregiro autorizado por $authorizedSupervisor" +
+                                if (!request.supervisorAuthReason.isNullOrBlank()) " (${request.supervisorAuthReason})" else ""
+                        }
+                        customerRemainingCreditCents = if (!hasCreditLimit) 99999900L else (creditLimit - newCreditBalance).coerceAtLeast(0L)
+                        finalCustomerBalance = newCreditBalance
+                    }
 
-                if (!creditEnabled) {
-                    throw ValidationException("El cliente '$customerName' no tiene crédito habilitado")
-                }
+                    // B. Validar y procesar Monedero Electrónico (Redeem)
+                    var redeemedCents = 0L
+                    if (loyaltyPayment != null) {
+                        if (currentLoyaltyBalance < loyaltyPayment.amountCents) {
+                            throw ValidationException("Saldo insuficiente en monedero: disponible $${currentLoyaltyBalance / 100.0}, requerido $${loyaltyPayment.amountCents / 100.0}")
+                        }
+                        if (settings.loyaltyMinRedeemCents > 0L && currentLoyaltyBalance < settings.loyaltyMinRedeemCents) {
+                            throw ValidationException("El saldo mínimo para redimir monedero es de $${settings.loyaltyMinRedeemCents / 100.0}")
+                        }
+                        redeemedCents = loyaltyPayment.amountCents
+                        currentLoyaltyBalance -= redeemedCents
+                        currentTotalRedeemed += redeemedCents
+                    }
 
-                val newBalance = currentBalance + creditPayment.amountCents
-                if (hasCreditLimit && newBalance > creditLimit) {
-                    val supPin = request.supervisorAuthPin
-                    if (supPin.isNullOrBlank()) {
-                        throw CreditLimitExceededException(
-                            "Límite de crédito excedido para '$customerName'. Límite: $${creditLimit / 100.0}, Saldo nuevo sería: $${newBalance / 100.0}. Se requiere autorización de supervisor."
+                    // C. Calcular Cashback Ganado (solo sobre dinero real: efectivo, tarjeta, transferencia)
+                    var earnedCents = 0L
+                    if (settings.loyaltyEnabled) {
+                        val realMoneyPaid = request.payments
+                            .filter { it.method != "LOYALTY" }
+                            .sumOf { it.amountCents }
+                            .coerceAtMost(calculatedTotalCents)
+                        if (realMoneyPaid > 0L && settings.loyaltyCashbackPercent > 0.0) {
+                            earnedCents = (realMoneyPaid * settings.loyaltyCashbackPercent / 100.0).roundToLong().coerceAtLeast(0L)
+                            currentLoyaltyBalance += earnedCents
+                            currentTotalEarned += earnedCents
+                        }
+                    }
+
+                    if (redeemedCents > 0L || earnedCents > 0L) {
+                        loyaltyReward = SaleLoyaltyRewardDto(
+                            earnedCents = earnedCents,
+                            redeemedCents = redeemedCents,
+                            previousBalanceCents = previousLoyaltyBalance,
+                            finalBalanceCents = currentLoyaltyBalance,
+                            cashbackPercentApplied = settings.loyaltyCashbackPercent
                         )
                     }
 
-                    // Verify supervisor pin in users table
-                    val supStmt = conn.prepareStatement(
-                        "SELECT name, pin_hash FROM users WHERE role IN ('ADMIN', 'SUPERVISOR') AND is_active = TRUE"
+                    val nowCust = System.currentTimeMillis()
+                    val updateCustStmt = conn.prepareStatement(
+                        """
+                        UPDATE customers 
+                        SET current_balance_cents = ?, loyalty_balance_cents = ?, total_loyalty_earned_cents = ?, total_loyalty_redeemed_cents = ?, updated_at = ?
+                        WHERE id = ?
+                        """.trimIndent()
                     )
-                    val supRs = supStmt.executeQuery()
-                    var authorizedSupervisor: String? = null
-                    while (supRs.next()) {
-                        val hash = supRs.getString("pin_hash")
-                        if (Security.verifyPin(supPin, hash)) {
-                            authorizedSupervisor = supRs.getString("name")
-                            break
-                        }
-                    }
-                    supRs.close()
-                    supStmt.close()
-
-                    if (authorizedSupervisor == null) {
-                        throw ForbiddenException("PIN de supervisor inválido o no autorizado para autorizar sobregiro de crédito")
-                    }
-
-                    supervisorAuditNote = "Sobregiro autorizado por $authorizedSupervisor" +
-                        if (!request.supervisorAuthReason.isNullOrBlank()) " (${request.supervisorAuthReason})" else ""
+                    updateCustStmt.setLong(1, newCreditBalance)
+                    updateCustStmt.setLong(2, currentLoyaltyBalance)
+                    updateCustStmt.setLong(3, currentTotalEarned)
+                    updateCustStmt.setLong(4, currentTotalRedeemed)
+                    updateCustStmt.setLong(5, nowCust)
+                    updateCustStmt.setString(6, custId)
+                    updateCustStmt.executeUpdate()
+                    updateCustStmt.close()
                 }
-
-                customerRemainingCreditCents = if (!hasCreditLimit) 99999900L else (creditLimit - newBalance).coerceAtLeast(0L)
-                finalCustomerBalance = newBalance
-
-                val nowCust = System.currentTimeMillis()
-                // Update customer balance
-                val updateCustStmt = conn.prepareStatement(
-                    "UPDATE customers SET current_balance_cents = ?, updated_at = ? WHERE id = ?"
-                )
-                updateCustStmt.setLong(1, newBalance)
-                updateCustStmt.setLong(2, nowCust)
-                updateCustStmt.setString(3, request.customerId)
-                updateCustStmt.executeUpdate()
-                updateCustStmt.close()
             }
 
             // 7. Atomic Consecutivo (Folio)
@@ -467,6 +528,48 @@ class SalesService(
                 cmovStmt.close()
             }
 
+            // 11b. Record Loyalty Movements if redeemed or earned
+            if (loyaltyReward != null && request.customerId != null) {
+                if (loyaltyReward.redeemedCents > 0L) {
+                    val rmovStmt = conn.prepareStatement(
+                        """
+                        INSERT INTO customer_loyalty_movements (id, customer_id, sale_id, type, amount_cents, balance_after_cents, description, user_id, created_at)
+                        VALUES (?, ?, ?, 'REDEEM', ?, ?, ?, ?, ?)
+                        """.trimIndent()
+                    )
+                    rmovStmt.setString(1, "lm-" + UUID.randomUUID().toString().take(12))
+                    rmovStmt.setString(2, request.customerId)
+                    rmovStmt.setString(3, saleId)
+                    rmovStmt.setLong(4, -loyaltyReward.redeemedCents)
+                    val balAfterRedeem = loyaltyReward.previousBalanceCents - loyaltyReward.redeemedCents
+                    rmovStmt.setLong(5, balAfterRedeem)
+                    rmovStmt.setString(6, "Pago con monedero en venta folio #$nextFolio")
+                    rmovStmt.setString(7, request.cashierUserId)
+                    rmovStmt.setLong(8, now)
+                    rmovStmt.executeUpdate()
+                    rmovStmt.close()
+                }
+
+                if (loyaltyReward.earnedCents > 0L) {
+                    val emovStmt = conn.prepareStatement(
+                        """
+                        INSERT INTO customer_loyalty_movements (id, customer_id, sale_id, type, amount_cents, balance_after_cents, description, user_id, created_at)
+                        VALUES (?, ?, ?, 'EARN', ?, ?, ?, ?, ?)
+                        """.trimIndent()
+                    )
+                    emovStmt.setString(1, "lm-" + UUID.randomUUID().toString().take(12))
+                    emovStmt.setString(2, request.customerId)
+                    emovStmt.setString(3, saleId)
+                    emovStmt.setLong(4, loyaltyReward.earnedCents)
+                    emovStmt.setLong(5, loyaltyReward.finalBalanceCents)
+                    emovStmt.setString(6, "Cashback (${loyaltyReward.cashbackPercentApplied}%) en venta folio #$nextFolio")
+                    emovStmt.setString(7, request.cashierUserId)
+                    emovStmt.setLong(8, now)
+                    emovStmt.executeUpdate()
+                    emovStmt.close()
+                }
+            }
+
             // Fetch Cashier Name
             val userStmt = conn.prepareStatement("SELECT name FROM users WHERE id = ?")
             userStmt.setString(1, request.cashierUserId)
@@ -489,7 +592,8 @@ class SalesService(
                 discountCents = totalDiscountCents,
                 lines = lineResponses,
                 payments = paymentResponses,
-                createdAt = now
+                createdAt = now,
+                loyaltyReward = loyaltyReward
             )
 
             // 12. Save Idempotency Key
@@ -1074,6 +1178,8 @@ class SalesService(
                 throw SessionClosedException("La sesión de caja '${request.cashSessionId}' no está abierta para procesar devoluciones")
             }
 
+            val settings = settingsService.getSettings()
+
             // 3. Supervisor PIN check if cashier is CASHIER or supervisorPin provided
             val userStmt = conn.prepareStatement("SELECT role FROM users WHERE id = ?")
             userStmt.setString(1, request.cashierUserId)
@@ -1371,6 +1477,43 @@ class SalesService(
                 }
                 custRs.close()
                 custStmt.close()
+            } else if (request.refundMethod.uppercase() == "LOYALTY") {
+                if (saleCustomerId.isNullOrBlank()) {
+                    throw ValidationException("No se puede reembolsar a monedero porque la venta no tiene cliente asociado")
+                }
+                val custStmt = conn.prepareStatement("SELECT loyalty_balance_cents FROM customers WHERE id = ? FOR UPDATE")
+                custStmt.setString(1, saleCustomerId)
+                val custRs = custStmt.executeQuery()
+                if (custRs.next()) {
+                    val currentLoy = custRs.getLong("loyalty_balance_cents")
+                    val newLoy = currentLoy + refundTotalCents
+
+                    val updateCustStmt = conn.prepareStatement("UPDATE customers SET loyalty_balance_cents = ?, updated_at = ? WHERE id = ?")
+                    updateCustStmt.setLong(1, newLoy)
+                    updateCustStmt.setLong(2, now)
+                    updateCustStmt.setString(3, saleCustomerId)
+                    updateCustStmt.executeUpdate()
+                    updateCustStmt.close()
+
+                    val lmovStmt = conn.prepareStatement(
+                        """
+                        INSERT INTO customer_loyalty_movements (id, customer_id, sale_id, type, amount_cents, balance_after_cents, description, user_id, created_at)
+                        VALUES (?, ?, ?, 'REFUND_CREDIT', ?, ?, ?, ?, ?)
+                        """.trimIndent()
+                    )
+                    lmovStmt.setString(1, "lm-" + UUID.randomUUID().toString().take(12))
+                    lmovStmt.setString(2, saleCustomerId)
+                    lmovStmt.setString(3, saleId)
+                    lmovStmt.setLong(4, refundTotalCents)
+                    lmovStmt.setLong(5, newLoy)
+                    lmovStmt.setString(6, "Reembolso abonado a monedero electrónico por nota #$nextRefundFolio")
+                    lmovStmt.setString(7, request.cashierUserId)
+                    lmovStmt.setLong(8, now)
+                    lmovStmt.executeUpdate()
+                    lmovStmt.close()
+                }
+                custRs.close()
+                custStmt.close()
             } else {
                 // Deduct cash from active cash session
                 val updateCashStmt = conn.prepareStatement(
@@ -1380,6 +1523,45 @@ class SalesService(
                 updateCashStmt.setString(2, request.cashSessionId)
                 updateCashStmt.executeUpdate()
                 updateCashStmt.close()
+            }
+
+            // 8b. Revert proportional cashback if applicable
+            if (!saleCustomerId.isNullOrBlank() && settings.loyaltyEnabled && settings.loyaltyCashbackPercent > 0.0) {
+                val cashbackToReverse = (refundTotalCents * settings.loyaltyCashbackPercent / 100.0).roundToLong()
+                if (cashbackToReverse > 0L) {
+                    val updateCustStmt = conn.prepareStatement(
+                        "UPDATE customers SET loyalty_balance_cents = GREATEST(0, loyalty_balance_cents - ?), updated_at = ? WHERE id = ?"
+                    )
+                    updateCustStmt.setLong(1, cashbackToReverse)
+                    updateCustStmt.setLong(2, now)
+                    updateCustStmt.setString(3, saleCustomerId)
+                    updateCustStmt.executeUpdate()
+                    updateCustStmt.close()
+
+                    val lstmt = conn.prepareStatement("SELECT loyalty_balance_cents FROM customers WHERE id = ?")
+                    lstmt.setString(1, saleCustomerId)
+                    val lrs = lstmt.executeQuery()
+                    val newLoyBal = if (lrs.next()) lrs.getLong("loyalty_balance_cents") else 0L
+                    lrs.close()
+                    lstmt.close()
+
+                    val lmovStmt = conn.prepareStatement(
+                        """
+                        INSERT INTO customer_loyalty_movements (id, customer_id, sale_id, type, amount_cents, balance_after_cents, description, user_id, created_at)
+                        VALUES (?, ?, ?, 'REFUND_REVERSAL', ?, ?, ?, ?, ?)
+                        """.trimIndent()
+                    )
+                    lmovStmt.setString(1, "lm-" + UUID.randomUUID().toString().take(12))
+                    lmovStmt.setString(2, saleCustomerId)
+                    lmovStmt.setString(3, saleId)
+                    lmovStmt.setLong(4, -cashbackToReverse)
+                    lmovStmt.setLong(5, newLoyBal)
+                    lmovStmt.setString(6, "Reversión de cashback (${settings.loyaltyCashbackPercent}%) por devolución nota #$nextRefundFolio")
+                    lmovStmt.setString(7, request.cashierUserId)
+                    lmovStmt.setLong(8, now)
+                    lmovStmt.executeUpdate()
+                    lmovStmt.close()
+                }
             }
 
             // 9. Update Sale Status (PARTIALLY_REFUNDED vs REFUNDED)
