@@ -11,6 +11,7 @@ import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.auth.SupervisorAction
 import mx.nexuspos.client.features.header.ScaleReading
+import mx.nexuspos.client.features.whatsapp.WhatsAppMessageFormatter
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.ProductDto
@@ -26,6 +27,7 @@ import mx.nexuspos.contracts.sales.SaleLineItemRequest
 import mx.nexuspos.contracts.sales.SalePaymentRequest
 import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
+import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.PricingRules
 import mx.nexuspos.core.ProductUnit
@@ -39,10 +41,39 @@ class SalesViewModel(
     private val _uiState = MutableStateFlow(SalesUiState())
     val uiState: StateFlow<SalesUiState> = _uiState.asStateFlow()
 
+    var currentSettings: SettingsDto? = null
+
     init {
         checkServerConnection()
         loadActiveSession()
         loadParkedSales()
+        loadSettings()
+    }
+
+    fun loadSettings() {
+        scope.launch {
+            apiClient.getSettings().onSuccess { s ->
+                currentSettings = s
+                _uiState.update { it.copy(maxCashierDiscountPercent = s.maxCashierDiscountPercent) }
+            }
+        }
+    }
+
+    fun openSaleWhatsAppDialog(sale: SaleResponse) {
+        val phone = _uiState.value.selectedCustomer?.phone?.ifBlank { "" } ?: ""
+        val text = WhatsAppMessageFormatter.formatSaleTicket(sale, currentSettings)
+        _uiState.update {
+            it.copy(
+                isShowingWhatsAppDialog = true,
+                whatsAppMessageText = text,
+                whatsAppInitialPhone = phone,
+                whatsAppDialogTitle = "Enviar Ticket Folio #${sale.folio} por WhatsApp"
+            )
+        }
+    }
+
+    fun closeWhatsAppDialog() {
+        _uiState.update { it.copy(isShowingWhatsAppDialog = false) }
     }
 
     fun checkServerConnection() {

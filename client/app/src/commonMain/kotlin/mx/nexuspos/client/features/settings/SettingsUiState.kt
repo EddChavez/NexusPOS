@@ -15,6 +15,9 @@ data class SettingsUiState(
     val ticketHeader: String = "",
     val ticketFooter: String = "",
     val currencySymbol: String = "$",
+    val whatsappCountryCode: String = "52",
+    val whatsappBankDetails: String = "",
+    val whatsappCustomFooter: String = "¡Gracias por su preferencia!",
     // Policies
     val allowNegativeStock: Boolean = true,
     val blindCashCountEnabled: Boolean = false,

@@ -10,12 +10,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
+import mx.nexuspos.client.features.whatsapp.WhatsAppMessageFormatter
 import mx.nexuspos.contracts.credit.CreateCustomerRequest
+import mx.nexuspos.contracts.credit.CreditMovementDto
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.credit.UpdateCustomerRequest
 import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
 import mx.nexuspos.contracts.loyalty.LoyaltyMovementDto
+import mx.nexuspos.contracts.system.SettingsDto
 
 class CustomersViewModel(
     private val apiClient: ApiClient,
@@ -24,10 +27,47 @@ class CustomersViewModel(
     private val _uiState = MutableStateFlow(CustomersUiState())
     val uiState: StateFlow<CustomersUiState> = _uiState.asStateFlow()
 
+    var currentSettings: SettingsDto? = null
     private var searchJob: Job? = null
 
     init {
         loadCustomers()
+        loadSettings()
+    }
+
+    fun loadSettings() {
+        scope.launch {
+            apiClient.getSettings().onSuccess { s -> currentSettings = s }
+        }
+    }
+
+    fun openStatementWhatsAppDialog(customer: CustomerDto) {
+        val statement = _uiState.value.statement
+        val text = WhatsAppMessageFormatter.formatCustomerStatement(customer, statement, currentSettings)
+        _uiState.update {
+            it.copy(
+                showWhatsAppDialog = true,
+                whatsAppMessageText = text,
+                whatsAppInitialPhone = customer.phone,
+                whatsAppDialogTitle = "Enviar Estado de Cuenta a ${customer.name}"
+            )
+        }
+    }
+
+    fun openPaymentReceiptWhatsAppDialog(customer: CustomerDto, payment: CreditMovementDto) {
+        val text = WhatsAppMessageFormatter.formatCreditPayment(customer, payment, currentSettings)
+        _uiState.update {
+            it.copy(
+                showWhatsAppDialog = true,
+                whatsAppMessageText = text,
+                whatsAppInitialPhone = customer.phone,
+                whatsAppDialogTitle = "Enviar Comprobante de Abono a ${customer.name}"
+            )
+        }
+    }
+
+    fun closeWhatsAppDialog() {
+        _uiState.update { it.copy(showWhatsAppDialog = false) }
     }
 
     fun loadCustomers(query: String? = _uiState.value.searchQuery) {

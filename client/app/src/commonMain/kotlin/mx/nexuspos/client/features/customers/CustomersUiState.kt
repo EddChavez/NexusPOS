@@ -21,6 +21,10 @@ data class CustomersUiState(
     val customerToEdit: CustomerDto? = null,
     val showPaymentDialog: Boolean = false,
     val isFullLiquidation: Boolean = false,
+    val showWhatsAppDialog: Boolean = false,
+    val whatsAppMessageText: String = "",
+    val whatsAppInitialPhone: String = "",
+    val whatsAppDialogTitle: String = "Enviar por WhatsApp",
     val errorMessage: String? = null,
     val successMessage: String? = null
 )

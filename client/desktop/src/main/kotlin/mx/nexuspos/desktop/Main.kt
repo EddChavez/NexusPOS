@@ -34,6 +34,7 @@ import mx.nexuspos.client.features.cash.CashCutScreen
 import mx.nexuspos.client.features.cash.CashCutViewModel
 import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
+import mx.nexuspos.desktop.hardware.WhatsAppDispatcher
 import mx.nexuspos.client.features.inventory.InventoryScreen
 import mx.nexuspos.client.features.inventory.InventoryViewModel
 import mx.nexuspos.desktop.inventory.ReorderExportHelper
@@ -757,7 +758,9 @@ fun main() = application {
                                         } else {
                                             viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
                                         }
-                                    }
+                                    },
+                                    onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
+                                    onCopyText = { WhatsAppDispatcher.copyToClipboard(it) }
                                 )
                             }
                             AppModule.CASH_CUT -> {
@@ -772,6 +775,8 @@ fun main() = application {
                                     viewModel = customersViewModel,
                                     cashSessionId = salesState.activeSession?.sessionId ?: "caja-1",
                                     cashierUserId = salesState.activeCashierId,
+                                    onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
+                                    onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
                                     onBackToSales = { activeModule = AppModule.SALES }
                                 )
                             }

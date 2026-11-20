@@ -90,7 +90,10 @@ class SettingsViewModel(
                         maxCashierDiscountPercent = dto.maxCashierDiscountPercent,
                         loyaltyEnabled = dto.loyaltyEnabled,
                         loyaltyCashbackPercent = dto.loyaltyCashbackPercent,
-                        loyaltyMinRedeemCents = dto.loyaltyMinRedeemCents
+                        loyaltyMinRedeemCents = dto.loyaltyMinRedeemCents,
+                        whatsappCountryCode = dto.whatsappCountryCode,
+                        whatsappBankDetails = dto.whatsappBankDetails,
+                        whatsappCustomFooter = dto.whatsappCustomFooter
                     )
                 }
             }.onFailure { err ->
@@ -129,6 +132,9 @@ class SettingsViewModel(
     fun onTicketHeaderChanged(v: String) = _uiState.update { it.copy(ticketHeader = v) }
     fun onTicketFooterChanged(v: String) = _uiState.update { it.copy(ticketFooter = v) }
     fun onCurrencySymbolChanged(v: String) = _uiState.update { it.copy(currencySymbol = v) }
+    fun onWhatsappCountryCodeChanged(v: String) = _uiState.update { it.copy(whatsappCountryCode = v) }
+    fun onWhatsappBankDetailsChanged(v: String) = _uiState.update { it.copy(whatsappBankDetails = v) }
+    fun onWhatsappCustomFooterChanged(v: String) = _uiState.update { it.copy(whatsappCustomFooter = v) }
 
     fun saveStoreSettings() {
         val s = _uiState.value
@@ -147,7 +153,10 @@ class SettingsViewModel(
                 maxCashierDiscountPercent = s.maxCashierDiscountPercent,
                 loyaltyEnabled = s.loyaltyEnabled,
                 loyaltyCashbackPercent = s.loyaltyCashbackPercent,
-                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents
+                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents,
+                whatsappCountryCode = s.whatsappCountryCode,
+                whatsappBankDetails = s.whatsappBankDetails,
+                whatsappCustomFooter = s.whatsappCustomFooter
             )
             val res = apiClient.updateSettings(dto)
             res.onSuccess {
@@ -180,7 +189,10 @@ class SettingsViewModel(
                 maxCashierDiscountPercent = s.maxCashierDiscountPercent,
                 loyaltyEnabled = s.loyaltyEnabled,
                 loyaltyCashbackPercent = s.loyaltyCashbackPercent,
-                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents
+                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents,
+                whatsappCountryCode = s.whatsappCountryCode,
+                whatsappBankDetails = s.whatsappBankDetails,
+                whatsappCustomFooter = s.whatsappCustomFooter
             )
             apiClient.updateSettings(dto).onSuccess {
                 _uiState.update { it.copy(successBanner = if (newValue) "Política cambiada a Flexible (stock negativo permitido)" else "Política cambiada a Estricto (stock negativo bloqueado)") }
@@ -210,7 +222,10 @@ class SettingsViewModel(
                 maxCashierDiscountPercent = s.maxCashierDiscountPercent,
                 loyaltyEnabled = s.loyaltyEnabled,
                 loyaltyCashbackPercent = s.loyaltyCashbackPercent,
-                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents
+                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents,
+                whatsappCountryCode = s.whatsappCountryCode,
+                whatsappBankDetails = s.whatsappBankDetails,
+                whatsappCustomFooter = s.whatsappCustomFooter
             )
             apiClient.updateSettings(dto).onSuccess {
                 _uiState.update { it.copy(successBanner = if (newValue) "Modo Arqueo Ciego ACTIVADO (esperado oculto en caja)" else "Modo Arqueo Ciego DESACTIVADO") }
@@ -239,7 +254,10 @@ class SettingsViewModel(
                 maxCashierDiscountPercent = safe,
                 loyaltyEnabled = s.loyaltyEnabled,
                 loyaltyCashbackPercent = s.loyaltyCashbackPercent,
-                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents
+                loyaltyMinRedeemCents = s.loyaltyMinRedeemCents,
+                whatsappCountryCode = s.whatsappCountryCode,
+                whatsappBankDetails = s.whatsappBankDetails,
+                whatsappCustomFooter = s.whatsappCustomFooter
             )
             apiClient.updateSettings(dto).onSuccess {
                 _uiState.update { it.copy(successBanner = "Límite de descuento para cajeros actualizado a $safe%") }

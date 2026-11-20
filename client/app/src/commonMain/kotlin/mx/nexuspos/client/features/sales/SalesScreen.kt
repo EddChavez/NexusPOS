@@ -31,6 +31,8 @@ fun SalesScreen(
     viewModel: SalesViewModel = remember { SalesViewModel() },
     scaleReading: mx.nexuspos.client.features.header.ScaleReading = mx.nexuspos.client.features.header.ScaleReading(),
     onRequestCancelSale: ((sale: SaleResponse, reason: String) -> Unit)? = null,
+    onOpenWhatsApp: (url: String) -> Unit = {},
+    onCopyText: (text: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -83,6 +85,37 @@ fun SalesScreen(
                 onDismissError = viewModel::clearMessages,
                 onDismissSuccess = viewModel::clearMessages
             )
+
+            // Banner de Envío Rápido por WhatsApp para última venta completada
+            if (state.lastCompletedSale != null && state.successMessage != null) {
+                Surface(
+                    color = Color(0xFF25D366).copy(alpha = 0.12f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFF25D366).copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Ticket #${state.lastCompletedSale!!.folio} listo para envío digital",
+                            color = Color(0xFF1E7E34),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Button(
+                            onClick = { viewModel.openSaleWhatsAppDialog(state.lastCompletedSale!!) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+                        ) {
+                            Text("📲 Enviar Ticket por WhatsApp", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
 
             // Parrilla de Productos en Venta (Data Grid Central - Scroll Independiente con LazyColumn)
             CartGrid(
@@ -267,6 +300,7 @@ fun SalesScreen(
                 onReprintTicket = { viewModel.reprintTicket(it) },
                 onRefundSale = { viewModel.promptRefundSale(it) },
                 onCancelSale = { viewModel.startCancelSaleFlow(it) },
+                onSendWhatsApp = { viewModel.openSaleWhatsAppDialog(it) },
                 onDismiss = { viewModel.closeSalesHistoryDialog() }
             )
         }
@@ -333,6 +367,19 @@ fun SalesScreen(
                 onRetrieve = { viewModel.retrieveParkedSale(it) },
                 onDiscard = { viewModel.discardParkedSale(it) },
                 onDismiss = { viewModel.closeParkedSalesListDialog() }
+            )
+        }
+
+        if (state.isShowingWhatsAppDialog) {
+            mx.nexuspos.client.features.whatsapp.WhatsAppSendDialog(
+                isOpen = true,
+                title = state.whatsAppDialogTitle,
+                initialPhone = state.whatsAppInitialPhone,
+                messageText = state.whatsAppMessageText,
+                defaultCountryCode = viewModel.currentSettings?.whatsappCountryCode ?: "52",
+                onSend = onOpenWhatsApp,
+                onCopyText = onCopyText,
+                onDismiss = { viewModel.closeWhatsAppDialog() }
             )
         }
     }

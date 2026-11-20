@@ -266,6 +266,42 @@ private fun StoreTicketTab(state: SettingsUiState, viewModel: SettingsViewModel)
             )
 
             Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Envío Digital por WhatsApp",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = NexusTheme.colors.textPrimary
+            )
+            HorizontalDivider(color = NexusTheme.colors.borderSubtle)
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = state.whatsappCountryCode,
+                    onValueChange = viewModel::onWhatsappCountryCodeChanged,
+                    label = { Text("Lada País (ej. 52)") },
+                    singleLine = true,
+                    modifier = Modifier.width(140.dp)
+                )
+                OutlinedTextField(
+                    value = state.whatsappCustomFooter,
+                    onValueChange = viewModel::onWhatsappCustomFooterChanged,
+                    label = { Text("Mensaje de Despedida") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            OutlinedTextField(
+                value = state.whatsappBankDetails,
+                onValueChange = viewModel::onWhatsappBankDetailsChanged,
+                label = { Text("Datos Bancarios para Transferencias (Cobranza Fiados)") },
+                placeholder = { Text("Ej: Banco BBVA | CLABE: 012180001234567890 | Don Pepe") },
+                minLines = 2,
+                maxLines = 3,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(4.dp))
 
             Button(
                 onClick = viewModel::saveStoreSettings,

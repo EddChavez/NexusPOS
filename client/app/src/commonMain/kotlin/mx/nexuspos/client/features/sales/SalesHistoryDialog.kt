@@ -47,6 +47,7 @@ fun SalesHistoryDialog(
     onReprintTicket: (SaleResponse) -> Unit,
     onCancelSale: (SaleResponse) -> Unit,
     onRefundSale: (SaleResponse) -> Unit = {},
+    onSendWhatsApp: (SaleResponse) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     // Filter sales in memory
@@ -241,7 +242,8 @@ fun SalesHistoryDialog(
                                 sale = selectedSale,
                                 onReprint = { onReprintTicket(selectedSale) },
                                 onCancel = { onCancelSale(selectedSale) },
-                                onRefund = { onRefundSale(selectedSale) }
+                                onRefund = { onRefundSale(selectedSale) },
+                                onWhatsApp = { onSendWhatsApp(selectedSale) }
                             )
                         } else {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -392,7 +394,8 @@ private fun SaleDetailPanel(
     sale: SaleResponse,
     onReprint: () -> Unit,
     onCancel: () -> Unit,
-    onRefund: () -> Unit
+    onRefund: () -> Unit,
+    onWhatsApp: () -> Unit
 ) {
     val isCancelled = sale.status == "CANCELLED"
     val isFullyRefunded = sale.status == "REFUNDED"
@@ -583,6 +586,7 @@ private fun SaleDetailPanel(
                     "CREDIT" -> "Crédito Fiado"
                     "CARD" -> "Tarjeta"
                     "TRANSFER" -> "Transferencia"
+                    "LOYALTY" -> "Monedero Electrónico"
                     else -> pay.method
                 }
                 Row(
@@ -612,6 +616,17 @@ private fun SaleDetailPanel(
                 Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Reimprimir", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+            }
+
+            Button(
+                onClick = onWhatsApp,
+                modifier = Modifier.weight(1f).height(44.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+            ) {
+                Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color.White)
+                Spacer(Modifier.width(4.dp))
+                Text("WhatsApp", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
             }
 
             Button(

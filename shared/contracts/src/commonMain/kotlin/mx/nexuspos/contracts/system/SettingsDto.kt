@@ -16,7 +16,10 @@ data class SettingsDto(
     val maxCashierDiscountPercent: Double = 10.0,
     val loyaltyEnabled: Boolean = true,
     val loyaltyCashbackPercent: Double = 1.0,
-    val loyaltyMinRedeemCents: Long = 0L
+    val loyaltyMinRedeemCents: Long = 0L,
+    val whatsappCountryCode: String = "52",
+    val whatsappBankDetails: String = "",
+    val whatsappCustomFooter: String = "¡Gracias por su preferencia!"
 )
 
 @Serializable

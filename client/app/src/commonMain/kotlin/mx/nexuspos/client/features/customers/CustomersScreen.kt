@@ -33,6 +33,8 @@ fun CustomersScreen(
     viewModel: CustomersViewModel,
     cashSessionId: String = "session-active",
     cashierUserId: String = "usr-cajero",
+    onOpenWhatsApp: (url: String) -> Unit = {},
+    onCopyText: (text: String) -> Unit = {},
     onBackToSales: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -69,6 +71,19 @@ fun CustomersScreen(
                 viewModel.adjustLoyaltyBalance(amountCents, reason, cashierUserId)
             },
             onDismiss = { viewModel.closeLoyaltyDialog() }
+        )
+    }
+
+    if (state.showWhatsAppDialog) {
+        mx.nexuspos.client.features.whatsapp.WhatsAppSendDialog(
+            isOpen = true,
+            title = state.whatsAppDialogTitle,
+            initialPhone = state.whatsAppInitialPhone,
+            messageText = state.whatsAppMessageText,
+            defaultCountryCode = viewModel.currentSettings?.whatsappCountryCode ?: "52",
+            onSend = onOpenWhatsApp,
+            onCopyText = onCopyText,
+            onDismiss = { viewModel.closeWhatsAppDialog() }
         )
     }
 
@@ -121,6 +136,12 @@ fun CustomersScreen(
                 onLiquidate = { viewModel.openPaymentDialog(true) },
                 onDeactivate = { cust -> viewModel.deactivateCustomer(cust) },
                 onOpenLoyalty = { cust -> viewModel.openLoyaltyDialog(cust) },
+                onSendWhatsAppStatement = {
+                    state.selectedCustomer?.let { viewModel.openStatementWhatsAppDialog(it) }
+                },
+                onSendPaymentReceipt = { mov ->
+                    state.selectedCustomer?.let { viewModel.openPaymentReceiptWhatsAppDialog(it, mov) }
+                },
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
@@ -366,6 +387,8 @@ private fun CustomerDetailPanel(
     onLiquidate: () -> Unit,
     onDeactivate: (CustomerDto) -> Unit,
     onOpenLoyalty: (CustomerDto) -> Unit,
+    onSendWhatsAppStatement: () -> Unit = {},
+    onSendPaymentReceipt: (CreditMovementDto) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -394,7 +417,8 @@ private fun CustomerDetailPanel(
                     onPayment = onPayment,
                     onLiquidate = onLiquidate,
                     onDeactivate = { onDeactivate(customer) },
-                    onOpenLoyalty = { onOpenLoyalty(customer) }
+                    onOpenLoyalty = { onOpenLoyalty(customer) },
+                    onSendWhatsAppStatement = onSendWhatsAppStatement
                 )
 
                 // 2. METRICAS FINANCIERAS DE CREDITO
@@ -406,6 +430,7 @@ private fun CustomerDetailPanel(
                 CustomerStatementSection(
                     statement = statement,
                     isLoading = isStatementLoading,
+                    onSendPaymentReceipt = onSendPaymentReceipt,
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 )
             }
@@ -420,7 +445,8 @@ private fun CustomerHeaderCard(
     onPayment: () -> Unit,
     onLiquidate: () -> Unit,
     onDeactivate: () -> Unit,
-    onOpenLoyalty: () -> Unit
+    onOpenLoyalty: () -> Unit,
+    onSendWhatsAppStatement: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -496,6 +522,16 @@ private fun CustomerHeaderCard(
                 shape = RoundedCornerShape(6.dp)
             ) {
                 Text("[F8] Liquidar Todo", color = if (hasDebt) NexusTheme.colors.accent else NexusTheme.colors.textSecondary)
+            }
+
+            OutlinedButton(
+                onClick = onSendWhatsAppStatement,
+                border = BorderStroke(1.dp, Color(0xFF25D366)),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFF25D366))
+                Spacer(Modifier.width(4.dp))
+                Text("WhatsApp", color = Color(0xFF1E7E34), fontWeight = FontWeight.SemiBold)
             }
 
             OutlinedButton(
@@ -586,6 +622,7 @@ private fun CreditMetricBox(
 private fun CustomerStatementSection(
     statement: mx.nexuspos.contracts.credit.CustomerStatementDto?,
     isLoading: Boolean,
+    onSendPaymentReceipt: (CreditMovementDto) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -640,11 +677,12 @@ private fun CustomerStatementSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("FECHA / HORA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, modifier = Modifier.width(130.dp))
-                        Text("TIPO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, modifier = Modifier.width(90.dp))
+                        Text("TIPO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, modifier = Modifier.width(80.dp))
                         Text("DETALLE / NOTA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, modifier = Modifier.weight(1f))
-                        Text("IMPORTE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, textAlign = TextAlign.End, modifier = Modifier.width(100.dp))
-                        Text("SALDO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, textAlign = TextAlign.End, modifier = Modifier.width(100.dp))
-                        Text("CAJERO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, textAlign = TextAlign.End, modifier = Modifier.width(90.dp))
+                        Text("IMPORTE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, textAlign = TextAlign.End, modifier = Modifier.width(90.dp))
+                        Text("SALDO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, textAlign = TextAlign.End, modifier = Modifier.width(90.dp))
+                        Text("CAJERO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, textAlign = TextAlign.End, modifier = Modifier.width(80.dp))
+                        Text("RECIBO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NexusTheme.colors.textSecondary, textAlign = TextAlign.Center, modifier = Modifier.width(50.dp))
                     }
 
                     Divider(color = NexusTheme.colors.borderPrimary)
@@ -653,7 +691,7 @@ private fun CustomerStatementSection(
 
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(statement.movements.reversed(), key = { it.id }) { mov ->
-                            StatementMovementRow(mov = mov, dateFormat = dateFormat)
+                            StatementMovementRow(mov = mov, dateFormat = dateFormat, onSendPaymentReceipt = onSendPaymentReceipt)
                             Divider(color = NexusTheme.colors.borderSubtle.copy(alpha = 0.5f))
                         }
                     }
@@ -666,7 +704,8 @@ private fun CustomerStatementSection(
 @Composable
 private fun StatementMovementRow(
     mov: CreditMovementDto,
-    dateFormat: SimpleDateFormat
+    dateFormat: SimpleDateFormat,
+    onSendPaymentReceipt: (CreditMovementDto) -> Unit = {}
 ) {
     val isCharge = mov.type == "CHARGE"
     val isPayment = mov.type == "PAYMENT"
@@ -730,7 +769,7 @@ private fun StatementMovementRow(
             fontWeight = FontWeight.Bold,
             color = typeColor,
             textAlign = TextAlign.End,
-            modifier = Modifier.width(100.dp)
+            modifier = Modifier.width(90.dp)
         )
 
         Text(
@@ -739,7 +778,7 @@ private fun StatementMovementRow(
             fontWeight = FontWeight.SemiBold,
             color = NexusTheme.colors.textPrimary,
             textAlign = TextAlign.End,
-            modifier = Modifier.width(100.dp)
+            modifier = Modifier.width(90.dp)
         )
 
         Text(
@@ -749,7 +788,23 @@ private fun StatementMovementRow(
             textAlign = TextAlign.End,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(90.dp)
+            modifier = Modifier.width(80.dp)
         )
+
+        Box(modifier = Modifier.width(50.dp), contentAlignment = Alignment.Center) {
+            if (isPayment) {
+                IconButton(
+                    onClick = { onSendPaymentReceipt(mov) },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Share,
+                        contentDescription = "Enviar recibo por WhatsApp",
+                        tint = Color(0xFF25D366),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
     }
 }
