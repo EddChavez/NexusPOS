@@ -36,8 +36,9 @@ docs/
 ├── deployment/
 │   ├── packaging-and-distribution.md  # Empaquetado nativo (MSI, DMG, DEB), JRE embebido y topología LAN
 │   └── backup-and-restore.md          # Respaldos automatizados pg_dump, rotación a 30 días y recuperación
-└── testing/
-    └── testing-strategy.md            # Estrategia de pruebas unitarias, integración y hardware
+├── testing/
+│   └── testing-strategy.md            # Estrategia de pruebas unitarias, integración y hardware
+└── mejoras-pendientes.md              # Hoja de ruta, matriz de impacto y backlog de funcionalidades futuras
 ```
 
 ---
