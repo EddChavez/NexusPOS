@@ -6,6 +6,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -148,20 +151,32 @@ private fun ServerStatusSection(
             color = MaterialTheme.colorScheme.onSurface
         )
 
+        // Badge reactivo [🔄 N offline] (Exclusivamente cuando N > 0)
         if (offlinePendingCount > 0) {
-            Surface(
-                color = Color(0xFFF59E0B).copy(alpha = 0.15f),
-                shape = RoundedCornerShape(4.dp),
-                modifier = Modifier.clickable { onSyncClick?.invoke() }
-            ) {
-                Text(
-                    text = "• $offlinePendingCount pendientes [🔄]",
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFD97706),
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                )
-            }
+            AssistChip(
+                onClick = { onSyncClick?.invoke() },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = "Sincronizar",
+                        modifier = Modifier.size(13.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = "$offlinePendingCount offline",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    labelColor = MaterialTheme.colorScheme.onErrorContainer,
+                    leadingIconContentColor = MaterialTheme.colorScheme.onErrorContainer
+                ),
+                border = null,
+                modifier = Modifier.height(22.dp)
+            )
         }
     }
 }

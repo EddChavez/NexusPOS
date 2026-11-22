@@ -471,7 +471,8 @@ class SalesViewModel(
                         subtotal = state.subtotal,
                         tax = state.tax,
                         total = state.total,
-                        selectedCustomer = state.selectedCustomer
+                        selectedCustomer = state.selectedCustomer,
+                        note = state.activeTicketNote
                     )
                 } else t
             }
@@ -484,6 +485,7 @@ class SalesViewModel(
                 tax = Money.ZERO,
                 total = Money.ZERO,
                 selectedCustomer = null,
+                activeTicketNote = "",
                 selectedCartLineId = null,
                 scannerInput = ""
             )
@@ -502,7 +504,8 @@ class SalesViewModel(
                         subtotal = state.subtotal,
                         tax = state.tax,
                         total = state.total,
-                        selectedCustomer = state.selectedCustomer
+                        selectedCustomer = state.selectedCustomer,
+                        note = state.activeTicketNote
                     )
                 } else t
             }
@@ -515,6 +518,7 @@ class SalesViewModel(
                 tax = target.tax,
                 total = target.total,
                 selectedCustomer = target.selectedCustomer,
+                activeTicketNote = target.note,
                 selectedCartLineId = null,
                 scannerInput = ""
             )
@@ -533,6 +537,138 @@ class SalesViewModel(
     fun holdTicketAndNew() {
         newTicket()
         _uiState.update { it.copy(successMessage = "Ticket anterior puesto en espera. Nuevo ticket listo.") }
+    }
+
+    fun setTicketNote(note: String) {
+        _uiState.update { state ->
+            val updatedTickets = state.tickets.map { t ->
+                if (t.id == state.activeTicketId) t.copy(note = note) else t
+            }
+            state.copy(activeTicketNote = note, tickets = updatedTickets)
+        }
+    }
+
+    fun showTicketNoteDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingTicketNoteDialog = show) }
+    }
+
+    fun renameTicket(ticketId: String, newTitle: String) {
+        val trimmed = newTitle.trim()
+        if (trimmed.isBlank()) return
+        _uiState.update { state ->
+            val updated = state.tickets.map { t ->
+                if (t.id == ticketId) t.copy(title = trimmed) else t
+            }
+            state.copy(tickets = updated)
+        }
+    }
+
+    fun showRenameTicketDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingRenameTicketDialog = show) }
+    }
+
+    fun showPriceCheckerDialog(show: Boolean) {
+        _uiState.update { it.copy(isShowingPriceCheckerDialog = show) }
+    }
+
+    fun recordManualDrawerOpen(cashierName: String = _uiState.value.activeCashierName) {
+        val msg = "✓ Cajón de dinero abierto (Registrado en bitácora - Cajero: $cashierName)"
+        _uiState.update { it.copy(auditToastMessage = msg) }
+        scope.launch {
+            kotlinx.coroutines.delay(4000)
+            _uiState.update { if (it.auditToastMessage == msg) it.copy(auditToastMessage = null) else it }
+        }
+    }
+
+    fun clearAuditToast() {
+        _uiState.update { it.copy(auditToastMessage = null) }
+    }
+
+    fun updateCartLinePrice(lineId: String, newPrice: Money) {
+        _uiState.update { state ->
+            val updatedLines = state.cartLines.map { line ->
+                if (line.id == lineId) {
+                    val factor = line.quantity.millis.toDouble() / 1000.0
+                    val totalCents = (newPrice.cents * factor).toLong()
+                    line.copy(
+                        unitPrice = newPrice,
+                        total = Money.fromCents(totalCents)
+                    )
+                } else line
+            }
+            val newSubtotal = Money.fromCents(updatedLines.sumOf { it.total.cents })
+            val newTax = Money.fromCents((newSubtotal.cents * 0.16).toLong())
+            val newTotal = newSubtotal
+            state.copy(
+                cartLines = updatedLines,
+                subtotal = newSubtotal,
+                tax = newTax,
+                total = newTotal
+            )
+        }
+    }
+
+    fun reweighCartLine(line: CartLine) {
+        val reading = scaleReadingProvider?.invoke()
+        if (reading != null && reading.isStableWeight) {
+            updateCartLineQuantity(line.id, Quantity.fromDouble(reading.weightKg))
+            _uiState.update { it.copy(successMessage = "Peso actualizado desde báscula RS-232: ${reading.weightText}") }
+        } else {
+            // Si la báscula no tiene peso estable o está desconectada, abrir diálogo de pesaje
+            // para permitir pesaje guiado o captura manual sin alterar la cantidad existente si se cancela
+            val prod = ProductDto(
+                id = line.productId ?: "custom",
+                sku = line.barcode,
+                name = line.name,
+                departmentName = line.category,
+                baseUnit = "KG"
+            )
+            val pres = ProductPresentationDto(
+                id = line.presentationId ?: "pres-custom",
+                productId = prod.id,
+                barcode = line.barcode,
+                name = line.name,
+                factorMillis = 1000L,
+                priceCents = line.unitPrice.cents
+            )
+            _uiState.update {
+                it.copy(
+                    isWeighingProduct = Pair(prod, pres),
+                    errorMessage = if (reading == null || reading.status == mx.nexuspos.client.features.header.ScaleStatus.DISCONNECTED)
+                        "Báscula no detectada. Verifique conexión serial o introduzca peso manual."
+                    else null
+                )
+            }
+        }
+    }
+
+    fun requestCloseTicket(ticketId: String) {
+        val ticket = _uiState.value.tickets.firstOrNull { it.id == ticketId } ?: return
+        if (ticket.cartLines.isEmpty()) {
+            closeTicket(ticketId)
+        } else {
+            _uiState.update {
+                it.copy(
+                    isShowingCancelTicketDialog = true,
+                    ticketPendingCancelId = ticketId
+                )
+            }
+        }
+    }
+
+    fun dismissCancelTicketDialog() {
+        _uiState.update { it.copy(isShowingCancelTicketDialog = false, ticketPendingCancelId = null) }
+    }
+
+    fun confirmCancelTicket(ticketId: String, reason: String, supervisorUserId: String? = null) {
+        closeTicket(ticketId)
+        _uiState.update {
+            it.copy(
+                isShowingCancelTicketDialog = false,
+                ticketPendingCancelId = null,
+                auditToastMessage = "✓ Venta cancelada (Auditado - Motivo: $reason)"
+            )
+        }
     }
 
     // ==========================================

@@ -26,7 +26,8 @@ data class CartLine(
     val discountCents: Long = 0L,
     val discountPercent: Double = 0.0,
     val currentStockMillis: Long? = null,
-    val isWeighed: Boolean = unit == ProductUnit.KILOGRAM
+    val isWeighed: Boolean = unit == ProductUnit.KILOGRAM,
+    val imageUrl: String? = null
 )
 
 /**
@@ -39,7 +40,9 @@ data class TicketState(
     val subtotal: Money = Money.ZERO,
     val tax: Money = Money.ZERO,
     val total: Money = Money.ZERO,
-    val selectedCustomer: CustomerDto? = null
+    val selectedCustomer: CustomerDto? = null,
+    val note: String = "",
+    val createdAtMillis: Long = 0L
 )
 
 data class SalesUiState(
@@ -98,7 +101,14 @@ data class SalesUiState(
     val isSyncingOfflineSales: Boolean = false,
     val offlineSyncMessage: String? = null,
     val errorMessage: String? = null,
-    val successMessage: String? = null
+    val successMessage: String? = null,
+    val activeTicketNote: String = "",
+    val auditToastMessage: String? = null,
+    val isShowingTicketNoteDialog: Boolean = false,
+    val isShowingRenameTicketDialog: Boolean = false,
+    val isShowingPriceCheckerDialog: Boolean = false,
+    val isShowingCancelTicketDialog: Boolean = false,
+    val ticketPendingCancelId: String? = null
 )
 
 /**

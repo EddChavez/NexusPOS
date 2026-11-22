@@ -6,7 +6,8 @@ data class AppConfig(
     val serverScheme: String = "http",
     val registerId: String = "caja-1",
     val registerName: String = "Caja Principal",
-    val connectTimeoutMs: Int = 3000
+    val connectTimeoutMs: Int = 3000,
+    val salesUiVersion: String = "V2"
 ) {
     val baseUrl: String
         get() = "$serverScheme://$serverHost:$serverPort"

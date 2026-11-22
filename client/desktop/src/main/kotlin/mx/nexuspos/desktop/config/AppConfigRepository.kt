@@ -34,6 +34,7 @@ class AppConfigRepository(
             val registerId = props.getProperty("register.id", "caja-1").trim()
             val registerName = props.getProperty("register.name", "Caja Principal").trim()
             val timeout = props.getProperty("server.connectTimeoutMs", "3000").trim().toIntOrNull() ?: 3000
+            val salesUiVersion = props.getProperty("ui.salesVersion", "V2").trim()
 
             AppConfig(
                 serverHost = if (host.isBlank()) "localhost" else host,
@@ -41,7 +42,8 @@ class AppConfigRepository(
                 serverScheme = if (scheme.isBlank()) "http" else scheme,
                 registerId = if (registerId.isBlank()) "caja-1" else registerId,
                 registerName = if (registerName.isBlank()) "Caja Principal" else registerName,
-                connectTimeoutMs = timeout
+                connectTimeoutMs = timeout,
+                salesUiVersion = if (salesUiVersion.isBlank()) "V2" else salesUiVersion
             )
         } catch (e: Exception) {
             AppConfig()
@@ -60,6 +62,7 @@ class AppConfigRepository(
             props.setProperty("register.id", config.registerId)
             props.setProperty("register.name", config.registerName)
             props.setProperty("server.connectTimeoutMs", config.connectTimeoutMs.toString())
+            props.setProperty("ui.salesVersion", config.salesUiVersion)
 
             FileOutputStream(configFile).use { out ->
                 props.store(out, "NexusPOS Configuration - Terminal & Server LAN")

@@ -167,7 +167,29 @@ graph TD
 
 ---
 
-## 📌 5. Próximo Paso Sugerido
+## 🧩 5. Ajustes Satélite Pendientes para Alineación con UI V2
+
+Para mantener el foco del desarrollo 100% sobre la **Pantalla de Ventas V2**, los requerimientos complementarios identificados en módulos satélite se desglosan en este backlog para sprints futuros:
+
+### 5.1. Módulo de Productos e Inventario (Alineación V2)
+- **Soporte Nativo de Kits / Combos (BOM):** Permitir dar de alta productos compuestos ("Paquete Desayuno", "Canasta Básica") con definición de insumos hijos y regla de deducción automática de inventario por explosión de componentes.
+- **Catálogo de Imágenes Locales / URLs:** Ampliar `ProductDto` para almacenar rutas de fotos locales o URLs en red local para miniaturas en alta resolución en pantalla de ventas.
+- **Configurador de Escalas de Precio en Catálogo:** Interfaz para definir de manera visual los precios 1 (Menudeo), 2 (Mayoreo) y 3 (Especial / Empleado) por presentación.
+
+### 5.2. Módulo de Clientes y Crédito (Alineación V2)
+- **Políticas de Bloqueo Automático de Crédito:** Configuración de días de gracia y bloqueo preventivo de fiado ante saldos vencidos sin intervención manual.
+- **Límite de Crédito Dinámico:** Visualización y recálculo en tiempo real del crédito disponible dentro del flujo de ventas sin salir a la pantalla de Clientes.
+
+### 5.3. Módulo de Permisos y Seguridad (RBAC)
+- **Auditoría Avanzada de Cajón de Dinero:** Pantalla administrativa para revisar bitácora de aperturas manuales no vinculadas a cobros en efectivo con filtro por cajero, fecha y turno.
+- **Configuración de Políticas de Inventario Negativo:** Selector en Ajustes para alternar entre "Permisivo con advertencia", "Estricto con bloqueo" o "Autorización obligatoria por PIN de supervisor".
+
+### 5.4. Módulo de Compras y Proveedores (CxP)
+- **Conexión de la Entrada de Efectivo / Salida a Proveedores:** Asociar el botón `[Salida Efectivo]` de la pantalla de ventas directamente con el registro de abono a facturas de proveedores en mostrador.
+
+---
+
+## 📌 6. Próximo Paso Sugerido
 
 Para continuar el avance sistemático, se sugiere abordar:
 1. **Paso Inmediato:** Implementar el **Heartbeat Automático LAN (15s)** en `SalesViewModel` para que la reconexión y sincronización offline opere 100% en segundo plano sin clic del cajero.

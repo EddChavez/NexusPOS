@@ -54,6 +54,7 @@ import mx.nexuspos.client.features.header.ScaleStatus
 import mx.nexuspos.client.features.header.TopHeader
 import mx.nexuspos.client.features.header.TopHeaderUiState
 import mx.nexuspos.client.features.sales.SalesScreen
+import mx.nexuspos.client.features.sales.v2.SalesScreenV2
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.client.features.scale.ScaleConfig
@@ -713,25 +714,29 @@ fun main() = application {
                     onConfigureServerConnection = { isShowingServerDialog = true }
                 )
             } else {
+                val isV2SalesActive = appConfig.salesUiVersion == "V2" && activeModule == AppModule.SALES
+
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
                     topBar = {
-                        TopHeader(
-                            state = headerState,
-                            onModuleSelected = { selected ->
-                                if (selected == AppModule.SETTINGS && salesState.activeCashierRole == "CASHIER") {
-                                    authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
-                                } else {
-                                    activeModule = selected
-                                    if (selected == AppModule.CASH_CUT) {
-                                        cashCutViewModel.loadCurrentSession()
+                        if (!isV2SalesActive) {
+                            TopHeader(
+                                state = headerState,
+                                onModuleSelected = { selected ->
+                                    if (selected == AppModule.SETTINGS && salesState.activeCashierRole == "CASHIER") {
+                                        authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
+                                    } else {
+                                        activeModule = selected
+                                        if (selected == AppModule.CASH_CUT) {
+                                            cashCutViewModel.loadCurrentSession()
+                                        }
                                     }
-                                }
-                            },
-                            onLogout = { authViewModel.lockTerminal() },
-                            onSwitchCashier = { authViewModel.lockTerminal() },
-                            onSyncOffline = { viewModel.openOfflineSyncDialog() }
-                        )
+                                },
+                                onLogout = { authViewModel.lockTerminal() },
+                                onSwitchCashier = { authViewModel.lockTerminal() },
+                                onSyncOffline = { viewModel.openOfflineSyncDialog() }
+                            )
+                        }
                     },
                     bottomBar = {
                         SystemFooter(
@@ -751,21 +756,46 @@ fun main() = application {
                     ) {
                         when (activeModule) {
                             AppModule.SALES -> {
-                                SalesScreen(
-                                    viewModel = viewModel,
-                                    scaleReading = scaleReading,
-                                    onRequestCancelSale = { sale, reason ->
-                                        if (salesState.activeCashierRole == "CASHIER") {
-                                            authViewModel.requestSupervisorElevation(
-                                                SupervisorAction.CancelSale(sale.id, sale.folio, reason)
-                                            )
-                                        } else {
-                                            viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
+                                if (appConfig.salesUiVersion == "V2") {
+                                    SalesScreenV2(
+                                        viewModel = viewModel,
+                                        scaleReading = scaleReading,
+                                        onRequestCancelSale = { sale, reason ->
+                                            if (salesState.activeCashierRole == "CASHIER") {
+                                                authViewModel.requestSupervisorElevation(
+                                                    SupervisorAction.CancelSale(sale.id, sale.folio, reason)
+                                                )
+                                            } else {
+                                                viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
+                                            }
+                                        },
+                                        onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
+                                        onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
+                                        onNavigateToModule = { activeModule = it },
+                                        onLockTerminal = { authViewModel.lockTerminal() },
+                                        onOpenCashDrawerHardware = {
+                                            if (printerConfig.connectionType != PrinterConnectionType.NONE) {
+                                                printerDispatcher.openCashDrawer(printerConfig)
+                                            }
                                         }
-                                    },
-                                    onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
-                                    onCopyText = { WhatsAppDispatcher.copyToClipboard(it) }
-                                )
+                                    )
+                                } else {
+                                    SalesScreen(
+                                        viewModel = viewModel,
+                                        scaleReading = scaleReading,
+                                        onRequestCancelSale = { sale, reason ->
+                                            if (salesState.activeCashierRole == "CASHIER") {
+                                                authViewModel.requestSupervisorElevation(
+                                                    SupervisorAction.CancelSale(sale.id, sale.folio, reason)
+                                                )
+                                            } else {
+                                                viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
+                                            }
+                                        },
+                                        onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
+                                        onCopyText = { WhatsAppDispatcher.copyToClipboard(it) }
+                                    )
+                                }
                             }
                             AppModule.CASH_CUT -> {
                                 CashCutScreen(
