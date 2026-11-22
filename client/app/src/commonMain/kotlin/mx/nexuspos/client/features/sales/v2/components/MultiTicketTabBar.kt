@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -19,17 +20,20 @@ import mx.nexuspos.client.features.sales.TicketState
 
 /**
  * Barra superior oficial Material Design 3 de pestañas para gestión de ventas paralelas (Multi-ticket).
- * Implementada con InputChip oficial, botón FilledTonalIconButton [+] y AssistChip para Parked Sales (Requisito 4.2).
+ * Implementada con InputChip oficial, botón FilledTonalIconButton [+], acción de estacionar ticket [⏸️]
+ * y AssistChip para Parked Sales (Requisito 4.2).
  */
 @Composable
 fun MultiTicketTabBar(
     tickets: List<TicketState>,
     activeTicketId: String,
     parkedSalesCount: Int,
+    hasActiveCartLines: Boolean = false,
     onSelectTicket: (String) -> Unit,
     onNewTicket: () -> Unit,
     onCloseTicket: (String) -> Unit,
     onRenameTicket: (String) -> Unit,
+    onParkCurrentSale: () -> Unit = {},
     onOpenParkedSales: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -133,32 +137,65 @@ fun MultiTicketTabBar(
         Spacer(modifier = Modifier.width(8.dp))
 
         // =====================================================================
-        // REQUISITO 4.2: BADGE M3 DE VENTAS ARCHIVADAS EN RED (PARKED SALES)
+        // REQUISITO 4.2: ACCIONES DE VENTAS EN ESPERA EN RED (PARKED SALES)
         // =====================================================================
-        if (parkedSalesCount > 0) {
-            AssistChip(
-                onClick = onOpenParkedSales,
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Inbox,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp)
-                    )
-                },
-                label = {
-                    Text(
-                        text = "$parkedSalesCount en espera",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    leadingIconContentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                ),
-                border = null
-            )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Botón para estacionar el ticket actual si tiene artículos cargados
+            if (hasActiveCartLines) {
+                AssistChip(
+                    onClick = onParkCurrentSale,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.PauseCircle,
+                            contentDescription = "Estacionar ticket en red (Ctrl+E / ⌘E)",
+                            modifier = Modifier.size(15.dp)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Estacionar",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        leadingIconContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ),
+                    border = null
+                )
+            }
+
+            // Badge interactivo de ventas archivadas en red (Parked Sales)
+            if (parkedSalesCount > 0) {
+                AssistChip(
+                    onClick = onOpenParkedSales,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Inbox,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "$parkedSalesCount en espera",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        leadingIconContentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                    ),
+                    border = null
+                )
+            }
         }
     }
 }

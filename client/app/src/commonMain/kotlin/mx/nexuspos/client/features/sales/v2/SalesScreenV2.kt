@@ -124,6 +124,7 @@ fun SalesScreenV2(
                     PosAction.FAST_SALE -> viewModel.showGenericProductDialog(true)
                     PosAction.PRICE_CHECKER -> viewModel.showPriceCheckerDialog(true)
                     PosAction.REPRINT_TICKET -> viewModel.reprintLastTicket()
+                    PosAction.PARK_SALE -> viewModel.openParkSaleDialog()
                     PosAction.FOCUS_SEARCH -> {
                         try {
                             omniboxFocusRequester.requestFocus()
@@ -237,15 +238,17 @@ fun SalesScreenV2(
                         .fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Pestañas Multi-ticket (InputChip M3) con badge Parked Sales (Requisito 4.2)
+                    // Pestañas Multi-ticket (InputChip M3) con botón Estacionar y badge Parked Sales (Requisito 4.2)
                     MultiTicketTabBar(
                         tickets = state.tickets,
                         activeTicketId = state.activeTicketId,
                         parkedSalesCount = state.parkedSalesCount,
+                        hasActiveCartLines = state.cartLines.isNotEmpty(),
                         onSelectTicket = { viewModel.selectTicket(it) },
                         onNewTicket = { viewModel.newTicket() },
                         onCloseTicket = { viewModel.requestCloseTicket(it) },
                         onRenameTicket = { viewModel.showRenameTicketDialog(true) },
+                        onParkCurrentSale = { viewModel.openParkSaleDialog() },
                         onOpenParkedSales = { viewModel.openParkedSalesListDialog() }
                     )
 

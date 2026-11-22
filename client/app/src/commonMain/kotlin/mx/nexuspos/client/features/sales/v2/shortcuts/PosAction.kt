@@ -22,7 +22,8 @@ enum class PosAction(
     GLOBAL_DISCOUNT("F10 / Ctrl+D", "⌘D", "Descuento global"),
     CASH_IN("F7", "⌘7", "Entrada de efectivo"),
     CASH_OUT("F8", "⌘8", "Salida de efectivo"),
-    OPEN_DRAWER("Ctrl+K / Alt+C", "⌘K", "Abrir cajón de dinero");
+    OPEN_DRAWER("Ctrl+K / Alt+C", "⌘K", "Abrir cajón de dinero"),
+    PARK_SALE("Ctrl+E", "⌘E", "Estacionar venta en red");
 
     fun getLabel(os: HostOs): String = if (os == HostOs.MACOS) labelMac else labelWin
 }

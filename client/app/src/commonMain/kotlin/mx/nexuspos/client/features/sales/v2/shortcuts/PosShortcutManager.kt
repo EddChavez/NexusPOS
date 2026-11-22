@@ -150,7 +150,13 @@ class PosShortcutManager(
                 true
             }
 
-            // L. Escape general para cancelar
+            // L. Estacionar / Poner venta en espera en red: Win Ctrl+E, Mac Cmd+E
+            (cmdOrCtrl && event.key == Key.E) -> {
+                onAction(PosAction.PARK_SALE)
+                true
+            }
+
+            // M. Escape general para cancelar
             event.key == Key.Escape -> {
                 onAction(PosAction.ESCAPE)
                 true
