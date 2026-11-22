@@ -38,6 +38,9 @@ docs/
 │   └── backup-and-restore.md          # Respaldos automatizados pg_dump, rotación a 30 días y recuperación
 ├── testing/
 │   └── testing-strategy.md            # Estrategia de pruebas unitarias, integración y hardware
+├── v2/                                # Nivel 3: Especificación y Features V2 (Material Design 3)
+│   ├── pantalla-ventas-v2.md          # Pantalla de ventas V2 M3 puro, atajos y 7 features V1 recuperadas
+│   └── especificacion-pantalla-ventas-v2.md # Especificación funcional, reglas y arquitectura visual
 └── mejoras-pendientes.md              # Hoja de ruta, matriz de impacto y backlog de funcionalidades futuras
 ```
 
