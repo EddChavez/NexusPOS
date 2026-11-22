@@ -387,6 +387,46 @@ class SalesViewModel(
         _uiState.update { it.copy(isWeighingProduct = null) }
     }
 
+    fun updateCartLineQuantity(lineId: String, newQuantity: Quantity) {
+        if (newQuantity.millis <= 0L) return
+        _uiState.update { state ->
+            var stockWarning: String? = null
+            val updatedLines = state.cartLines.map { line ->
+                if (line.id == lineId) {
+                    if (line.currentStockMillis != null && newQuantity.millis > line.currentStockMillis) {
+                        val stockUnits = if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
+                            "${line.currentStockMillis / 1000.0} kg"
+                        } else {
+                            "${line.currentStockMillis / 1000L} pza"
+                        }
+                        stockWarning = "Atención: La cantidad excede la existencia disponible ($stockUnits) para '${line.name}'."
+                    }
+                    val (newTotal, totalDisc) = if (line.discountPercent > 0.0 || line.discountCents > 0L) {
+                        PricingRules.calculateLineTotalWithDiscount(
+                            line.unitPrice,
+                            newQuantity,
+                            line.discountPercent,
+                            line.discountCents
+                        )
+                    } else {
+                        Pair(PricingRules.calculateLineTotal(line.unitPrice, newQuantity), Money(line.discountCents))
+                    }
+                    line.copy(
+                        quantity = newQuantity,
+                        total = newTotal,
+                        discountCents = totalDisc.cents
+                    )
+                } else line
+            }
+            recalculateTotals(
+                state.copy(
+                    cartLines = updatedLines,
+                    errorMessage = stockWarning ?: state.errorMessage
+                )
+            )
+        }
+    }
+
     fun removeCartLine(lineId: String) {
         _uiState.update { state ->
             val updated = state.cartLines.filterNot { it.id == lineId }

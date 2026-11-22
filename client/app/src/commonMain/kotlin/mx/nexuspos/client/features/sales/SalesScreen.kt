@@ -166,6 +166,7 @@ fun SalesScreen(
                 selectedLineId = state.selectedCartLineId,
                 onSelectItem = { lineId -> viewModel.selectCartLine(lineId) },
                 onRemoveItem = { lineId -> viewModel.removeCartLine(lineId) },
+                onUpdateQuantity = { lineId, newQty -> viewModel.updateCartLineQuantity(lineId, newQty) },
                 onEditQuantity = { line ->
                     if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
                         viewModel.onScannerInputChanged(line.barcode)

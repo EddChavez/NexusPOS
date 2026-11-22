@@ -8,29 +8,44 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.core.ProductUnit
+import mx.nexuspos.core.Quantity
 
 /**
  * Componente de "Parrilla de Productos en Venta" (Data Grid Central / Carrito).
  *
  * Presenta una tabla contable de alto rendimiento con encabezado fijo, 8 columnas
  * proporcionales, soporte para productos pesados a granel con badge RS-232,
- * contenedor editable para cantidades y resaltado visual de fila activa.
+ * control de cantidad interactivo con stepper (+ / -), edición directa por teclado,
+ * y resaltado visual de fila activa.
  */
 @Composable
 fun CartGrid(
@@ -38,6 +53,7 @@ fun CartGrid(
     selectedLineId: String?,
     onSelectItem: (lineId: String) -> Unit,
     onRemoveItem: (lineId: String) -> Unit,
+    onUpdateQuantity: ((lineId: String, newQuantity: Quantity) -> Unit)? = null,
     onEditQuantity: ((line: CartLine) -> Unit)? = null,
     onSearchCatalog: (() -> Unit)? = null,
     onCommonArticles: (() -> Unit)? = null,
@@ -84,6 +100,7 @@ fun CartGrid(
                             isSelected = isSelected,
                             onSelect = { onSelectItem(line.id) },
                             onRemove = { onRemoveItem(line.id) },
+                            onUpdateQuantity = onUpdateQuantity?.let { callback -> { newQty -> callback(line.id, newQty) } },
                             onEditQuantity = onEditQuantity?.let { { it(line) } }
                         )
                         HorizontalDivider(
@@ -157,12 +174,12 @@ private fun CartGridHeader() {
                 modifier = Modifier.weight(0.12f).padding(horizontal = 4.dp)
             )
 
-            // 5. [CANT.]
+            // 5. [CANTIDAD]
             Text(
                 text = "CANTIDAD",
                 style = headerTextStyle,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.weight(0.14f).padding(horizontal = 4.dp)
+                modifier = Modifier.weight(0.15f).padding(horizontal = 4.dp)
             )
 
             // 6. [IMPORTE]
@@ -170,7 +187,7 @@ private fun CartGridHeader() {
                 text = "IMPORTE",
                 style = headerTextStyle,
                 textAlign = TextAlign.End,
-                modifier = Modifier.weight(0.13f).padding(horizontal = 4.dp)
+                modifier = Modifier.weight(0.12f).padding(horizontal = 4.dp)
             )
 
             // 7. [EXISTENCIA]
@@ -202,6 +219,7 @@ private fun CartGridRow(
     isSelected: Boolean,
     onSelect: () -> Unit,
     onRemove: () -> Unit,
+    onUpdateQuantity: ((Quantity) -> Unit)?,
     onEditQuantity: (() -> Unit)?
 ) {
     val rowBackground = if (isSelected) {
@@ -330,49 +348,57 @@ private fun CartGridRow(
                 }
             }
 
-            // 5. [CANTIDAD] (Contenedor editable)
+            // 5. [CANTIDAD] (Contenedor interactivo con Stepper + / - e Input numérico directo)
             Box(
-                modifier = Modifier.weight(0.14f).padding(horizontal = 4.dp),
+                modifier = Modifier.weight(0.15f).padding(horizontal = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
-                    modifier = Modifier
-                        .clickable(enabled = onEditQuantity != null) { onEditQuantity?.invoke() }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                if (onUpdateQuantity != null) {
+                    CartQuantityStepper(
+                        line = line,
+                        onUpdateQuantity = onUpdateQuantity,
+                        onEditQuantity = onEditQuantity
+                    )
+                } else {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
+                        modifier = Modifier
+                            .clickable(enabled = onEditQuantity != null) { onEditQuantity?.invoke() }
                     ) {
-                        val qtyText = if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
-                            line.quantity.format(line.unit)
-                        } else {
-                            (line.quantity.millis / 1000).toString()
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            val qtyText = if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
+                                line.quantity.format(line.unit)
+                            } else {
+                                (line.quantity.millis / 1000).toString()
+                            }
+
+                            Text(
+                                text = qtyText,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Editar Cantidad",
+                                tint = NexusTheme.colors.textSecondary,
+                                modifier = Modifier.size(11.dp)
+                            )
                         }
-
-                        Text(
-                            text = qtyText,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Editar Cantidad",
-                            tint = NexusTheme.colors.textSecondary,
-                            modifier = Modifier.size(11.dp)
-                        )
                     }
                 }
             }
 
             // 6. [IMPORTE]
             Column(
-                modifier = Modifier.weight(0.13f).padding(horizontal = 4.dp),
+                modifier = Modifier.weight(0.12f).padding(horizontal = 4.dp),
                 horizontalAlignment = Alignment.End
             ) {
                 Text(
@@ -469,6 +495,249 @@ private fun CartGridRow(
                         contentDescription = "Eliminar artículo",
                         tint = NexusTheme.colors.dangerText,
                         modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Componente interactivo de ajuste de cantidad en parrilla de ventas.
+ *
+ * Incluye:
+ * - Botones táctiles y ágiles [-] y [+] para incremento/decremento inmediato.
+ * - Input numérico directo con BasicTextField, selección total automática al enfocar
+ *   para sobreescritura rápida con teclado físico/numpad, confirmación con [Enter] y cancelación con [Esc].
+ * - Soporte adaptativo para productos pesables a granel (decimales y botón de re-pesaje RS-232 ⚖).
+ * - Protección contra cantidades en cero o negativas con retorno automático al valor previo válido.
+ */
+@Composable
+fun CartQuantityStepper(
+    line: CartLine,
+    onUpdateQuantity: (Quantity) -> Unit,
+    onEditQuantity: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val isWeighed = line.isWeighed || line.unit == ProductUnit.KILOGRAM
+    val focusManager = LocalFocusManager.current
+
+    val formattedQty = remember(line.quantity, isWeighed) {
+        if (isWeighed) {
+            val doubleVal = line.quantity.millis / 1000.0
+            if (line.quantity.millis % 1000L == 0L) {
+                (line.quantity.millis / 1000L).toString()
+            } else {
+                val whole = line.quantity.millis / 1000L
+                val decimals = (line.quantity.millis % 1000L).toString().padStart(3, '0').trimEnd('0')
+                "$whole.$decimals"
+            }
+        } else {
+            (line.quantity.millis / 1000L).toString()
+        }
+    }
+
+    var textFieldValue by remember { mutableStateOf(TextFieldValue(text = formattedQty)) }
+    var isFocused by remember { mutableStateOf(false) }
+
+    LaunchedEffect(formattedQty) {
+        if (!isFocused) {
+            textFieldValue = TextFieldValue(text = formattedQty)
+        }
+    }
+
+    fun commitValue(rawText: String) {
+        val clean = rawText.trim().replace(',', '.')
+        val parsed = clean.toDoubleOrNull()
+        if (parsed != null && parsed > 0.0) {
+            val newQty = if (isWeighed) {
+                Quantity.fromDouble(parsed)
+            } else {
+                Quantity.pieces(parsed.toLong())
+            }
+            if (newQty.millis > 0L) {
+                if (newQty != line.quantity) {
+                    onUpdateQuantity(newQty)
+                }
+            } else {
+                textFieldValue = TextFieldValue(text = formattedQty)
+            }
+        } else {
+            textFieldValue = TextFieldValue(text = formattedQty)
+        }
+    }
+
+    val stepMillis = if (isWeighed) 100L else 1000L
+    val minMillis = if (isWeighed) 100L else 1000L
+    val canDecrease = line.quantity.millis > minMillis
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = modifier
+    ) {
+        Surface(
+            color = if (isFocused) NexusTheme.colors.bgSurfaceSubtle else MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(6.dp),
+            border = BorderStroke(
+                width = if (isFocused) 1.5.dp else 1.dp,
+                color = if (isFocused) NexusTheme.colors.accent else NexusTheme.colors.borderSubtle
+            )
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.height(29.dp)
+            ) {
+                // 1. Botón Restar [-]
+                Box(
+                    modifier = Modifier
+                        .size(27.dp)
+                        .clip(RoundedCornerShape(topStart = 5.dp, bottomStart = 5.dp))
+                        .background(
+                            if (canDecrease) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            else Color.Transparent
+                        )
+                        .clickable(enabled = canDecrease) {
+                            val newMillis = line.quantity.millis - stepMillis
+                            if (newMillis >= minMillis) {
+                                onUpdateQuantity(Quantity(newMillis))
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = "Disminuir cantidad",
+                        tint = if (canDecrease) NexusTheme.colors.textPrimary else NexusTheme.colors.textMuted.copy(alpha = 0.35f),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+
+                // Separador vertical
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(18.dp)
+                        .background(NexusTheme.colors.borderSubtle.copy(alpha = 0.5f))
+                )
+
+                // 2. Input numérico editable directo
+                Box(
+                    modifier = Modifier
+                        .widthIn(min = 34.dp, max = 56.dp)
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicTextField(
+                        value = textFieldValue,
+                        onValueChange = { newVal ->
+                            val txt = newVal.text
+                            val isValid = if (isWeighed) {
+                                txt.isEmpty() || txt.matches(Regex("""^\d*([.,]\d{0,3})?$"""))
+                            } else {
+                                txt.isEmpty() || txt.matches(Regex("""^\d{0,5}$"""))
+                            }
+                            if (isValid) {
+                                textFieldValue = newVal
+                            }
+                        },
+                        textStyle = TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        ),
+                        cursorBrush = SolidColor(NexusTheme.colors.accent),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = if (isWeighed) KeyboardType.Decimal else KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                commitValue(textFieldValue.text)
+                                focusManager.clearFocus()
+                            }
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused && !isFocused) {
+                                    isFocused = true
+                                    textFieldValue = textFieldValue.copy(
+                                        selection = TextRange(0, textFieldValue.text.length)
+                                    )
+                                } else if (!focusState.isFocused && isFocused) {
+                                    isFocused = false
+                                    commitValue(textFieldValue.text)
+                                }
+                            }
+                            .onKeyEvent { keyEvent ->
+                                if (keyEvent.type == KeyEventType.KeyDown) {
+                                    when (keyEvent.key) {
+                                        Key.Enter, Key.NumPadEnter -> {
+                                            commitValue(textFieldValue.text)
+                                            focusManager.clearFocus()
+                                            true
+                                        }
+                                        Key.Escape -> {
+                                            textFieldValue = TextFieldValue(text = formattedQty)
+                                            focusManager.clearFocus()
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                } else false
+                            }
+                    )
+                }
+
+                // Separador vertical
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(18.dp)
+                        .background(NexusTheme.colors.borderSubtle.copy(alpha = 0.5f))
+                )
+
+                // 3. Botón Sumar [+]
+                Box(
+                    modifier = Modifier
+                        .size(27.dp)
+                        .clip(RoundedCornerShape(topEnd = 5.dp, bottomEnd = 5.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .clickable {
+                            val newMillis = line.quantity.millis + stepMillis
+                            onUpdateQuantity(Quantity(newMillis))
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Aumentar cantidad",
+                        tint = NexusTheme.colors.actionPrimary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+        }
+
+        // 4. Botón opcional de Báscula para artículos a granel
+        if (isWeighed && onEditQuantity != null) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Surface(
+                color = NexusTheme.colors.surfaceGreen.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(6.dp),
+                border = BorderStroke(1.dp, NexusTheme.colors.borderGreen.copy(alpha = 0.7f)),
+                modifier = Modifier
+                    .size(29.dp)
+                    .clickable { onEditQuantity() }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "⚖",
+                        fontSize = 12.sp,
+                        color = NexusTheme.colors.textGreen
                     )
                 }
             }

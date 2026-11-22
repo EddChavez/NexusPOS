@@ -18,7 +18,7 @@ Proveer a la pantalla de ventas de NexusPOS de una tabla de datos centralizada c
   2. `[CÓDIGO BARRAS]`: Código de barras EAN-13 o SKU en tipografía monoespaciada legible.
   3. `[DESCRIPCIÓN DEL PRODUCTO]`: Nombre principal del producto en negrita, subtexto con departamento/categoría e indicador visual (Badge `⚖ Báscula RS-232`) si la partida es pesada a granel.
   4. `[PRECIO VENTA]`: Precio unitario formateado en moneda local (`$45.00`), con sufijo `/kg` explícito para productos a granel.
-  5. `[CANTIDAD]`: Contenedor estilizado en píldora/caja editable. Muestra enteros para piezas (ej. `3`) y decimales con unidad para granel (ej. `1.250 kg`), con icono de edición interactivo.
+  5. `[CANTIDAD]`: Contenedor interactivo `CartQuantityStepper` con stepper táctil/mouse (`[-]` y `[+]`) e input numérico editable directo. Permite sobreescritura rápida con teclado/numpad, confirmación con `[Enter]`, cancelación con `[Esc]`, y botón de báscula `[⚖]` para re-pesaje RS-232 en productos a granel.
   6. `[IMPORTE]`: Subtotal de la partida (precio x cantidad) en tipografía destacada con color primario del tema.
   7. `[EXISTENCIA]`: Indicador de inventario disponible en tiempo real (`Ilim` para partidas sin inventario o servicios, `28 pza` / `14.5 kg` con semáforo de color naranja/rojo en caso de stock bajo o agotado).
   8. `[ACCIÓN]`: Botón de eliminación directa con icono de papelera y color de error.
@@ -35,7 +35,6 @@ Proveer a la pantalla de ventas de NexusPOS de una tabla de datos centralizada c
   - Franja informativa inferior con tip operativo para cajeros (multiplicador con asterisco para captura rápida de múltiples piezas).
 
 ### Queda fuera (Fases futuras):
-- Edición inline directa con input en la celda de cantidad (Fase 2, actualmente lanza diálogo o foco de re-pesaje/edición).
 - Reordenamiento manual por arrastrar y soltar (drag & drop) de partidas.
 
 ---

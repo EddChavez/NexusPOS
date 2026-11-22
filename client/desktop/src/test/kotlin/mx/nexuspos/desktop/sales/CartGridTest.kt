@@ -118,4 +118,98 @@ class CartGridTest {
         assertNull(line.currentStockMillis)
         assertFalse(line.isWeighed)
     }
+
+    @Test
+    fun testUpdateCartLineQuantityRecalculatesTotals() {
+        val vm = SalesViewModel()
+        val prod = ProductDto(
+            id = "p-coca",
+            sku = "COCA-600",
+            name = "Coca-Cola Original 600ml",
+            departmentName = "Bebidas",
+            baseUnit = "PZA",
+            usesInventory = true,
+            currentStockMillis = 51000L
+        )
+        val pres = ProductPresentationDto(
+            id = "pres-coca",
+            productId = "p-coca",
+            barcode = "7501055300078",
+            name = "Coca-Cola Original 600ml",
+            factorMillis = 1000L,
+            priceCents = 1850L
+        )
+
+        vm.addProductPresentation(prod, pres, Quantity.pieces(1))
+        val initialLine = vm.uiState.value.cartLines.first()
+        assertEquals(Money.fromCents(1850), initialLine.total)
+        assertEquals(Money.fromCents(1850), vm.uiState.value.total)
+
+        // Actualizar a 3 piezas
+        vm.updateCartLineQuantity(initialLine.id, Quantity.pieces(3))
+
+        val updatedLine = vm.uiState.value.cartLines.first()
+        assertEquals(3L, updatedLine.quantity.millis / 1000L)
+        assertEquals(Money.fromCents(5550), updatedLine.total)
+        assertEquals(Money.fromCents(5550), vm.uiState.value.total)
+    }
+
+    @Test
+    fun testUpdateCartLineQuantityRejectsZeroOrNegative() {
+        val vm = SalesViewModel()
+        val prod = ProductDto(
+            id = "p-1",
+            sku = "SKU-1",
+            name = "Producto 1",
+            departmentName = "General",
+            baseUnit = "PZA"
+        )
+        val pres = ProductPresentationDto(
+            id = "pres-1",
+            productId = "p-1",
+            barcode = "12345",
+            name = "Pres 1",
+            factorMillis = 1000L,
+            priceCents = 1000L
+        )
+        vm.addProductPresentation(prod, pres, Quantity.pieces(2))
+        val line = vm.uiState.value.cartLines.first()
+
+        vm.updateCartLineQuantity(line.id, Quantity.ZERO)
+        assertEquals(2L, vm.uiState.value.cartLines.first().quantity.millis / 1000L)
+
+        vm.updateCartLineQuantity(line.id, Quantity(-1000L))
+        assertEquals(2L, vm.uiState.value.cartLines.first().quantity.millis / 1000L)
+    }
+
+    @Test
+    fun testUpdateCartLineQuantityStockWarning() {
+        val vm = SalesViewModel()
+        val prod = ProductDto(
+            id = "p-stock",
+            sku = "SKU-STK",
+            name = "Galletas",
+            departmentName = "Abarrotes",
+            baseUnit = "PZA",
+            usesInventory = true,
+            currentStockMillis = 5000L // 5 piezas disponibles
+        )
+        val pres = ProductPresentationDto(
+            id = "pres-stk",
+            productId = "p-stock",
+            barcode = "98765",
+            name = "Galletas",
+            factorMillis = 1000L,
+            priceCents = 1500L
+        )
+        vm.addProductPresentation(prod, pres, Quantity.pieces(2))
+        val line = vm.uiState.value.cartLines.first()
+
+        // Pedir 10 piezas (supera stock de 5)
+        vm.updateCartLineQuantity(line.id, Quantity.pieces(10))
+
+        assertNotNull(vm.uiState.value.errorMessage)
+        assertTrue(vm.uiState.value.errorMessage!!.contains("excede la existencia"))
+        assertEquals(10L, vm.uiState.value.cartLines.first().quantity.millis / 1000L)
+    }
 }
