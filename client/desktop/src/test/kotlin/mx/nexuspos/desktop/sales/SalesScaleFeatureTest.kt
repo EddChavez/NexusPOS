@@ -9,6 +9,7 @@ import mx.nexuspos.client.features.header.ScaleStatus
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
+import mx.nexuspos.core.Quantity
 import kotlin.test.*
 
 class SalesScaleFeatureTest {
@@ -84,5 +85,24 @@ class SalesScaleFeatureTest {
         assertNotNull(state.isWeighingProduct, "Debe abrir el diálogo para confirmar peso")
         assertEquals("Manzana Golden", state.isWeighingProduct!!.first.name)
         assertEquals(0, state.cartLines.size)
+    }
+
+    @Test
+    fun manualReweighUpdatesTheOriginalLine() {
+        val api = MockScaleSalesApiClient()
+        val vm = SalesViewModel(api, scope = CoroutineScope(Dispatchers.Unconfined))
+        val product = api.sampleBulkProduct
+        vm.addProductPresentation(product, product.presentations.single(), Quantity(250))
+        val originalLine = vm.uiState.value.cartLines.single()
+
+        vm.reweighCartLine(originalLine)
+        assertNotNull(vm.uiState.value.isWeighingProduct)
+        vm.confirmWeighedProduct(Quantity(500))
+
+        val updatedLine = vm.uiState.value.cartLines.single()
+        assertEquals(originalLine.id, updatedLine.id)
+        assertEquals(Quantity(500), updatedLine.quantity)
+        assertEquals(2000L, updatedLine.total.cents)
+        assertNull(vm.uiState.value.isWeighingProduct)
     }
 }

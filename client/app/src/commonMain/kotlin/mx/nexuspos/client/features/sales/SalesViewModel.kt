@@ -205,6 +205,7 @@ class SalesViewModel(
                                 it.copy(
                                     scannerInput = "",
                                     isWeighingProduct = Pair(cachedProd, pres),
+                                    weighingCartLineId = null,
                                     errorMessage = null
                                 )
                             }
@@ -239,6 +240,7 @@ class SalesViewModel(
                                         it.copy(
                                             scannerInput = "",
                                             isWeighingProduct = Pair(prod, pres),
+                                            weighingCartLineId = null,
                                             errorMessage = null
                                         )
                                     }
@@ -267,6 +269,7 @@ class SalesViewModel(
                                                 it.copy(
                                                     scannerInput = "",
                                                     isWeighingProduct = Pair(prod, pres),
+                                                    weighingCartLineId = null,
                                                     errorMessage = null
                                                 )
                                             }
@@ -304,6 +307,7 @@ class SalesViewModel(
                                         it.copy(
                                             scannerInput = "",
                                             isWeighingProduct = Pair(cachedProd, pres),
+                                            weighingCartLineId = null,
                                             errorMessage = null
                                         )
                                     }
@@ -376,15 +380,19 @@ class SalesViewModel(
     }
 
     fun confirmWeighedProduct(qty: Quantity) {
-        val weighing = _uiState.value.isWeighingProduct
-        if (weighing != null) {
-            addProductPresentation(weighing.first, weighing.second, qty)
-            _uiState.update { it.copy(isWeighingProduct = null) }
+        val state = _uiState.value
+        val (product, presentation) = state.isWeighingProduct ?: return
+        val lineId = state.weighingCartLineId
+        if (lineId == null) {
+            addProductPresentation(product, presentation, qty)
+        } else {
+            updateCartLineQuantity(lineId, qty)
         }
+        dismissWeighingDialog()
     }
 
     fun dismissWeighingDialog() {
-        _uiState.update { it.copy(isWeighingProduct = null) }
+        _uiState.update { it.copy(isWeighingProduct = null, weighingCartLineId = null) }
     }
 
     fun updateCartLineQuantity(lineId: String, newQuantity: Quantity) {
@@ -634,6 +642,7 @@ class SalesViewModel(
             _uiState.update {
                 it.copy(
                     isWeighingProduct = Pair(prod, pres),
+                    weighingCartLineId = line.id,
                     errorMessage = if (reading == null || reading.status == mx.nexuspos.client.features.header.ScaleStatus.DISCONNECTED)
                         "Báscula no detectada. Verifique conexión serial o introduzca peso manual."
                     else null

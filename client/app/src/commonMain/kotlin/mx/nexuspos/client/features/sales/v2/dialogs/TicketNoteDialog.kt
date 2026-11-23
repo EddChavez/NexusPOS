@@ -1,13 +1,11 @@
 package mx.nexuspos.client.features.sales.v2.dialogs
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
  * Modal oficial Material Design 3 (AlertDialog) para captura y edición de observaciones o notas del ticket activo.
@@ -39,7 +37,7 @@ fun TicketNoteDialog(
             ) {
                 Text(
                     text = "Agrega indicaciones de entrega, mesa, cliente o notas especiales:",
-                    fontSize = 12.5.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
@@ -47,16 +45,16 @@ fun TicketNoteDialog(
                     value = noteText,
                     onValueChange = { noteText = it },
                     placeholder = { Text("Ej. Entrega a domicilio calle Juárez #45...") },
-                    modifier = Modifier.fillMaxWidth().height(100.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    maxLines = 4
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 7
                 )
             }
         },
         confirmButton = {
             Button(
                 onClick = { onConfirm(noteText) },
-                shape = RoundedCornerShape(8.dp)
+                shape = MaterialTheme.shapes.small
             ) {
                 Text("Guardar Nota", fontWeight = FontWeight.Bold)
             }
@@ -66,6 +64,6 @@ fun TicketNoteDialog(
                 Text("Cancelar", fontWeight = FontWeight.SemiBold)
             }
         },
-        shape = RoundedCornerShape(16.dp)
+        shape = MaterialTheme.shapes.large
     )
 }

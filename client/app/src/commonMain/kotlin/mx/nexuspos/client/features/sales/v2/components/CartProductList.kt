@@ -3,9 +3,7 @@ package mx.nexuspos.client.features.sales.v2.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -14,24 +12,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.features.sales.CartLine
 import mx.nexuspos.core.ProductUnit
 import mx.nexuspos.core.Quantity
 
-/**
- * Lista virtualizada de partidas en el ticket activo con componentes oficiales Material Design 3.
- * Incluye miniatura de producto, stepper de cantidad interactivo con FilledTonalIconButton M3,
- * acceso directo a re-pesaje con báscula RS-232 y menú contextual [⋮].
- */
 @Composable
 fun CartProductList(
     items: List<CartLine>,
@@ -42,33 +37,24 @@ fun CartProductList(
     onReweighLine: (CartLine) -> Unit,
     onDiscountLine: (CartLine) -> Unit,
     onChangePriceLine: (CartLine) -> Unit,
+    onQuantityFocusChanged: (Boolean) -> Unit,
+    onFinishQuantityEdit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
+                modifier = Modifier.padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.ShoppingCart,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(56.dp)
-                )
+                Icon(Icons.Default.ShoppingCart, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("El ticket está vacío", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "El ticket está vacío",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "Usa el buscador Omnibox o el escáner láser para agregar productos",
+                    "Busca o escanea un producto para agregarlo",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -78,17 +64,18 @@ fun CartProductList(
             verticalArrangement = Arrangement.spacedBy(6.dp),
             contentPadding = PaddingValues(vertical = 4.dp)
         ) {
-            itemsIndexed(items, key = { _, line -> line.id }) { index, line ->
+            items(items, key = { it.id }) { line ->
                 CartProductRow(
-                    index = index + 1,
                     line = line,
                     isSelected = line.id == selectedLineId,
                     onSelect = { onSelectLine(line.id) },
                     onRemove = { onRemoveLine(line.id) },
-                    onUpdateQuantity = { newQty -> onUpdateQuantity(line.id, newQty) },
+                    onUpdateQuantity = { onUpdateQuantity(line.id, it) },
                     onReweigh = { onReweighLine(line) },
                     onDiscount = { onDiscountLine(line) },
-                    onChangePrice = { onChangePriceLine(line) }
+                    onChangePrice = { onChangePriceLine(line) },
+                    onQuantityFocusChanged = onQuantityFocusChanged,
+                    onFinishQuantityEdit = onFinishQuantityEdit
                 )
             }
         }
@@ -97,7 +84,6 @@ fun CartProductList(
 
 @Composable
 private fun CartProductRow(
-    index: Int,
     line: CartLine,
     isSelected: Boolean,
     onSelect: () -> Unit,
@@ -105,248 +91,234 @@ private fun CartProductRow(
     onUpdateQuantity: (Quantity) -> Unit,
     onReweigh: () -> Unit,
     onDiscount: () -> Unit,
-    onChangePrice: () -> Unit
+    onChangePrice: () -> Unit,
+    onQuantityFocusChanged: (Boolean) -> Unit,
+    onFinishQuantityEdit: () -> Unit
 ) {
-    var isMenuExpanded by remember { mutableStateOf(false) }
-    var rawQuantityText by remember(line.quantity) {
-        val qty = line.quantity.millis / 1000.0
-        mutableStateOf(if (line.unit == ProductUnit.KILOGRAM) String.format("%.3f", qty) else "${qty.toLong()}")
-    }
-
-    val cardBorder = if (isSelected) {
-        BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-    } else {
-        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-    }
-
-    val cardBg = if (isSelected) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
+    val colors = MaterialTheme.colorScheme
+    val canReweigh = line.isWeighed || line.unit == ProductUnit.KILOGRAM
 
     OutlinedCard(
         onClick = onSelect,
-        shape = RoundedCornerShape(10.dp),
-        border = cardBorder,
-        colors = CardDefaults.outlinedCardColors(containerColor = cardBg),
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, if (isSelected) colors.primary else colors.outlineVariant),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = if (isSelected) colors.secondaryContainer else colors.surface,
+            contentColor = if (isSelected) colors.onSecondaryContainer else colors.onSurface
+        ),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // 1. ÍNDICE Y MINIATURA
-            Text(
-                text = "$index",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.width(18.dp)
-            )
-
-            ProductThumbnail(
-                name = line.name,
-                category = line.category,
-                size = 42.dp,
-                imageUrl = line.imageUrl
-            )
-
-            // 2. DETALLE DE PRODUCTO
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = line.name,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
-                )
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+            val compact = maxWidth < 530.dp
+            Column {
+                if (compact) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ProductDetails(line, isSelected, Modifier.weight(1f))
+                        if (canReweigh) ReweighButton(onReweigh)
+                        ProductMenu(onRemove, onDiscount, onChangePrice)
+                    }
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = line.barcode,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.tertiaryContainer,
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = "Báscula RS-232",
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
+                    if (compact) {
+                        Spacer(Modifier.weight(1f))
+                    } else {
+                        ProductDetails(line, isSelected, Modifier.weight(1f))
+                        if (canReweigh) ReweighButton(onReweigh)
+                    }
+                    QuantityStepper(line, onUpdateQuantity, onQuantityFocusChanged, onFinishQuantityEdit)
+                    ProductPrices(line, isSelected, Modifier.widthIn(min = 100.dp))
+                    if (!compact) ProductMenu(onRemove, onDiscount, onChangePrice)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProductDetails(line: CartLine, isSelected: Boolean, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ProductThumbnail(line.name, line.category, size = 36.dp, imageUrl = line.imageUrl)
+        Column {
+            Text(
+                line.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                if (line.barcode.isBlank()) line.unit.label else "${line.barcode} · ${line.unit.label}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isSelected) LocalContentColor.current else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProductPrices(line: CartLine, isSelected: Boolean, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.End) {
+        Text(
+            line.total.format(),
+            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.End
+        )
+        Text(
+            "${line.unitPrice.format()} / ${line.unit.symbol}",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (isSelected) LocalContentColor.current else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End
+        )
+    }
+}
+
+@Composable
+private fun QuantityStepper(
+    line: CartLine,
+    onUpdateQuantity: (Quantity) -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
+    onFinishEditing: () -> Unit
+) {
+    val displayQuantity = line.quantity.format(line.unit).substringBefore(' ')
+    var draft by remember { mutableStateOf<String?>(null) }
+    var focused by remember { mutableStateOf(false) }
+    val parsed = draft?.let(::parseSalesQuantity)
+    val current = parsed ?: line.quantity
+    val hasInvalidDraft = focused && draft != null && parsed == null
+    val step = if (line.unit == ProductUnit.KILOGRAM) 100L else 1000L
+    val stepperColors = IconButtonDefaults.filledTonalIconButtonColors(
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    )
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (focused) onFocusChanged(false)
+        }
+    }
+
+    fun commit(quantity: Quantity?) {
+        draft = null
+        if (quantity != null && quantity != line.quantity) onUpdateQuantity(quantity)
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        FilledTonalIconButton(
+            onClick = { commit(Quantity(current.millis - step)) },
+            enabled = current.millis > step,
+            colors = stepperColors
+        ) {
+            Icon(Icons.Default.Remove, "Disminuir cantidad")
+        }
+        OutlinedTextField(
+            value = draft ?: displayQuantity,
+            onValueChange = { draft = it },
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                fontFeatureSettings = "tnum",
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            ),
+            singleLine = true,
+            isError = hasInvalidDraft,
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+            ),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { onFinishEditing() }),
+            modifier = Modifier
+                .width(94.dp)
+                .semantics {
+                    contentDescription = "Cantidad de ${line.name} (${line.unit.symbol})"
+                    if (hasInvalidDraft) error("Ingresa una cantidad positiva con hasta tres decimales")
+                }
+                .onFocusChanged { state ->
+                    if (state.isFocused != focused) {
+                        if (!state.isFocused) commit(draft?.let(::parseSalesQuantity))
+                        focused = state.isFocused
+                        onFocusChanged(focused)
                     }
                 }
-            }
-
-            // 3. STEPPER DE CANTIDAD CON BOTÓN DE BÁSCULA INTEGRADO
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                if (line.isWeighed || line.unit == ProductUnit.KILOGRAM) {
-                    IconButton(
-                        onClick = onReweigh,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Scale,
-                            contentDescription = "Re-pesar en báscula RS-232",
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(16.dp)
-                        )
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when {
+                        event.key == Key.Escape -> {
+                            draft = null
+                            onFinishEditing()
+                            true
+                        }
+                        (event.key == Key.Enter || event.key == Key.NumPadEnter) &&
+                            !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed -> {
+                            onFinishEditing()
+                            true
+                        }
+                        else -> false
                     }
                 }
+        )
+        FilledTonalIconButton(
+            onClick = { commit(Quantity(current.millis + step)) },
+            enabled = current.millis <= Long.MAX_VALUE - step,
+            colors = stepperColors
+        ) {
+            Icon(Icons.Default.Add, "Aumentar cantidad")
+        }
+    }
+}
 
-                FilledTonalIconButton(
-                    onClick = {
-                        val current = line.quantity.millis
-                        val step = if (line.unit == ProductUnit.KILOGRAM) 100L else 1000L
-                        if (current > step) {
-                            onUpdateQuantity(Quantity(current - step))
-                        }
-                    },
-                    shape = CircleShape,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Remove,
-                        contentDescription = "Disminuir cantidad",
-                        modifier = Modifier.size(14.dp)
-                    )
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReweighButton(onReweigh: () -> Unit) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text("Re-pesar en báscula RS-232") } },
+        state = rememberTooltipState()
+    ) {
+        IconButton(onClick = onReweigh) {
+            Icon(Icons.Default.Scale, "Re-pesar en báscula RS-232")
+        }
+    }
+}
+
+@Composable
+private fun ProductMenu(onRemove: () -> Unit, onDiscount: () -> Unit, onChangePrice: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Default.MoreVert, "Opciones de artículo")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Eliminar artículo") },
+                leadingIcon = { Icon(Icons.Default.Delete, null) },
+                onClick = {
+                    expanded = false
+                    onRemove()
                 }
-
-                // Input de cantidad editable directo con OutlinedTextField compacto M3
-                OutlinedTextField(
-                    value = rawQuantityText,
-                    onValueChange = { input ->
-                        val filtered = input.filter { it.isDigit() || it == '.' }
-                        rawQuantityText = filtered
-                        val parsed = filtered.toDoubleOrNull()
-                        if (parsed != null && parsed > 0.0) {
-                            onUpdateQuantity(Quantity.fromDouble(parsed))
-                        }
-                    },
-                    textStyle = TextStyle(
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Decimal,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            val parsed = rawQuantityText.toDoubleOrNull()
-                            if (parsed != null && parsed > 0.0) {
-                                onUpdateQuantity(Quantity.fromDouble(parsed))
-                            }
-                        }
-                    ),
-                    modifier = Modifier.width(58.dp).height(38.dp),
-                    shape = RoundedCornerShape(6.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                    )
-                )
-
-                FilledTonalIconButton(
-                    onClick = {
-                        val current = line.quantity.millis
-                        val step = if (line.unit == ProductUnit.KILOGRAM) 100L else 1000L
-                        onUpdateQuantity(Quantity(current + step))
-                    },
-                    shape = CircleShape,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Aumentar cantidad",
-                        modifier = Modifier.size(14.dp)
-                    )
+            )
+            DropdownMenuItem(
+                text = { Text("Aplicar descuento a línea") },
+                leadingIcon = { Icon(Icons.Default.Percent, null) },
+                onClick = {
+                    expanded = false
+                    onDiscount()
                 }
-            }
-
-            // 4. PRECIOS E IMPORTE TOTAL DE PARTIDA
-            Column(
-                horizontalAlignment = Alignment.End,
-                modifier = Modifier.width(90.dp)
-            ) {
-                Text(
-                    text = line.total.format(),
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "${line.unitPrice.format()} c/u",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            // 5. ACCIONES CONTEXTUALES [⋮]
-            Box {
-                IconButton(
-                    onClick = { isMenuExpanded = true },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Opciones de artículo",
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(16.dp)
-                    )
+            )
+            DropdownMenuItem(
+                text = { Text("Cambiar precio") },
+                leadingIcon = { Icon(Icons.Default.PriceChange, null) },
+                onClick = {
+                    expanded = false
+                    onChangePrice()
                 }
-
-                DropdownMenu(
-                    expanded = isMenuExpanded,
-                    onDismissRequest = { isMenuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Eliminar artículo (Supr / Del)") },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                        onClick = {
-                            isMenuExpanded = false
-                            onRemove()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Aplicar descuento a línea") },
-                        leadingIcon = { Icon(Icons.Default.Percent, contentDescription = null) },
-                        onClick = {
-                            isMenuExpanded = false
-                            onDiscount()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Cambiar precio") },
-                        leadingIcon = { Icon(Icons.Default.PriceChange, contentDescription = null) },
-                        onClick = {
-                            isMenuExpanded = false
-                            onChangePrice()
-                        }
-                    )
-                }
-            }
+            )
         }
     }
 }

@@ -33,7 +33,7 @@ class PosShortcutManager(
         // =========================================================================
         // 2. CAPA 2: DESPLEGABLE OMNIBOX ABIERTO
         // =========================================================================
-        if (hasDropdownOpen()) {
+        if (hasDropdownOpen() && !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed) {
             when (event.key) {
                 Key.DirectionUp -> {
                     onAction(PosAction.NAVIGATE_UP)

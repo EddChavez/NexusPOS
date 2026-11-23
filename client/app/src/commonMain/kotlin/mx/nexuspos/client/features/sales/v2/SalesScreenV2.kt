@@ -2,18 +2,19 @@ package mx.nexuspos.client.features.sales.v2
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.sales.CashMovementDialog
 import mx.nexuspos.client.features.cash.CashSessionDialog
@@ -24,29 +25,14 @@ import mx.nexuspos.client.features.sales.*
 import mx.nexuspos.client.features.sales.v2.components.*
 import mx.nexuspos.client.features.sales.v2.dialogs.*
 import mx.nexuspos.client.features.sales.v2.shortcuts.*
-import mx.nexuspos.client.features.whatsapp.WhatsAppSendDialog
 import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.core.ProductUnit
 import mx.nexuspos.core.Quantity
 
-/**
- * Pantalla Principal de Ventas V2 (Pure Material Design 3) para NexusPOS.
- *
- * Arquitectura visual:
- * 1. Columna Izquierda: Navigation Rail vertical M3 (72.dp) con iconos oficiales, selector de módulos,
- *    acceso a Historial de Turno/Devoluciones (Requisito 4.7) y perfil de cajero.
- * 2. Columna Central (weight 1f):
- *    - Pestañas Multi-ticket dinámicas M3 con badge de ventas en espera en red (Requisito 4.2).
- *    - Buscador Omnibox con autocompletado flotante predictivo ListItem y detección de láser.
- *    - Carrito de compras virtualizado con stepper M3, re-pesaje RS-232 (Requisito 4.3) y menú [⋮].
- *    - Franja de Cobro con botón masivo [F12 / ⌘↵], notas [📝] y reimpresión oficial [🖨️] (Requisito 4.1).
- * 3. Columna Derecha (340.dp):
- *    - Tarjeta de contexto del producto seleccionado (ElevatedCard M3) con selector de precio [Precio ▾].
- *    - Cuadrícula de 8 Acciones Rápidas (FilledTonalButton M3) con saldo de cliente/monedero (Requisito 4.4).
- * 4. Capas Flotantes: Modales oficiales AlertDialog (Requisito 4.5 cancelación, historial 4.7, etc.) y SnackbarHost M3.
- */
+/** Pantalla de ventas para caja Desktop con carrito, cobro y panel lateral adaptables. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SalesScreenV2(
     viewModel: SalesViewModel = remember { SalesViewModel() },
@@ -61,7 +47,8 @@ fun SalesScreenV2(
 ) {
     val state by viewModel.uiState.collectAsState()
     val omniboxFocusRequester = remember { FocusRequester() }
-    val isOmniboxFocused = remember { mutableStateOf(true) }
+    val isOmniboxFocused = remember { mutableStateOf(false) }
+    var isQuantityFocused by remember { mutableStateOf(false) }
 
     var searchQuery by remember { mutableStateOf("") }
     val autocompleteMatches = remember(searchQuery) {
@@ -77,6 +64,23 @@ fun SalesScreenV2(
 
     val selectedLine = state.cartLines.firstOrNull { it.id == state.selectedCartLineId }
         ?: state.cartLines.lastOrNull()
+
+    fun submitSearch(input: String) {
+        viewModel.onScannerInputChanged(input)
+        viewModel.onScannerSubmitted()
+        searchQuery = ""
+    }
+
+    fun selectSearchMatch(product: ProductDto) {
+        val presentation = product.presentations.firstOrNull() ?: return
+        if (ProductUnit.fromCode(product.baseUnit) == ProductUnit.KILOGRAM) {
+            submitSearch(presentation.barcode.ifBlank { product.sku })
+        } else {
+            viewModel.addProductPresentation(product, presentation, Quantity.ONE)
+            viewModel.onScannerInputChanged("")
+            searchQuery = ""
+        }
+    }
 
     // Verificador de modales activos para la Capa 1 de prioridad de teclado
     val hasActiveModal = {
@@ -107,8 +111,8 @@ fun SalesScreenV2(
     val shortcutManager = remember(hasActiveModal) {
         PosShortcutManager(
             hasActiveModal = hasActiveModal,
-            hasDropdownOpen = { searchQuery.trim().length >= 2 && autocompleteMatches.isNotEmpty() },
-            isInputFocused = { isOmniboxFocused.value },
+            hasDropdownOpen = { isOmniboxFocused.value && autocompleteMatches.isNotEmpty() },
+            isInputFocused = { isOmniboxFocused.value || isQuantityFocused },
             onAction = { action ->
                 when (action) {
                     PosAction.SWITCH_TICKET -> viewModel.cycleNextTicket()
@@ -130,17 +134,7 @@ fun SalesScreenV2(
                             omniboxFocusRequester.requestFocus()
                         } catch (_: Exception) {}
                     }
-                    PosAction.NAVIGATE_UP, PosAction.NAVIGATE_DOWN -> { /* Gestionado internamente en dropdown */ }
-                    PosAction.CONFIRM_SELECTION -> {
-                        if (autocompleteMatches.isNotEmpty()) {
-                            val prod = autocompleteMatches.first()
-                            val pres = prod.presentations.firstOrNull()
-                            if (pres != null) {
-                                viewModel.addProductPresentation(prod, pres, Quantity.ONE)
-                                searchQuery = ""
-                            }
-                        }
-                    }
+                    PosAction.NAVIGATE_UP, PosAction.NAVIGATE_DOWN, PosAction.CONFIRM_SELECTION -> Unit
                     PosAction.ESCAPE -> {
                         viewModel.showCashPaymentDialog(false)
                         viewModel.showCustomerDialog(false)
@@ -166,6 +160,7 @@ fun SalesScreenV2(
                         viewModel.closeWhatsAppDialog()
                         viewModel.clearMessages()
                         searchQuery = ""
+                        viewModel.onScannerInputChanged("")
                         try {
                             omniboxFocusRequester.requestFocus()
                         } catch (_: Exception) {}
@@ -202,7 +197,13 @@ fun SalesScreenV2(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .onKeyEvent { event -> shortcutManager.handleKeyEvent(event) }
+            .onPreviewKeyEvent { event ->
+                event.key == Key.Enter && event.isMetaPressed && shortcutManager.handleKeyEvent(event)
+            }
+            .onKeyEvent { event ->
+                shortcutManager.handleKeyEvent(event) ||
+                    (event.key == Key.Delete && (isOmniboxFocused.value || isQuantityFocused))
+            }
     ) {
         Row(
             modifier = Modifier
@@ -224,217 +225,166 @@ fun SalesScreenV2(
             // =================================================================
             // 2. ESPACIO PRINCIPAL DE TRABAJO (ÁREA CENTRAL + PANEL DERECHO)
             // =================================================================
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            BoxWithConstraints(
+                modifier = Modifier.weight(1f).fillMaxHeight()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                // COLUMNA CENTRAL (ÁREA DE CAPTURA Y PRODUCTOS)
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                val panelWidth = (maxWidth * 0.34f).coerceIn(198.dp, 440.dp)
+                    .coerceAtMost(maxWidth * 0.43f)
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Pestañas Multi-ticket (InputChip M3) con botón Estacionar y badge Parked Sales (Requisito 4.2)
-                    MultiTicketTabBar(
-                        tickets = state.tickets,
-                        activeTicketId = state.activeTicketId,
-                        parkedSalesCount = state.parkedSalesCount,
-                        hasActiveCartLines = state.cartLines.isNotEmpty(),
-                        onSelectTicket = { viewModel.selectTicket(it) },
-                        onNewTicket = { viewModel.newTicket() },
-                        onCloseTicket = { viewModel.requestCloseTicket(it) },
-                        onRenameTicket = { viewModel.showRenameTicketDialog(true) },
-                        onParkCurrentSale = { viewModel.openParkSaleDialog() },
-                        onOpenParkedSales = { viewModel.openParkedSalesListDialog() }
-                    )
+                    // COLUMNA CENTRAL (ÁREA DE CAPTURA Y PRODUCTOS)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Pestañas, nueva venta y acceso a tickets en espera.
+                        MultiTicketTabBar(
+                            tickets = state.tickets,
+                            activeTicketId = state.activeTicketId,
+                            parkedSalesCount = state.parkedSalesCount,
+                            hasActiveCartLines = state.cartLines.isNotEmpty(),
+                            onSelectTicket = { viewModel.selectTicket(it) },
+                            onNewTicket = { viewModel.newTicket() },
+                            onCloseTicket = { viewModel.requestCloseTicket(it) },
+                            onRenameTicket = { viewModel.showRenameTicketDialog(true) },
+                            onParkCurrentSale = { viewModel.openParkSaleDialog() },
+                            onOpenParkedSales = { viewModel.openParkedSalesListDialog() }
+                        )
 
-                    // Banner de Modo Contingencia Offline
-                    if (state.connectionState == ServerConnectionState.NO_SERVER) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-                            shape = MaterialTheme.shapes.small,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("⚠️", fontSize = 16.sp)
-                                    Column {
-                                        Text(
-                                            text = "MODO CONTINGENCIA (Sin conexión LAN al servidor central)",
-                                            color = MaterialTheme.colorScheme.onErrorContainer,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "Cobros en Efectivo/Tarjeta habilitados. Se sincronizan al volver la red.",
-                                            color = MaterialTheme.colorScheme.onErrorContainer,
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                }
-                                if (state.offlinePendingSalesCount > 0) {
-                                    Button(
-                                        onClick = { viewModel.openOfflineSyncDialog() },
-                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                        shape = MaterialTheme.shapes.small,
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Text("${state.offlinePendingSalesCount} pendientes [Sincronizar]", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
+                        if (state.connectionState == ServerConnectionState.NO_SERVER) {
+                            ContingencyBanner(
+                                pendingCount = state.offlinePendingSalesCount,
+                                onOpenSync = viewModel::openOfflineSyncDialog
+                            )
                         }
-                    }
 
-                    // Mensajes de Alerta / Éxito
-                    FeedbackMessageHost(
-                        errorMessage = state.errorMessage,
-                        successMessage = state.successMessage,
-                        onDismissError = viewModel::clearMessages,
-                        onDismissSuccess = viewModel::clearMessages
-                    )
+                        // Mensajes de Alerta / Éxito
+                        FeedbackMessageHost(
+                            errorMessage = state.errorMessage,
+                            successMessage = state.successMessage,
+                            onDismissError = viewModel::clearMessages,
+                            onDismissSuccess = viewModel::clearMessages
+                        )
 
-                    // Banner Post-Cobro para Envío por WhatsApp
-                    if (state.lastCompletedSale != null && state.successMessage != null) {
-                        Surface(
-                            color = Color(0xFF25D366).copy(alpha = 0.12f),
-                            shape = MaterialTheme.shapes.small,
-                            border = BorderStroke(1.dp, Color(0xFF25D366).copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                        val completedSale = state.lastCompletedSale
+                        if (completedSale != null && state.successMessage != null) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.small,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = "Ticket #${state.lastCompletedSale!!.folio} cobrado exitosamente",
-                                    color = Color(0xFF1E7E34),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Button(
-                                    onClick = { viewModel.openSaleWhatsAppDialog(state.lastCompletedSale!!) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                    shape = MaterialTheme.shapes.small
+                                FlowRow(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    itemVerticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("📲 Enviar Ticket por WhatsApp", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "Ticket #${completedSale.folio} cobrado",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    TextButton(onClick = { viewModel.openSaleWhatsAppDialog(completedSale) }) {
+                                        Text("Enviar por WhatsApp")
+                                    }
                                 }
                             }
                         }
+
+                        OmniboxSearchBar(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            onSubmit = { submitSearch(searchQuery.trim()) },
+                            matches = autocompleteMatches,
+                            onSelectMatch = ::selectSearchMatch,
+                            focusRequester = omniboxFocusRequester,
+                            isFocused = isOmniboxFocused
+                        )
+
+                        // Lista de Productos en el Ticket con Re-pesaje RS-232 (Requisito 4.3)
+                        CartProductList(
+                            items = state.cartLines,
+                            selectedLineId = selectedLine?.id,
+                            onSelectLine = { viewModel.selectCartLine(it) },
+                            onRemoveLine = { viewModel.removeCartLine(it) },
+                            onUpdateQuantity = { lineId, qty -> viewModel.updateCartLineQuantity(lineId, qty) },
+                            onReweighLine = { line ->
+                                viewModel.reweighCartLine(line)
+                            },
+                            onDiscountLine = { line ->
+                                if (state.selectedCartLineId != line.id) viewModel.selectCartLine(line.id)
+                                viewModel.showDiscountDialog(true)
+                            },
+                            onChangePriceLine = { line ->
+                                if (state.selectedCartLineId != line.id) viewModel.selectCartLine(line.id)
+                                viewModel.onApplyWholesalePrice()
+                            },
+                            onQuantityFocusChanged = { isQuantityFocused = it },
+                            onFinishQuantityEdit = { omniboxFocusRequester.requestFocus() },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        // Franja Inferior de Cierre y Cobro [F12] con Reimpresión (Requisito 4.1)
+                        CheckoutSummaryBar(
+                            cartLines = state.cartLines,
+                            total = state.total,
+                            ticketNote = state.activeTicketNote,
+                            onOpenNoteDialog = { viewModel.showTicketNoteDialog(true) },
+                            onReprintTicket = { viewModel.reprintLastTicket() },
+                            onCheckout = {
+                                if (state.activeSession == null) {
+                                    viewModel.showSessionDialog(true)
+                                } else if (state.cartLines.isEmpty()) {
+                                    viewModel.setErrorMessage("Agrega al menos un producto al carrito para cobrar.")
+                                } else {
+                                    viewModel.showCashPaymentDialog(true)
+                                }
+                            }
+                        )
                     }
 
-                    // Buscador Omnibox con Autocompletado Predictivo ListItem M3
-                    OmniboxSearchBar(
-                        query = searchQuery,
-                        onQueryChange = {
-                            searchQuery = it
-                            viewModel.onScannerInputChanged(it)
-                        },
-                        onSubmit = {
-                            viewModel.onScannerSubmitted()
-                            searchQuery = ""
-                        },
-                        matches = autocompleteMatches,
-                        onSelectMatch = { prod ->
-                            val pres = prod.presentations.firstOrNull()
-                            if (pres != null) {
-                                if (prod.baseUnit.equals("KG", ignoreCase = true)) {
-                                    viewModel.onScannerInputChanged(pres.barcode.ifBlank { prod.sku })
-                                    viewModel.onScannerSubmitted()
-                                } else {
-                                    viewModel.addProductPresentation(prod, pres, Quantity.ONE)
+                    // COLUMNA DERECHA: CONTEXTO Y ACCIONES RÁPIDAS
+                    Column(
+                        modifier = Modifier
+                            .width(panelWidth)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Producto seleccionado en el ticket.
+                        SelectedProductCard(
+                            selectedLine = selectedLine,
+                            onApplyPriceTier = { newPrice ->
+                                selectedLine?.let { line ->
+                                    viewModel.updateCartLinePrice(line.id, newPrice)
                                 }
+                            },
+                            onInspectCatalog = { onNavigateToModule(AppModule.PRODUCTS) }
+                        )
+
+                        // Cuadrícula de 8 Acciones Rápidas con Monedero/Crédito (Requisito 4.4)
+                        QuickActionsGrid(
+                            selectedCustomer = state.selectedCustomer,
+                            onFastSale = { viewModel.showGenericProductDialog(true) },
+                            onPriceChecker = { viewModel.showPriceCheckerDialog(true) },
+                            onCashIn = { viewModel.showCashInDialog(true) },
+                            onCashOut = { viewModel.showCashOutDialog(true) },
+                            onAssignCustomer = { viewModel.showCustomerDialog(true) },
+                            onGlobalDiscount = { viewModel.showDiscountDialog(true) },
+                            onWhatsApp = {
+                                state.lastCompletedSale?.let { viewModel.openSaleWhatsAppDialog(it) }
+                                    ?: viewModel.setErrorMessage("No hay venta reciente para enviar por WhatsApp")
+                            },
+                            onOpenDrawer = {
+                                onOpenCashDrawerHardware()
+                                viewModel.openCashDrawer()
+                                viewModel.recordManualDrawerOpen(state.activeCashierName)
                             }
-                            searchQuery = ""
-                        },
-                        focusRequester = omniboxFocusRequester,
-                        isFocused = isOmniboxFocused
-                    )
-
-                    // Lista de Productos en el Ticket con Re-pesaje RS-232 (Requisito 4.3)
-                    CartProductList(
-                        items = state.cartLines,
-                        selectedLineId = state.selectedCartLineId,
-                        onSelectLine = { viewModel.selectCartLine(it) },
-                        onRemoveLine = { viewModel.removeCartLine(it) },
-                        onUpdateQuantity = { lineId, qty -> viewModel.updateCartLineQuantity(lineId, qty) },
-                        onReweighLine = { line ->
-                            viewModel.reweighCartLine(line)
-                        },
-                        onDiscountLine = { viewModel.showDiscountDialog(true) },
-                        onChangePriceLine = { line ->
-                            viewModel.onApplyWholesalePrice()
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    // Franja Inferior de Cierre y Cobro [F12] con Reimpresión (Requisito 4.1)
-                    CheckoutSummaryBar(
-                        cartLines = state.cartLines,
-                        total = state.total,
-                        ticketNote = state.activeTicketNote,
-                        onOpenNoteDialog = { viewModel.showTicketNoteDialog(true) },
-                        onReprintTicket = { viewModel.reprintLastTicket() },
-                        onCheckout = {
-                            if (state.activeSession == null) {
-                                viewModel.showSessionDialog(true)
-                            } else if (state.cartLines.isEmpty()) {
-                                viewModel.setErrorMessage("Agrega al menos un producto al carrito para cobrar.")
-                            } else {
-                                viewModel.showCashPaymentDialog(true)
-                            }
-                        }
-                    )
-                }
-
-                // COLUMNA DERECHA: CONTEXTO Y ACCIONES RÁPIDAS (340.dp)
-                Column(
-                    modifier = Modifier
-                        .width(340.dp)
-                        .fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Tarjeta del Producto Seleccionado (ElevatedCard M3)
-                    SelectedProductCard(
-                        selectedLine = selectedLine,
-                        onApplyPriceTier = { newPrice ->
-                            selectedLine?.let { line ->
-                                viewModel.updateCartLinePrice(line.id, newPrice)
-                            }
-                        },
-                        onInspectCatalog = { viewModel.showSearchCatalogDialog(true) }
-                    )
-
-                    // Cuadrícula de 8 Acciones Rápidas con Monedero/Crédito (Requisito 4.4)
-                    QuickActionsGrid(
-                        selectedCustomer = state.selectedCustomer,
-                        onFastSale = { viewModel.showGenericProductDialog(true) },
-                        onPriceChecker = { viewModel.showPriceCheckerDialog(true) },
-                        onCashIn = { viewModel.showCashInDialog(true) },
-                        onCashOut = { viewModel.showCashOutDialog(true) },
-                        onAssignCustomer = { viewModel.showCustomerDialog(true) },
-                        onGlobalDiscount = { viewModel.showDiscountDialog(true) },
-                        onWhatsApp = {
-                            state.lastCompletedSale?.let { viewModel.openSaleWhatsAppDialog(it) }
-                                ?: viewModel.setErrorMessage("No hay venta reciente para enviar por WhatsApp")
-                        },
-                        onOpenDrawer = {
-                            onOpenCashDrawerHardware()
-                            viewModel.openCashDrawer()
-                            viewModel.recordManualDrawerOpen(state.activeCashierName)
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -696,6 +646,40 @@ fun SalesScreenV2(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun ContingencyBanner(pendingCount: Int, onOpenSync: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.small,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(Icons.Default.WarningAmber, null)
+            Column {
+                Text(
+                    "Modo contingencia · Sin conexión LAN",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Los cobros en efectivo y tarjeta se sincronizan al volver la conexión.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (pendingCount > 0) {
+                    TextButton(onClick = onOpenSync) {
+                        Text(if (pendingCount == 1) "1 venta pendiente" else "$pendingCount ventas pendientes")
+                    }
+                }
+            }
         }
     }
 }

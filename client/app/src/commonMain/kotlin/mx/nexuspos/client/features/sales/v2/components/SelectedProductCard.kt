@@ -1,7 +1,6 @@
 package mx.nexuspos.client.features.sales.v2.components
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Info
@@ -11,16 +10,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import mx.nexuspos.core.Quantity
 import mx.nexuspos.client.features.sales.CartLine
 import mx.nexuspos.core.Money
 
-/**
- * Tarjeta superior del panel derecho: Producto Seleccionado en Contexto.
- * Implementada con el componente oficial ElevatedCard de Material Design 3.
- * Muestra el último artículo escaneado o seleccionado en el carrito, su unidad de medida,
- * selector interactivo de escalas de precio [Precio ▾] y botón de consulta de ficha.
- */
+/** Precio aplicado, existencia registrada y acceso al catálogo del producto seleccionado. */
 @Composable
 fun SelectedProductCard(
     selectedLine: CartLine?,
@@ -28,15 +22,14 @@ fun SelectedProductCard(
     onInspectCatalog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isPriceMenuExpanded by remember { mutableStateOf(false) }
+    var isPriceMenuExpanded by remember(selectedLine?.id) { mutableStateOf(false) }
 
-    ElevatedCard(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.elevatedCardColors(
+    OutlinedCard(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface
         ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -44,27 +37,16 @@ fun SelectedProductCard(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = "PRODUCTO EN CONTEXTO",
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.5.sp,
-                color = MaterialTheme.colorScheme.primary
+                text = "Producto seleccionado",
+                style = MaterialTheme.typography.titleSmall
             )
 
             if (selectedLine == null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Escanea o selecciona un producto para ver detalles y precios",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                }
+                Text(
+                    "Escanea o selecciona un producto para consultar sus datos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -74,57 +56,56 @@ fun SelectedProductCard(
                     ProductThumbnail(
                         name = selectedLine.name,
                         category = selectedLine.category,
-                        size = 46.dp
+                        size = 40.dp,
+                        imageUrl = selectedLine.imageUrl
                     )
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = selectedLine.name,
-                            fontSize = 14.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2
+                            color = MaterialTheme.colorScheme.onSurface
                         )
-                        Text(
-                            text = "Código: ${selectedLine.barcode} • ${selectedLine.unit.code}",
-                            fontSize = 11.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        if (selectedLine.barcode.isNotBlank()) {
+                            Text(
+                                selectedLine.barcode,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.8.dp)
+                HorizontalDivider()
 
                 // Fila de Precio y Dropdown de Escalas [Precio ▾]
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            text = "PRECIO ACTIVO",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = "Precio aplicado",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "${selectedLine.unitPrice.format()} / ${selectedLine.unit.code}",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.primary
+                            text = "${selectedLine.unitPrice.format()} / ${selectedLine.unit.symbol}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
                     // Selector de Escala de Precios con DropdownMenu oficial M3
                     Box {
-                        OutlinedButton(
+                        TextButton(
                             onClick = { isPriceMenuExpanded = true },
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp)
+                            contentPadding = PaddingValues(horizontal = 6.dp)
                         ) {
-                            Text("Precio ▾", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Precio")
+                            Icon(Icons.Default.ArrowDropDown, null)
                         }
 
                         DropdownMenu(
@@ -158,24 +139,18 @@ fun SelectedProductCard(
                     }
                 }
 
-                // Botón de consulta de ficha de producto en catálogo
-                OutlinedButton(
-                    onClick = onInspectCatalog,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().height(32.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+                selectedLine.currentStockMillis?.let { stock ->
                     Text(
-                        text = "Consultar Ficha en Catálogo",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
+                        "Existencia registrada: ${Quantity(stock).format(selectedLine.unit)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+
+                OutlinedButton(onClick = onInspectCatalog, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Info, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Abrir catálogo")
                 }
             }
         }

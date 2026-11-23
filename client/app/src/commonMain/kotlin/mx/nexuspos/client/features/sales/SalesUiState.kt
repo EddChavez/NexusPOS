@@ -64,6 +64,7 @@ data class SalesUiState(
     val scannerStatus: ScannerStatus = ScannerStatus.READY,
     val selectedCartLineId: String? = null,
     val isWeighingProduct: Pair<ProductDto, ProductPresentationDto>? = null,
+    internal val weighingCartLineId: String? = null,
     val isShowingCashPayment: Boolean = false,
     val isShowingCustomerDialog: Boolean = false,
     val isShowingSessionDialog: Boolean = false,

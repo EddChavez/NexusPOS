@@ -7,7 +7,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -18,11 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.features.sales.TicketState
 
-/**
- * Barra superior oficial Material Design 3 de pestañas para gestión de ventas paralelas (Multi-ticket).
- * Implementada con InputChip oficial, botón FilledTonalIconButton [+], acción de estacionar ticket [⏸️]
- * y AssistChip para Parked Sales (Requisito 4.2).
- */
+/** Pestañas de tickets y acceso a ventas en espera. */
 @Composable
 fun MultiTicketTabBar(
     tickets: List<TicketState>,
@@ -39,20 +34,9 @@ fun MultiTicketTabBar(
 ) {
     val scrollState = rememberScrollState()
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(44.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        // =====================================================================
-        // LISTA DE PESTAÑAS Y BOTÓN [+] (M3 InputChip & FilledTonalIconButton)
-        // =====================================================================
+    val ticketControls: @Composable RowScope.() -> Unit = {
         Row(
-            modifier = Modifier
-                .weight(1f)
-                .horizontalScroll(scrollState),
+            modifier = Modifier.weight(1f).horizontalScroll(scrollState),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -76,7 +60,7 @@ fun MultiTicketTabBar(
                                 text = ticket.total.format(),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     },
@@ -89,7 +73,8 @@ fun MultiTicketTabBar(
                                 Icon(
                                     imageVector = Icons.Default.Edit,
                                     contentDescription = "Renombrar ticket",
-                                    tint = MaterialTheme.colorScheme.outline,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(12.dp)
                                 )
                             }
@@ -104,14 +89,15 @@ fun MultiTicketTabBar(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Cerrar ${ticket.title}",
-                                    tint = MaterialTheme.colorScheme.outline,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(13.dp)
                                 )
                             }
                         }
                     } else null,
                     colors = InputChipDefaults.inputChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
                         labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
                         selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -120,81 +106,65 @@ fun MultiTicketTabBar(
                 )
             }
 
-            // Botón rápido de nueva venta [+]
-            FilledTonalIconButton(
-                onClick = onNewTicket,
-                modifier = Modifier.size(32.dp),
-                shape = MaterialTheme.shapes.small
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Nueva Venta (Ctrl+T / Cmd+T)",
-                    modifier = Modifier.size(18.dp)
-                )
-            }
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
+        FilledTonalIconButton(onClick = onNewTicket, shape = MaterialTheme.shapes.small) {
+            Icon(Icons.Default.Add, "Crear ticket")
+        }
+    }
 
-        // =====================================================================
-        // REQUISITO 4.2: ACCIONES DE VENTAS EN ESPERA EN RED (PARKED SALES)
-        // =====================================================================
+    val parkedControls: @Composable () -> Unit = {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Botón para estacionar el ticket actual si tiene artículos cargados
             if (hasActiveCartLines) {
-                AssistChip(
+                OutlinedButton(
                     onClick = onParkCurrentSale,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.PauseCircle,
-                            contentDescription = "Estacionar ticket en red (Ctrl+E / ⌘E)",
-                            modifier = Modifier.size(15.dp)
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = "Estacionar",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        leadingIconContentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    ),
-                    border = null
-                )
+                    contentPadding = PaddingValues(horizontal = 10.dp)
+                ) {
+                    Icon(Icons.Default.PauseCircle, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Estacionar")
+                }
             }
 
-            // Badge interactivo de ventas archivadas en red (Parked Sales)
             if (parkedSalesCount > 0) {
-                AssistChip(
+                TextButton(
                     onClick = onOpenParkedSales,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Inbox,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = "$parkedSalesCount en espera",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                        leadingIconContentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                    ),
-                    border = null
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Badge(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ) {
+                        Text(parkedSalesCount.toString())
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text("En espera")
+                }
+            }
+        }
+    }
+
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        if (maxWidth < 440.dp && hasActiveCartLines && parkedSalesCount > 0) {
+            Column(horizontalAlignment = Alignment.End) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = ticketControls
                 )
+                parkedControls()
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                ticketControls()
+                parkedControls()
             }
         }
     }

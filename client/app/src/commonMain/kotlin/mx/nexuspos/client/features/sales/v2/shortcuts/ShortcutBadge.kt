@@ -3,7 +3,6 @@ package mx.nexuspos.client.features.sales.v2.shortcuts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -14,7 +13,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import mx.nexuspos.client.theme.NexusTheme
 
 /**
  * Insignia visual estilo <kbd> de Material Design 3 para atajos de teclado.
@@ -25,13 +23,13 @@ fun ShortcutBadge(
     action: PosAction,
     modifier: Modifier = Modifier,
     os: HostOs = HostOsDetector.current,
-    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     contentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
     Surface(
-        shape = RoundedCornerShape(4.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = containerColor,
-        border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle.copy(alpha = 0.7f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
     ) {
         Box(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)) {
