@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.sales.CashMovementDialog
 import mx.nexuspos.client.features.cash.CashSessionDialog
-import mx.nexuspos.client.features.credit.CustomerSelectionDialog
 import mx.nexuspos.client.features.header.AppModule
 import mx.nexuspos.client.features.header.ScaleReading
 import mx.nexuspos.client.features.sales.*
@@ -428,7 +427,7 @@ fun SalesScreenV2(
 
         // 3. Asignación de cliente
         if (state.isShowingCustomerDialog) {
-            CustomerSelectionDialog(
+            CustomerSelectionDialogV2(
                 apiClient = viewModel.apiClient,
                 currentCustomer = state.selectedCustomer,
                 onSelectCustomer = { cust -> viewModel.selectCustomer(cust) },
