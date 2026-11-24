@@ -402,10 +402,11 @@ fun SalesScreenV2(
         // =====================================================================
         // 1. Pesaje a granel con báscula
         state.isWeighingProduct?.let { (prod, pres) ->
-            WeightQuantityDialog(
+            WeightQuantityDialogV2(
                 product = prod,
                 presentation = pres,
                 scaleReading = scaleReading,
+                currentLine = state.cartLines.firstOrNull { it.id == state.weighingCartLineId },
                 onConfirm = { qty -> viewModel.confirmWeighedProduct(qty) },
                 onDismiss = { viewModel.dismissWeighingDialog() }
             )
