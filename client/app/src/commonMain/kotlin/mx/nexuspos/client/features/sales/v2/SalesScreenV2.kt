@@ -414,18 +414,15 @@ fun SalesScreenV2(
 
         // 2. Pasarela de pagos multidivisa (Monedero / Crédito Requisito 4.4)
         if (state.isShowingCashPayment) {
-            MultiPaymentCheckoutDialog(
-                isOpen = true,
+            CheckoutDialogV2(
                 total = state.total,
                 selectedCustomer = state.selectedCustomer,
+                isOffline = state.connectionState == ServerConnectionState.NO_SERVER,
+                isSubmitting = state.isCheckoutInProgress,
+                errorMessage = state.checkoutErrorMessage,
                 onDismiss = { viewModel.showCashPaymentDialog(false) },
-                onRequestSelectCustomer = {
-                    viewModel.showCashPaymentDialog(false)
-                    viewModel.showCustomerDialog(true)
-                },
-                onConfirmCheckout = { payments ->
-                    viewModel.checkoutMultiPayment(payments)
-                }
+                onRequestSelectCustomer = { viewModel.showCustomerDialog(true) },
+                onConfirmCheckout = viewModel::checkoutMultiPayment
             )
         }
 

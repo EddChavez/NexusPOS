@@ -184,8 +184,9 @@ class SalesViewModel(
     }
 
     fun onScannerSubmitted() {
-        if (_uiState.value.isParkingSale) return
-        val input = _uiState.value.scannerInput.trim()
+        val scannerState = _uiState.value
+        if (scannerState.isParkingSale || scannerState.isCheckoutInProgress) return
+        val input = scannerState.scannerInput.trim()
         if (input.isBlank()) return
 
         _uiState.update { it.copy(scannerStatus = ScannerStatus.PROCESSING) }
@@ -1176,7 +1177,10 @@ class SalesViewModel(
     }
 
     fun showCashPaymentDialog(show: Boolean) {
-        _uiState.update { it.copy(isShowingCashPayment = show) }
+        _uiState.update { state ->
+            if (state.isCheckoutInProgress || state.isShowingCashPayment == show) state
+            else state.copy(isShowingCashPayment = show, checkoutErrorMessage = null)
+        }
     }
 
     fun showCustomerDialog(show: Boolean) {
@@ -1262,35 +1266,23 @@ class SalesViewModel(
     }
 
     fun checkoutMultiPayment(payments: List<SalePaymentRequest>) {
-        val state = _uiState.value
+        val state = _uiState.getAndUpdate {
+            if (it.isCheckoutInProgress) it else it.copy(isCheckoutInProgress = true, checkoutErrorMessage = null)
+        }
+        if (state.isCheckoutInProgress) return
+
         val isOffline = state.connectionState == ServerConnectionState.NO_SERVER
-
-        if (payments.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "Debe especificar al menos una forma de pago.") }
-            return
+        val validationError = when {
+            payments.isEmpty() -> "Debe especificar al menos una forma de pago."
+            isOffline && payments.any { it.method == "CREDIT" || it.method == "LOYALTY" } ->
+                "En Modo Contingencia (sin servidor LAN) solo se permiten pagos en Efectivo o Tarjeta."
+            !isOffline && state.activeSession?.status != "OPEN" -> "Debe abrir una sesión de caja antes de realizar ventas."
+            payments.any { it.method == "CREDIT" } && state.selectedCustomer == null ->
+                "Debe seleccionar un cliente para registrar pago a crédito (fiado)."
+            else -> null
         }
-
-        if (isOffline) {
-            val hasRestricted = payments.any { it.method == "CREDIT" || it.method == "LOYALTY" }
-            if (hasRestricted) {
-                _uiState.update {
-                    it.copy(errorMessage = "En Modo Contingencia (sin servidor LAN) solo se permiten pagos en Efectivo o Tarjeta.")
-                }
-                return
-            }
-        } else {
-            val sess = state.activeSession
-            if (sess == null || sess.status != "OPEN") {
-                _uiState.update {
-                    it.copy(errorMessage = "Debe abrir una sesión de caja antes de realizar ventas.")
-                }
-                return
-            }
-        }
-
-        val hasCredit = payments.any { it.method == "CREDIT" }
-        if (hasCredit && state.selectedCustomer == null) {
-            _uiState.update { it.copy(errorMessage = "Debe seleccionar un cliente para registrar pago a crédito (fiado).") }
+        if (validationError != null) {
+            reportCheckoutError(validationError)
             return
         }
 
@@ -1324,7 +1316,12 @@ class SalesViewModel(
             )
 
             if (isOffline) {
-                val queuedSale = saleQueue.enqueue(saleReq)
+                val queuedSale = try {
+                    saleQueue.enqueue(saleReq)
+                } catch (error: Exception) {
+                    reportCheckoutError(error.message ?: "No se pudo guardar la venta en contingencia.")
+                    return@launch
+                }
                 val localFolio = queuedSale.localFolio
 
                 val cashPay = payments.firstOrNull { it.method == "CASH" }
@@ -1375,58 +1372,23 @@ class SalesViewModel(
                     loyaltyReward = null
                 )
 
-                onSaleCompleted?.invoke(offlineSale)
-
-                _uiState.update { s ->
-                    val clearedTickets = s.tickets.map { t ->
-                        if (t.id == s.activeTicketId) {
-                            t.copy(
-                                cartLines = emptyList(),
-                                subtotal = Money.ZERO,
-                                tax = Money.ZERO,
-                                total = Money.ZERO,
-                                selectedCustomer = null,
-                                note = ""
-                            )
-                        } else t
-                    }
-
-                    s.copy(
-                        tickets = clearedTickets,
-                        cartLines = emptyList(),
-                        subtotal = Money.ZERO,
-                        tax = Money.ZERO,
-                        total = Money.ZERO,
-                        selectedCustomer = null,
-                        activeTicketNote = "",
-                        discount = Money.ZERO,
-                        selectedCartLineId = null,
+                _uiState.update { current ->
+                    resetCheckedOutTicket(current, state.activeTicketId).copy(
                         isShowingCashPayment = false,
+                        isCheckoutInProgress = false,
+                        checkoutErrorMessage = null,
                         lastCompletedSale = offlineSale,
                         offlinePendingSalesCount = saleQueue.pendingCount(),
                         successMessage = "Venta registrada en Modo Contingencia (#$localFolio)$changeMsg. Se sincronizará al volver la red.",
                         errorMessage = null
                     )
                 }
+                onSaleCompleted?.invoke(offlineSale)
                 return@launch
             }
 
             apiClient.completeSale(saleReq).onSuccess { sale ->
-                onSaleCompleted?.invoke(sale)
-                _uiState.update { s ->
-                    val clearedTickets = s.tickets.map { t ->
-                        if (t.id == s.activeTicketId) {
-                            t.copy(
-                                cartLines = emptyList(),
-                                subtotal = Money.ZERO,
-                                tax = Money.ZERO,
-                                total = Money.ZERO,
-                                selectedCustomer = null,
-                                note = ""
-                            )
-                        } else t
-                    }
-
+                _uiState.update { current ->
                     val cashPay = sale.payments.firstOrNull { it.method == "CASH" }
                     val changeMsg = if (cashPay != null && cashPay.changeCents > 0L) {
                         " | Cambio: $${cashPay.changeCents / 100.0}"
@@ -1445,28 +1407,33 @@ class SalesViewModel(
                         " | Redimió $${"%.2f".format(loyaltyReward.redeemedCents / 100.0)} de monedero (Saldo: $${"%.2f".format(loyaltyReward.finalBalanceCents / 100.0)})"
                     } else ""
 
-                    s.copy(
-                        tickets = clearedTickets,
-                        cartLines = emptyList(),
-                        subtotal = Money.ZERO,
-                        tax = Money.ZERO,
-                        total = Money.ZERO,
-                        selectedCustomer = null,
-                        activeTicketNote = "",
-                        discount = Money.ZERO,
-                        selectedCartLineId = null,
+                    resetCheckedOutTicket(current, state.activeTicketId).copy(
                         isShowingCashPayment = false,
+                        isCheckoutInProgress = false,
+                        checkoutErrorMessage = null,
                         lastCompletedSale = sale,
                         successMessage = "Venta folio #${sale.folio} completada con éxito$changeMsg$creditMsg$loyaltyMsg",
                         errorMessage = null
                     )
                 }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(errorMessage = err.message)
-                }
+                onSaleCompleted?.invoke(sale)
+            }.onFailure { error ->
+                reportCheckoutError(error.message ?: "No se pudo completar el cobro.")
             }
         }
+    }
+
+    private fun reportCheckoutError(message: String) {
+        _uiState.update {
+            it.copy(isCheckoutInProgress = false, checkoutErrorMessage = message, errorMessage = message)
+        }
+    }
+
+    private fun resetCheckedOutTicket(state: SalesUiState, ticketId: String): SalesUiState {
+        val ticket = state.tickets.firstOrNull { it.id == ticketId } ?: return state
+        val cleared = TicketState(id = ticket.id, title = ticket.title, createdAtMillis = ticket.createdAtMillis)
+        val updated = state.copy(tickets = state.tickets.map { if (it.id == ticketId) cleared else it })
+        return if (state.activeTicketId == ticketId) activateTicket(updated, cleared) else updated
     }
 
     fun setErrorMessage(message: String) {

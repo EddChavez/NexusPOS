@@ -66,6 +66,8 @@ data class SalesUiState(
     val isWeighingProduct: Pair<ProductDto, ProductPresentationDto>? = null,
     internal val weighingCartLineId: String? = null,
     val isShowingCashPayment: Boolean = false,
+    val isCheckoutInProgress: Boolean = false,
+    val checkoutErrorMessage: String? = null,
     val isShowingCustomerDialog: Boolean = false,
     val isShowingSessionDialog: Boolean = false,
     val isShowingGenericProductDialog: Boolean = false,

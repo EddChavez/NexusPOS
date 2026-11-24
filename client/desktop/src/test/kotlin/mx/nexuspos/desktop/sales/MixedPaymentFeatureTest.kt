@@ -1,5 +1,6 @@
 package mx.nexuspos.desktop.sales
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -19,12 +20,18 @@ class MixedPaymentFeatureTest {
     private class MockMixedPaymentApiClient : ApiClient() {
         var lastCreateSaleRequest: CreateSaleRequest? = null
         var nextFolio = 501L
+        var attempts = 0
+        var responseGate: CompletableDeferred<Result<Unit>>? = null
+        var openSession: CashSessionSummary? = null
 
         override suspend fun checkHealth(): Boolean = true
-        override suspend fun getCurrentSession(registerId: String): Result<mx.nexuspos.contracts.cash.CashSessionSummary?> = Result.success(null)
+        override suspend fun getCurrentSession(registerId: String): Result<mx.nexuspos.contracts.cash.CashSessionSummary?> = Result.success(openSession)
 
-        override suspend fun completeSale(request: CreateSaleRequest): Result<SaleResponse> {
+        override suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> {
+            val request = req
             lastCreateSaleRequest = request
+            attempts++
+            responseGate?.await()?.onFailure { return Result.failure(it) }
 
             var totalChangeCents = 0L
             val paymentResponses = request.payments.mapIndexed { idx, p ->
@@ -242,5 +249,37 @@ class MixedPaymentFeatureTest {
 
         assertNull(mockApi.lastCreateSaleRequest)
         assertTrue(viewModel.uiState.value.errorMessage?.contains("Debe especificar al menos una forma de pago") == true)
+    }
+
+    @Test
+    fun checkoutKeepsTheTicketOnFailureAndIgnoresDuplicateConfirmations() {
+        val gate = CompletableDeferred<Result<Unit>>()
+        val api = MockMixedPaymentApiClient().apply {
+            responseGate = gate
+            openSession = createOpenSessionSummary()
+        }
+        val vm = SalesViewModel(api, scope = CoroutineScope(Dispatchers.Unconfined))
+        vm.addGenericProduct("Café", 6000)
+        vm.showCashPaymentDialog(true)
+        val payments = listOf(SalePaymentRequest("CASH", 6000, 10000))
+
+        vm.checkoutMultiPayment(payments)
+        assertTrue(vm.uiState.value.isCheckoutInProgress)
+        vm.checkoutMultiPayment(payments)
+        vm.showCashPaymentDialog(false)
+        assertEquals(1, api.attempts)
+        assertTrue(vm.uiState.value.isShowingCashPayment)
+
+        gate.complete(Result.failure(IllegalStateException("Pago rechazado")))
+        assertFalse(vm.uiState.value.isCheckoutInProgress)
+        assertEquals("Pago rechazado", vm.uiState.value.checkoutErrorMessage)
+        assertEquals("Café", vm.uiState.value.cartLines.single().name)
+
+        api.responseGate = null
+        vm.checkoutMultiPayment(payments)
+        assertEquals(2, api.attempts)
+        assertFalse(vm.uiState.value.isShowingCashPayment)
+        assertFalse(vm.uiState.value.isCheckoutInProgress)
+        assertNull(vm.uiState.value.checkoutErrorMessage)
     }
 }
