@@ -533,7 +533,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getCustomer(id: String): Result<CustomerDto> {
+    open suspend fun getCustomer(id: String): Result<CustomerDto> {
         return try {
             val res = http.get("$baseUrl/api/v1/customers/$id")
             if (res.status.isSuccess()) {

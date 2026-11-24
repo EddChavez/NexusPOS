@@ -95,6 +95,7 @@ data class SalesUiState(
     val parkedSales: List<ParkedSaleResponse> = emptyList(),
     val selectedParkedSale: ParkedSaleResponse? = null,
     val isShowingParkSaleDialog: Boolean = false,
+    val isParkingSale: Boolean = false,
     val isShowingParkedSalesListDialog: Boolean = false,
     val isLoadingParkedSales: Boolean = false,
     val offlinePendingSalesCount: Int = 0,

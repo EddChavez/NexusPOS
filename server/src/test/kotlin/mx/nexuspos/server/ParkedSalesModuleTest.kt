@@ -39,8 +39,10 @@ class ParkedSalesModuleTest {
         }
 
         // 1. Aparcar una venta con 2 artículos
+        val note = "Verduras para entrega\nLlamar al llegar"
         val parkReq = ParkSaleRequest(
             customLabel = "Doña Carmen - Verduras",
+            note = note,
             cashierUserId = "user-cajero-1",
             cashierName = "Don Pepe",
             registerId = "caja-1",
@@ -83,6 +85,7 @@ class ParkedSalesModuleTest {
         val parkedSale = parkResponse.body<ParkedSaleResponse>()
         assertEquals("Doña Carmen - Verduras", parkedSale.customLabel)
         assertEquals("PARKED", parkedSale.status)
+        assertEquals(note, parkedSale.note)
         assertEquals(2, parkedSale.itemsCount)
         assertEquals(6600L, parkedSale.totalCents)
         assertEquals(2, parkedSale.items.size)
@@ -94,6 +97,7 @@ class ParkedSalesModuleTest {
         assertEquals(1, parkedList.size)
         assertEquals(parkedSale.id, parkedList[0].id)
         assertEquals("Doña Carmen - Verduras", parkedList[0].customLabel)
+        assertEquals(note, parkedList.single().note)
 
         // 3. Recuperar el ticket desde otra caja (ej. caja-2)
         val retrieveReq = RetrieveParkedSaleRequest(
@@ -107,6 +111,7 @@ class ParkedSalesModuleTest {
         assertEquals(HttpStatusCode.OK, retrieveResponse.status)
         val retrieved = retrieveResponse.body<ParkedSaleResponse>()
         assertEquals("RETRIEVED", retrieved.status)
+        assertEquals(note, retrieved.note)
         assertEquals("caja-2", retrieved.registerId)
         assertEquals("user-cajero-2", retrieved.retrievedByUserId)
         assertEquals(2, retrieved.items.size)
@@ -168,6 +173,7 @@ class ParkedSalesModuleTest {
         }
         assertEquals(HttpStatusCode.Created, parkResponse.status)
         val parked = parkResponse.body<ParkedSaleResponse>()
+        assertEquals("", parked.note)
 
         // Descartar
         val discardResponse = client.post("/api/v1/parked-sales/${parked.id}/discard?userId=user-1")

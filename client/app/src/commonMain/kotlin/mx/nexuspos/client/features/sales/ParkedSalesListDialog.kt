@@ -324,6 +324,19 @@ fun ParkedSalesListDialog(
                                         modifier = Modifier.weight(1f),
                                         verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
+                                        if (currentSelection.note.isNotBlank()) {
+                                            item {
+                                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Text("Nota de la venta", style = MaterialTheme.typography.labelMedium)
+                                                    Text(
+                                                        currentSelection.note,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                                                }
+                                            }
+                                        }
                                         items(currentSelection.items) { line ->
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),

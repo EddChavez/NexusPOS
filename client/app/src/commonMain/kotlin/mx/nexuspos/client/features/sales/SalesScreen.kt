@@ -396,6 +396,10 @@ fun SalesScreen(
                 isOpen = true,
                 itemsCount = state.cartLines.size,
                 total = state.total,
+                defaultLabel = state.selectedCustomer?.name.orEmpty().take(128),
+                ticketNote = state.activeTicketNote,
+                isSaving = state.isParkingSale,
+                saveError = state.errorMessage,
                 onConfirm = { label -> viewModel.confirmParkCurrentSale(label) },
                 onDismiss = { viewModel.closeParkSaleDialog() }
             )

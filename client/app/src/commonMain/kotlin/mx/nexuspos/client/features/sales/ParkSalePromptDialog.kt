@@ -17,6 +17,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +32,9 @@ fun ParkSalePromptDialog(
     itemsCount: Int,
     total: Money,
     defaultLabel: String = "",
+    ticketNote: String = "",
+    isSaving: Boolean = false,
+    saveError: String? = null,
     onConfirm: (label: String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -44,7 +48,7 @@ fun ParkSalePromptDialog(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isSaving) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
@@ -58,12 +62,12 @@ fun ParkSalePromptDialog(
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown) {
                         when (event.key) {
-                            Key.Enter -> {
-                                onConfirm(labelText)
+                            Key.Enter, Key.NumPadEnter -> {
+                                if (!isSaving) onConfirm(labelText)
                                 true
                             }
                             Key.Escape -> {
-                                onDismiss()
+                                if (!isSaving) onDismiss()
                                 true
                             }
                             else -> false
@@ -148,17 +152,18 @@ fun ParkSalePromptDialog(
                     }
                 }
 
-                // Campo de captura de referencia / nota
+                // Referencia para identificar el ticket en la lista.
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = "Referencia / Nombre del Cliente (Opcional):",
+                        text = "Referencia para encontrar el ticket (opcional)",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = NexusTheme.colors.textPrimary
                     )
                     OutlinedTextField(
                         value = labelText,
-                        onValueChange = { labelText = it },
+                        onValueChange = { labelText = it.take(128) },
+                        enabled = !isSaving,
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester),
@@ -171,7 +176,7 @@ fun ParkSalePromptDialog(
                         },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { onConfirm(labelText) }),
+                        keyboardActions = KeyboardActions(onDone = { if (!isSaving) onConfirm(labelText) }),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = NexusTheme.colors.borderPrimary,
                             unfocusedBorderColor = NexusTheme.colors.borderSubtle,
@@ -183,6 +188,18 @@ fun ParkSalePromptDialog(
                     )
                 }
 
+                if (ticketNote.isNotBlank()) {
+                    Text("Nota que se guardará con la venta", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        ticketNote,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                saveError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+
                 // Botones
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -190,6 +207,7 @@ fun ParkSalePromptDialog(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
+                        enabled = !isSaving,
                         modifier = Modifier.weight(1f).height(44.dp),
                         shape = RoundedCornerShape(6.dp),
                         border = BorderStroke(1.dp, NexusTheme.colors.borderSubtle),
@@ -202,6 +220,7 @@ fun ParkSalePromptDialog(
 
                     Button(
                         onClick = { onConfirm(labelText) },
+                        enabled = !isSaving,
                         modifier = Modifier.weight(1.5f).height(44.dp),
                         shape = RoundedCornerShape(6.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -210,7 +229,7 @@ fun ParkSalePromptDialog(
                         )
                     ) {
                         Text(
-                            "Poner en Espera [Enter]",
+                            if (isSaving) "Guardando…" else "Poner en espera [Enter]",
                             fontWeight = FontWeight.Bold
                         )
                     }

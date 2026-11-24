@@ -1,0 +1,1 @@
+ALTER TABLE parked_sales ADD COLUMN note TEXT NOT NULL DEFAULT '';

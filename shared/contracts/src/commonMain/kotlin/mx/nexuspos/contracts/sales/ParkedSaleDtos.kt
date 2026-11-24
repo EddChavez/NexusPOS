@@ -14,7 +14,9 @@ data class ParkedSaleItemDto(
     val unitPriceCents: Long,
     val taxRate: Double = 0.0,
     val totalCents: Long,
-    val isWeighed: Boolean = false
+    val isWeighed: Boolean = false,
+    val discountCents: Long = 0,
+    val discountPercent: Double = 0.0
 )
 
 @Serializable
@@ -26,7 +28,8 @@ data class ParkSaleRequest(
     val customerId: String? = null,
     val customerName: String? = null,
     val items: List<ParkedSaleItemDto>,
-    val totalCents: Long
+    val totalCents: Long,
+    val note: String = ""
 )
 
 @Serializable
@@ -44,7 +47,8 @@ data class ParkedSaleResponse(
     val parkedAt: Long,
     val status: String, // PARKED, RETRIEVED, DISCARDED
     val retrievedAt: Long? = null,
-    val retrievedByUserId: String? = null
+    val retrievedByUserId: String? = null,
+    val note: String = ""
 )
 
 @Serializable

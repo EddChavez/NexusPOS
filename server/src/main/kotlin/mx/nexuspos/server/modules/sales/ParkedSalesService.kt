@@ -34,8 +34,8 @@ class ParkedSalesService(private val db: DatabaseFactory) {
                     id, custom_label, cashier_user_id, cashier_name,
                     customer_id, customer_name, register_id, total_cents,
                     items_count, items_json, parked_at, status,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PARKED', ?, ?)
+                    created_at, updated_at, note
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PARKED', ?, ?, ?)
                 """.trimIndent()
             )
             stmt.setString(1, id)
@@ -51,6 +51,7 @@ class ParkedSalesService(private val db: DatabaseFactory) {
             stmt.setLong(11, now)
             stmt.setLong(12, now)
             stmt.setLong(13, now)
+            stmt.setString(14, request.note)
             stmt.executeUpdate()
             stmt.close()
 
@@ -66,7 +67,8 @@ class ParkedSalesService(private val db: DatabaseFactory) {
                 itemsCount = request.items.size,
                 items = request.items,
                 parkedAt = now,
-                status = "PARKED"
+                status = "PARKED",
+                note = request.note
             )
         }
     }
@@ -106,7 +108,8 @@ class ParkedSalesService(private val db: DatabaseFactory) {
                         parkedAt = rs.getLong("parked_at"),
                         status = rs.getString("status"),
                         retrievedAt = rs.getObject("retrieved_at")?.let { rs.getLong("retrieved_at") },
-                        retrievedByUserId = rs.getString("retrieved_by_user_id")
+                        retrievedByUserId = rs.getString("retrieved_by_user_id"),
+                        note = rs.getString("note")
                     )
                 )
             }
@@ -135,6 +138,7 @@ class ParkedSalesService(private val db: DatabaseFactory) {
             }
 
             val customLabel = rs.getString("custom_label")
+            val note = rs.getString("note")
             val cashierUserId = rs.getString("cashier_user_id")
             val cashierName = rs.getString("cashier_name")
             val customerId = rs.getString("customer_id")
@@ -184,7 +188,8 @@ class ParkedSalesService(private val db: DatabaseFactory) {
                 parkedAt = parkedAt,
                 status = "RETRIEVED",
                 retrievedAt = now,
-                retrievedByUserId = request.retrievedByUserId
+                retrievedByUserId = request.retrievedByUserId,
+                note = note
             )
         }
     }
@@ -208,6 +213,7 @@ class ParkedSalesService(private val db: DatabaseFactory) {
             }
 
             val customLabel = rs.getString("custom_label")
+            val note = rs.getString("note")
             val cashierUserId = rs.getString("cashier_user_id")
             val cashierName = rs.getString("cashier_name")
             val registerId = rs.getString("register_id")
@@ -250,7 +256,8 @@ class ParkedSalesService(private val db: DatabaseFactory) {
                 itemsCount = itemsCount,
                 items = parsedItems,
                 parkedAt = parkedAt,
-                status = "DISCARDED"
+                status = "DISCARDED",
+                note = note
             )
         }
     }

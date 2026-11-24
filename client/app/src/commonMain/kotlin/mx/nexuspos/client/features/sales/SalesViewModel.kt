@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
@@ -183,6 +184,7 @@ class SalesViewModel(
     }
 
     fun onScannerSubmitted() {
+        if (_uiState.value.isParkingSale) return
         val input = _uiState.value.scannerInput.trim()
         if (input.isBlank()) return
 
@@ -467,36 +469,9 @@ class SalesViewModel(
 
     fun newTicket() {
         _uiState.update { state ->
-            val nextNum = state.tickets.size + 1
             val newId = "ticket-${UUID.randomUUID().toString().take(6)}"
-            val newTicket = TicketState(id = newId, title = "Ticket $nextNum")
-
-            // Sincronizar el ticket actual saliente
-            val syncedTickets = state.tickets.map { t ->
-                if (t.id == state.activeTicketId) {
-                    t.copy(
-                        cartLines = state.cartLines,
-                        subtotal = state.subtotal,
-                        tax = state.tax,
-                        total = state.total,
-                        selectedCustomer = state.selectedCustomer,
-                        note = state.activeTicketNote
-                    )
-                } else t
-            }
-
-            state.copy(
-                tickets = syncedTickets + newTicket,
-                activeTicketId = newId,
-                cartLines = emptyList(),
-                subtotal = Money.ZERO,
-                tax = Money.ZERO,
-                total = Money.ZERO,
-                selectedCustomer = null,
-                activeTicketNote = "",
-                selectedCartLineId = null,
-                scannerInput = ""
-            )
+            val newTicket = TicketState(id = newId, title = "Ticket ${state.tickets.size + 1}")
+            activateTicket(state.copy(tickets = state.tickets + newTicket), newTicket)
         }
     }
 
@@ -504,34 +479,22 @@ class SalesViewModel(
         _uiState.update { state ->
             if (state.activeTicketId == ticketId) return@update state
             val target = state.tickets.firstOrNull { it.id == ticketId } ?: return@update state
-
-            val syncedTickets = state.tickets.map { t ->
-                if (t.id == state.activeTicketId) {
-                    t.copy(
-                        cartLines = state.cartLines,
-                        subtotal = state.subtotal,
-                        tax = state.tax,
-                        total = state.total,
-                        selectedCustomer = state.selectedCustomer,
-                        note = state.activeTicketNote
-                    )
-                } else t
-            }
-
-            state.copy(
-                tickets = syncedTickets,
-                activeTicketId = target.id,
-                cartLines = target.cartLines,
-                subtotal = target.subtotal,
-                tax = target.tax,
-                total = target.total,
-                selectedCustomer = target.selectedCustomer,
-                activeTicketNote = target.note,
-                selectedCartLineId = null,
-                scannerInput = ""
-            )
+            activateTicket(state, target)
         }
     }
+
+    private fun activateTicket(state: SalesUiState, ticket: TicketState): SalesUiState = state.copy(
+        activeTicketId = ticket.id,
+        cartLines = ticket.cartLines,
+        subtotal = ticket.subtotal,
+        tax = ticket.tax,
+        total = ticket.total,
+        discount = Money(ticket.cartLines.sumOf { it.discountCents }),
+        selectedCustomer = ticket.selectedCustomer,
+        activeTicketNote = ticket.note,
+        selectedCartLineId = null,
+        scannerInput = ""
+    )
 
     fun cycleNextTicket() {
         val state = _uiState.value
@@ -708,12 +671,12 @@ class SalesViewModel(
         if (state.cartLines.isEmpty()) {
             openParkedSalesListDialog()
         } else {
-            _uiState.update { it.copy(isShowingParkSaleDialog = true) }
+            _uiState.update { it.copy(isShowingParkSaleDialog = true, errorMessage = null) }
         }
     }
 
     fun closeParkSaleDialog() {
-        _uiState.update { it.copy(isShowingParkSaleDialog = false) }
+        _uiState.update { if (it.isParkingSale) it else it.copy(isShowingParkSaleDialog = false) }
     }
 
     fun openParkedSalesListDialog() {
@@ -730,7 +693,11 @@ class SalesViewModel(
     }
 
     fun confirmParkCurrentSale(label: String) {
-        val state = _uiState.value
+        val state = _uiState.getAndUpdate { current ->
+            if (current.isParkingSale || current.cartLines.isEmpty()) current
+            else current.copy(isParkingSale = true, errorMessage = null)
+        }
+        if (state.isParkingSale) return
         if (state.cartLines.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "El carrito está vacío. Agregue productos antes de poner en espera.") }
             return
@@ -738,8 +705,9 @@ class SalesViewModel(
 
         val effectiveLabel = label.trim().ifBlank {
             val activeTicket = state.tickets.firstOrNull { it.id == state.activeTicketId }
-            activeTicket?.title ?: "Ticket ${state.tickets.size}"
-        }
+            state.selectedCustomer?.name?.takeIf { it.isNotBlank() }
+                ?: activeTicket?.title ?: "Ticket ${state.tickets.size}"
+        }.take(128)
 
         val itemsDto = state.cartLines.map { line ->
             ParkedSaleItemDto(
@@ -753,7 +721,9 @@ class SalesViewModel(
                 unitPriceCents = line.unitPrice.cents,
                 taxRate = line.taxRate,
                 totalCents = line.total.cents,
-                isWeighed = line.isWeighed
+                isWeighed = line.isWeighed,
+                discountCents = line.discountCents,
+                discountPercent = line.discountPercent
             )
         }
 
@@ -765,41 +735,27 @@ class SalesViewModel(
             customerId = state.selectedCustomer?.id,
             customerName = state.selectedCustomer?.name,
             items = itemsDto,
-            totalCents = state.total.cents
+            totalCents = state.total.cents,
+            note = state.activeTicketNote
         )
 
         scope.launch {
             apiClient.parkSale(req).onSuccess { parked ->
-                _uiState.update { s ->
-                    val clearedTickets = s.tickets.map { t ->
-                        if (t.id == s.activeTicketId) {
-                            t.copy(
-                                cartLines = emptyList(),
-                                subtotal = Money.ZERO,
-                                tax = Money.ZERO,
-                                total = Money.ZERO,
-                                selectedCustomer = null
-                            )
-                        } else t
-                    }
-                    s.copy(
-                        tickets = clearedTickets,
-                        cartLines = emptyList(),
-                        subtotal = Money.ZERO,
-                        tax = Money.ZERO,
-                        total = Money.ZERO,
-                        selectedCustomer = null,
-                        selectedCartLineId = null,
-                        scannerInput = "",
+                _uiState.update { current ->
+                    val updated = removeTicket(current, state.activeTicketId)
+                    updated.copy(
+                        isParkingSale = false,
                         isShowingParkSaleDialog = false,
-                        successMessage = "Ticket '$effectiveLabel' guardado en espera (${parked.itemsCount} productos).",
-                        errorMessage = null
+                        successMessage = "Ticket '${parked.customLabel}' guardado en espera (${parked.itemsCount} productos).",
+                        errorMessage = if (parked.note != req.note) {
+                            "El servidor no guardó la nota del ticket en espera. Nota: ${req.note}"
+                        } else null
                     )
                 }
                 loadParkedSales()
             }.onFailure { err ->
                 _uiState.update {
-                    it.copy(errorMessage = "Error al poner ticket en espera: ${err.message}")
+                    it.copy(isParkingSale = false, errorMessage = "Error al poner ticket en espera: ${err.message}")
                 }
             }
         }
@@ -826,54 +782,37 @@ class SalesViewModel(
                         unitPrice = Money.fromCents(item.unitPriceCents),
                         taxRate = item.taxRate,
                         total = Money.fromCents(item.totalCents),
-                        isWeighed = item.isWeighed
+                        isWeighed = item.isWeighed,
+                        discountCents = item.discountCents,
+                        discountPercent = item.discountPercent
                     )
                 }
 
-                _uiState.update { s ->
-                    if (s.cartLines.isEmpty()) {
-                        val updatedState = s.copy(
-                            cartLines = restoredLines,
-                            isShowingParkedSalesListDialog = false,
-                            selectedParkedSale = null,
-                            successMessage = "Ticket '${retrieved.customLabel}' recuperado al carrito."
-                        )
-                        val recalculated = recalculateTotals(updatedState)
-                        val syncedTickets = recalculated.tickets.map { t ->
-                            if (t.id == recalculated.activeTicketId) {
-                                t.copy(
-                                    cartLines = recalculated.cartLines,
-                                    subtotal = recalculated.subtotal,
-                                    tax = recalculated.tax,
-                                    total = recalculated.total
-                                )
-                            } else t
-                        }
-                        recalculated.copy(tickets = syncedTickets)
+                val customerResult = retrieved.customerId?.let { apiClient.getCustomer(it) }
+                val recoveredCustomer = customerResult?.getOrNull()?.takeIf { it.isActive }
+                _uiState.update { current ->
+                    val active = current.tickets.first { it.id == current.activeTicketId }
+                    val reuseActive = active.cartLines.isEmpty() && active.note.isBlank() && active.selectedCustomer == null
+                    val restored = TicketState(
+                        id = if (reuseActive) active.id else "ticket-${UUID.randomUUID().toString().take(6)}",
+                        title = retrieved.customLabel,
+                        cartLines = restoredLines,
+                        selectedCustomer = recoveredCustomer,
+                        note = retrieved.note
+                    )
+                    val tickets = if (reuseActive) {
+                        current.tickets.map { if (it.id == active.id) restored else it }
                     } else {
-                        val newId = "ticket-${UUID.randomUUID().toString().take(6)}"
-                        val newTicket = TicketState(id = newId, title = retrieved.customLabel.take(15))
-                        val stateWithNewTicket = s.copy(
-                            tickets = s.tickets + newTicket,
-                            activeTicketId = newId,
-                            cartLines = restoredLines,
-                            isShowingParkedSalesListDialog = false,
-                            selectedParkedSale = null,
-                            successMessage = "Ticket '${retrieved.customLabel}' recuperado en nueva pestaña."
-                        )
-                        val recalculated = recalculateTotals(stateWithNewTicket)
-                        val syncedTickets = recalculated.tickets.map { t ->
-                            if (t.id == newId) {
-                                t.copy(
-                                    cartLines = recalculated.cartLines,
-                                    subtotal = recalculated.subtotal,
-                                    tax = recalculated.tax,
-                                    total = recalculated.total
-                                )
-                            } else t
-                        }
-                        recalculated.copy(tickets = syncedTickets)
+                        current.tickets + restored
                     }
+                    recalculateTotals(activateTicket(current.copy(tickets = tickets), restored)).copy(
+                        isShowingParkedSalesListDialog = false,
+                        selectedParkedSale = null,
+                        successMessage = "Ticket '${retrieved.customLabel}' recuperado.",
+                        errorMessage = if (retrieved.customerId != null && recoveredCustomer == null) {
+                            "No se pudo recuperar el cliente del ticket. Asígnalo antes de cobrar."
+                        } else null
+                    )
                 }
                 loadParkedSales()
             }.onFailure { err ->
@@ -1147,46 +1086,15 @@ class SalesViewModel(
     }
 
     fun closeTicket(ticketId: String) {
-        _uiState.update { state ->
-            if (state.tickets.size <= 1) {
-                val reset = state.tickets.first().copy(
-                    cartLines = emptyList(),
-                    subtotal = Money.ZERO,
-                    tax = Money.ZERO,
-                    total = Money.ZERO,
-                    selectedCustomer = null
-                )
-                state.copy(
-                    tickets = listOf(reset),
-                    cartLines = emptyList(),
-                    subtotal = Money.ZERO,
-                    tax = Money.ZERO,
-                    total = Money.ZERO,
-                    selectedCustomer = null,
-                    selectedCartLineId = null,
-                    scannerInput = ""
-                )
-            } else {
-                val remaining = state.tickets.filterNot { it.id == ticketId }
-                val nextActive = if (state.activeTicketId == ticketId) {
-                    remaining.last()
-                } else {
-                    remaining.firstOrNull { it.id == state.activeTicketId } ?: remaining.first()
-                }
+        _uiState.update { removeTicket(it, ticketId) }
+    }
 
-                state.copy(
-                    tickets = remaining,
-                    activeTicketId = nextActive.id,
-                    cartLines = nextActive.cartLines,
-                    subtotal = nextActive.subtotal,
-                    tax = nextActive.tax,
-                    total = nextActive.total,
-                    selectedCustomer = nextActive.selectedCustomer,
-                    selectedCartLineId = null,
-                    scannerInput = ""
-                )
-            }
-        }
+    private fun removeTicket(state: SalesUiState, ticketId: String): SalesUiState {
+        if (state.tickets.none { it.id == ticketId }) return state
+        val remaining = state.tickets.filterNot { it.id == ticketId }
+        if (state.activeTicketId != ticketId) return state.copy(tickets = remaining)
+        val next = remaining.lastOrNull() ?: TicketState(id = ticketId)
+        return activateTicket(state.copy(tickets = remaining.ifEmpty { listOf(next) }), next)
     }
 
     // ==========================================
@@ -1477,7 +1385,8 @@ class SalesViewModel(
                                 subtotal = Money.ZERO,
                                 tax = Money.ZERO,
                                 total = Money.ZERO,
-                                selectedCustomer = null
+                                selectedCustomer = null,
+                                note = ""
                             )
                         } else t
                     }
@@ -1489,6 +1398,8 @@ class SalesViewModel(
                         tax = Money.ZERO,
                         total = Money.ZERO,
                         selectedCustomer = null,
+                        activeTicketNote = "",
+                        discount = Money.ZERO,
                         selectedCartLineId = null,
                         isShowingCashPayment = false,
                         lastCompletedSale = offlineSale,
@@ -1510,7 +1421,8 @@ class SalesViewModel(
                                 subtotal = Money.ZERO,
                                 tax = Money.ZERO,
                                 total = Money.ZERO,
-                                selectedCustomer = null
+                                selectedCustomer = null,
+                                note = ""
                             )
                         } else t
                     }
@@ -1540,6 +1452,8 @@ class SalesViewModel(
                         tax = Money.ZERO,
                         total = Money.ZERO,
                         selectedCustomer = null,
+                        activeTicketNote = "",
+                        discount = Money.ZERO,
                         selectedCartLineId = null,
                         isShowingCashPayment = false,
                         lastCompletedSale = sale,
