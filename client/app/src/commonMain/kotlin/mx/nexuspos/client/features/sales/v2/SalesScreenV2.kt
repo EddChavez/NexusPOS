@@ -216,7 +216,6 @@ fun SalesScreenV2(
             SalesNavigationRail(
                 activeModule = AppModule.SALES,
                 onModuleSelected = onNavigateToModule,
-                onOpenDailySalesAndReturns = { viewModel.openDailySalesAndReturns() },
                 cashierName = state.activeCashierName,
                 cashierRole = state.activeCashierRole,
                 onLockTerminal = onLockTerminal
@@ -334,6 +333,7 @@ fun SalesScreenV2(
                             ticketNote = state.activeTicketNote,
                             onOpenNoteDialog = { viewModel.showTicketNoteDialog(true) },
                             onReprintTicket = { viewModel.reprintLastTicket() },
+                            onOpenShiftHistory = viewModel::openDailySalesAndReturns,
                             onCheckout = {
                                 if (state.activeSession == null) {
                                     viewModel.showSessionDialog(true)
@@ -551,7 +551,7 @@ fun SalesScreenV2(
 
         // 13. REQUISITO 4.7: Historial de Turno y Ventas del Día
         if (state.isShowingSalesHistory) {
-            SalesHistoryDialog(
+            ShiftHistoryDialogV2(
                 sales = state.shiftSales,
                 selectedSale = state.selectedShiftSale,
                 isLoading = state.isLoadingShiftSales,

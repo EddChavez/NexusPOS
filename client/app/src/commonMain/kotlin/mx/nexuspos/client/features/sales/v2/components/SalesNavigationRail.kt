@@ -15,14 +15,12 @@ import mx.nexuspos.client.features.header.AppModule
 
 /**
  * Barra vertical oficial Material Design 3 (NavigationRail) de ancho 72.dp.
- * Contiene logo de marca, selector de módulos oficiales mediante NavigationRailItem,
- * acceso a Historial de Turno y Devoluciones (Requisito 4.7) y perfil de cajero con bloqueo.
+ * Contiene el logo, el selector de módulos y el perfil de cajero con bloqueo.
  */
 @Composable
 fun SalesNavigationRail(
     activeModule: AppModule,
     onModuleSelected: (AppModule) -> Unit,
-    onOpenDailySalesAndReturns: () -> Unit,
     cashierName: String,
     cashierRole: String,
     onLockTerminal: () -> Unit,
@@ -89,16 +87,6 @@ fun SalesNavigationRail(
             onClick = { onModuleSelected(AppModule.INVENTORY) },
             icon = { Icon(Icons.Default.Warehouse, contentDescription = "Inventario") },
             label = { Text("Inventario", style = MaterialTheme.typography.labelSmall) }
-        )
-
-        // =====================================================================
-        // REQUISITO 4.7: HISTORIAL DE TURNO Y DEVOLUCIONES
-        // =====================================================================
-        NavigationRailItem(
-            selected = false,
-            onClick = onOpenDailySalesAndReturns,
-            icon = { Icon(Icons.Default.ReceiptLong, contentDescription = "Historial de Turno") },
-            label = { Text("Historial", style = MaterialTheme.typography.labelSmall) }
         )
 
         NavigationRailItem(
