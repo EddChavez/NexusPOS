@@ -85,8 +85,8 @@ class SalesViewModel(
     }
 
     fun openSaleWhatsAppDialog(sale: SaleResponse) {
-        val phone = _uiState.value.selectedCustomer?.phone?.ifBlank { "" } ?: ""
-        val text = WhatsAppMessageFormatter.formatSaleTicket(sale, currentSettings)
+        val phone = _uiState.value.selectedCustomer?.phone.orEmpty()
+        val text = formatWhatsAppTicket(sale)
         _uiState.update {
             it.copy(
                 isShowingWhatsAppDialog = true,
@@ -853,6 +853,7 @@ class SalesViewModel(
         _uiState.update {
             it.copy(
                 reprintTicketPreview = null,
+                reprintTicketSale = null,
                 successMessage = "Comando de impresión para folio #${sale.folio} enviado a la impresora física."
             )
         }
@@ -911,18 +912,75 @@ class SalesViewModel(
         _uiState.update { it.copy(salesHistoryStatusFilter = status) }
     }
 
+    fun formatReprint(sale: SaleResponse): String =
+        receiptFormatter?.invoke(sale, true) ?: defaultFormatReceipt(sale, true)
+
+    fun formatWhatsAppTicket(sale: SaleResponse): String =
+        WhatsAppMessageFormatter.formatSaleTicket(sale, currentSettings)
+
+    suspend fun cancelShiftSale(sale: SaleResponse, reason: String, supervisorPin: String?): Result<SaleResponse> {
+        if (_uiState.value.activeCashierRole == "CASHIER" && supervisorPin.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("Se requiere autorización de encargado."))
+        }
+        val supervisorId = if (supervisorPin != null) {
+            val auth = apiClient.authorizeSupervisor(supervisorPin, action = "CANCEL_SALE")
+                .getOrElse { return Result.failure(it) }
+            if (!auth.authorized || auth.supervisorId.isBlank()) {
+                return Result.failure(IllegalArgumentException("PIN incorrecto o sin permisos de encargado."))
+            }
+            auth.supervisorId
+        } else null
+
+        return apiClient.cancelSale(sale.id, reason, supervisorId).onSuccess { cancelled ->
+            updateShiftSale(cancelled)
+            loadActiveSession()
+        }
+    }
+
+    suspend fun refundShiftSale(sale: SaleResponse, request: CreateSaleRefundRequest): Result<SaleRefundResponse> =
+        apiClient.refundSale(sale.id, request).onSuccess { refund ->
+            val current = _uiState.value.shiftSales.firstOrNull { it.id == sale.id } ?: sale
+            if (current.refunds.none { it.id == refund.id }) {
+                val quantities = refund.lines.groupingBy { it.saleLineId }.fold(0L) { total, line ->
+                    total + line.quantityMillis
+                }
+                val lines = current.lines.map {
+                    it.copy(refundedQuantityMillis = it.refundedQuantityMillis + (quantities[it.id] ?: 0L))
+                }
+                updateShiftSale(current.copy(
+                    status = if (lines.all { it.returnableQuantityMillis == 0L }) "REFUNDED" else "PARTIALLY_REFUNDED",
+                    lines = lines,
+                    refunds = listOf(refund) + current.refunds
+                ))
+            }
+            onPrintSaleRefund?.invoke(refund)
+            loadShiftSales()
+            loadActiveSession()
+        }
+
+    private fun updateShiftSale(sale: SaleResponse) {
+        _uiState.update { state ->
+            state.copy(
+                shiftSales = state.shiftSales.map { if (it.id == sale.id) sale else it },
+                selectedShiftSale = if (state.selectedShiftSale?.id == sale.id) sale else state.selectedShiftSale,
+                lastCompletedSale = if (state.lastCompletedSale?.id == sale.id) sale else state.lastCompletedSale
+            )
+        }
+    }
+
     fun reprintTicket(sale: SaleResponse) {
-        val formatted = receiptFormatter?.invoke(sale, true) ?: defaultFormatReceipt(sale, true)
+        val formatted = formatReprint(sale)
         _uiState.update {
             it.copy(
                 reprintTicketPreview = formatted,
+                reprintTicketSale = sale,
                 successMessage = "Ticket #${sale.folio} listo para reimpresión (*** COPIA DE REIMPRESIÓN ***)"
             )
         }
     }
 
     fun closeReprintPreview() {
-        _uiState.update { it.copy(reprintTicketPreview = null) }
+        _uiState.update { it.copy(reprintTicketPreview = null, reprintTicketSale = null) }
     }
 
     fun startCancelSaleFlow(sale: SaleResponse) {

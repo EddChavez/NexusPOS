@@ -36,9 +36,15 @@ import mx.nexuspos.core.Quantity
 fun SalesScreenV2(
     viewModel: SalesViewModel = remember { SalesViewModel() },
     scaleReading: ScaleReading = ScaleReading(),
-    onRequestCancelSale: ((sale: SaleResponse, reason: String) -> Unit)? = null,
-    onOpenWhatsApp: (url: String) -> Unit = {},
-    onCopyText: (text: String) -> Unit = {},
+    onPrintShiftReceipt: suspend (SaleResponse) -> Result<Unit> = {
+        Result.failure(IllegalStateException("La impresión no está disponible en esta terminal."))
+    },
+    onOpenWhatsApp: (url: String) -> Result<Unit> = {
+        Result.failure(IllegalStateException("WhatsApp no está disponible en esta terminal."))
+    },
+    onCopyText: (text: String) -> Result<Unit> = {
+        Result.failure(IllegalStateException("El portapapeles no está disponible en esta terminal."))
+    },
     onNavigateToModule: (AppModule) -> Unit = {},
     onLockTerminal: () -> Unit = {},
     onOpenCashDrawerHardware: () -> Unit = {},
@@ -93,9 +99,7 @@ fun SalesScreenV2(
                 state.isShowingCashInDialog ||
                 state.isShowingCashOutDialog ||
                 state.isShowingSalesHistory ||
-                state.isShowingCancelReasonDialog ||
                 state.isShowingCancelTicketDialog ||
-                state.isShowingRefundDialog ||
                 state.reprintTicketPreview != null ||
                 state.isShowingTicketNoteDialog ||
                 state.isShowingRenameTicketDialog ||
@@ -146,9 +150,7 @@ fun SalesScreenV2(
                         viewModel.showCashOutDialog(false)
                         viewModel.showSearchCatalogDialog(false)
                         viewModel.closeSalesHistoryDialog()
-                        viewModel.dismissCancelReasonDialog()
                         viewModel.dismissCancelTicketDialog()
-                        viewModel.dismissRefundDialog()
                         viewModel.closeReprintPreview()
                         viewModel.showTicketNoteDialog(false)
                         viewModel.showRenameTicketDialog(false)
@@ -508,12 +510,12 @@ fun SalesScreenV2(
             onDismiss = { viewModel.showRenameTicketDialog(false) }
         )
 
-        // 10. Diálogo oficial M3 Verificador de Precios
-        PriceCheckerDialog(
-            isOpen = state.isShowingPriceCheckerDialog,
-            apiClient = viewModel.apiClient,
-            onDismiss = { viewModel.showPriceCheckerDialog(false) }
-        )
+        if (state.isShowingPriceCheckerDialog) {
+            PriceCheckerDialogV2(
+                apiClient = viewModel.apiClient,
+                onDismiss = { viewModel.showPriceCheckerDialog(false) }
+            )
+        }
 
         // 11. REQUISITO 4.5: Cancelación formal de ticket en progreso (AlertDialog oficial)
         val pendingCancelTicket = state.tickets.firstOrNull { it.id == state.ticketPendingCancelId }
@@ -529,23 +531,6 @@ fun SalesScreenV2(
             onDismiss = { viewModel.dismissCancelTicketDialog() }
         )
 
-        // 12. REQUISITO 4.5 & 4.7: Cancelación de venta completada con supervisor
-        state.salePendingCancel?.let { sale ->
-            if (state.isShowingCancelReasonDialog) {
-                CancelSaleReasonDialog(
-                    sale = sale,
-                    onConfirm = { reason ->
-                        if (onRequestCancelSale != null) {
-                            onRequestCancelSale(sale, reason)
-                        } else {
-                            viewModel.executeCancelSale(sale.id, reason)
-                        }
-                    },
-                    onDismiss = { viewModel.dismissCancelReasonDialog() }
-                )
-            }
-        }
-
         // 13. REQUISITO 4.7: Historial de Turno y Ventas del Día
         if (state.isShowingSalesHistory) {
             ShiftHistoryDialogV2(
@@ -555,27 +540,17 @@ fun SalesScreenV2(
                 searchFolio = state.salesHistorySearchFolio,
                 statusFilter = state.salesHistoryStatusFilter,
                 cashSessionId = state.activeSession?.sessionId,
+                cashierId = state.activeCashierId,
+                requiresSupervisor = state.activeCashierRole == "CASHIER",
+                viewModel = viewModel,
                 onSearchFolioChanged = { viewModel.onSalesSearchFolioChanged(it) },
                 onStatusFilterChanged = { viewModel.onSalesStatusFilterChanged(it) },
                 onSelectSale = { viewModel.selectShiftSale(it) },
                 onReload = { viewModel.loadShiftSales() },
-                onReprintTicket = { viewModel.reprintTicket(it) },
-                onRefundSale = { viewModel.promptRefundSale(it) },
-                onCancelSale = { viewModel.startCancelSaleFlow(it) },
-                onSendWhatsApp = { viewModel.openSaleWhatsAppDialog(it) },
+                onPrint = onPrintShiftReceipt,
+                onOpenWhatsApp = onOpenWhatsApp,
+                onCopyText = onCopyText,
                 onDismiss = { viewModel.closeSalesHistoryDialog() }
-            )
-        }
-
-        // 14. REQUISITO 4.7: Devoluciones por partida de venta
-        if (state.isShowingRefundDialog && state.salePendingRefund != null) {
-            RefundSaleLinesDialog(
-                sale = state.salePendingRefund!!,
-                activeCashSessionId = state.activeSession?.sessionId ?: "",
-                currentUserId = state.activeCashierId,
-                isCashier = state.activeCashierRole == "CASHIER",
-                onDismiss = { viewModel.dismissRefundDialog() },
-                onConfirmRefund = { req -> viewModel.executeRefundSale(state.salePendingRefund!!.id, req) }
             )
         }
 
@@ -629,8 +604,8 @@ fun SalesScreenV2(
                 initialPhone = state.whatsAppInitialPhone,
                 messageText = state.whatsAppMessageText,
                 defaultCountryCode = viewModel.currentSettings?.whatsappCountryCode ?: "52",
-                onSend = onOpenWhatsApp,
-                onCopyText = onCopyText,
+                onSend = { onOpenWhatsApp(it) },
+                onCopyText = { onCopyText(it) },
                 onDismiss = { viewModel.closeWhatsAppDialog() }
             )
         }
@@ -641,10 +616,7 @@ fun SalesScreenV2(
                 receiptText = receiptText,
                 onDismiss = { viewModel.closeReprintPreview() },
                 onPrintPhysical = {
-                    val saleToPrint = state.selectedShiftSale ?: state.lastCompletedSale
-                    if (saleToPrint != null) {
-                        viewModel.reprintTicket(saleToPrint)
-                    }
+                    state.reprintTicketSale?.let(viewModel::printPhysicalTicket)
                 }
             )
         }

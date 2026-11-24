@@ -26,6 +26,7 @@ import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import mx.nexuspos.client.features.auth.AuthViewModel
 import mx.nexuspos.client.features.auth.LoginScreen
 import mx.nexuspos.client.features.auth.SupervisorAction
@@ -760,13 +761,13 @@ fun main() = application {
                                     SalesScreenV2(
                                         viewModel = viewModel,
                                         scaleReading = scaleReading,
-                                        onRequestCancelSale = { sale, reason ->
-                                            if (salesState.activeCashierRole == "CASHIER") {
-                                                authViewModel.requestSupervisorElevation(
-                                                    SupervisorAction.CancelSale(sale.id, sale.folio, reason)
-                                                )
+                                        onPrintShiftReceipt = { sale ->
+                                            if (printerConfig.connectionType == PrinterConnectionType.NONE) {
+                                                Result.failure(IllegalStateException("Configura una impresora para reimprimir el ticket."))
                                             } else {
-                                                viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
+                                                withContext(Dispatchers.IO) {
+                                                    printerDispatcher.printSaleReceipt(sale, null, printerConfig, isReprint = true)
+                                                }
                                             }
                                         },
                                         onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },

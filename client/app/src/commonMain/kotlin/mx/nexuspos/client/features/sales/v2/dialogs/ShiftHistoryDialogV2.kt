@@ -23,6 +23,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.core.Money
 
@@ -41,14 +44,16 @@ fun ShiftHistoryDialogV2(
     searchFolio: String,
     statusFilter: String?,
     cashSessionId: String?,
+    cashierId: String,
+    requiresSupervisor: Boolean,
+    viewModel: SalesViewModel,
     onSearchFolioChanged: (String) -> Unit,
     onStatusFilterChanged: (String?) -> Unit,
     onSelectSale: (SaleResponse) -> Unit,
     onReload: () -> Unit,
-    onReprintTicket: (SaleResponse) -> Unit,
-    onCancelSale: (SaleResponse) -> Unit,
-    onRefundSale: (SaleResponse) -> Unit,
-    onSendWhatsApp: (SaleResponse) -> Unit,
+    onPrint: suspend (SaleResponse) -> Result<Unit>,
+    onOpenWhatsApp: (String) -> Result<Unit>,
+    onCopyText: (String) -> Result<Unit>,
     onDismiss: () -> Unit
 ) {
     val matchingSales = remember(sales, searchFolio, statusFilter) {
@@ -69,16 +74,130 @@ fun ShiftHistoryDialogV2(
     val listState = rememberLazyListState()
     var detailRequested by remember { mutableStateOf(false) }
     val showCompactDetail = compact && detailRequested && visibleSelection != null
+    val scope = rememberCoroutineScope()
+    var activeAction by remember { mutableStateOf<Pair<ShiftHistoryAction, SaleResponse>?>(null) }
+    var authorizing by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+
+    fun finishAction() {
+        activeAction = null
+        authorizing = false
+        error = null
+    }
+
+    fun goBack() {
+        if (busy) return
+        when {
+            authorizing -> { authorizing = false; error = null }
+            activeAction != null -> finishAction()
+            showCompactDetail -> detailRequested = false
+            else -> onDismiss()
+        }
+    }
+
+    fun runAction(operation: suspend () -> Result<String>) {
+        if (busy) return
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                val result = operation()
+                ensureActive()
+                result.fold(
+                    onSuccess = { message ->
+                        if (statusFilter == "COMPLETED" &&
+                            (activeAction?.first == ShiftHistoryAction.CANCEL || activeAction?.first == ShiftHistoryAction.REFUND)
+                        ) onStatusFilterChanged(null)
+                        notice = message
+                        finishAction()
+                    },
+                    onFailure = { error = it.message ?: "No se pudo completar la acción." }
+                )
+            } finally {
+                busy = false
+            }
+        }
+    }
 
     LaunchedEffect(searchFolio, statusFilter) { listState.scrollToItem(0) }
 
-    Dialog(onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(
+        onDismissRequest = ::goBack,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)
+    ) {
         Surface(
             modifier = Modifier.size(width, height),
             shape = MaterialTheme.shapes.extraLarge,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val current = activeAction
+                if (current != null) {
+                    val (currentAction, sale) = current
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = ::goBack, enabled = !busy) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver")
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(currentAction.title, style = MaterialTheme.typography.headlineSmall)
+                            Text(
+                                listOfNotNull("Folio #${sale.folio}", sale.customerName?.takeIf { it.isNotBlank() })
+                                    .joinToString(" · "),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    HorizontalDivider()
+                    val authorize = { authorizing = true; error = null }
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        when (currentAction) {
+                            ShiftHistoryAction.CANCEL -> ShiftCancelPane(
+                                sale, requiresSupervisor, authorizing, error, busy, ::goBack, authorize
+                            ) { reason, pin ->
+                                runAction {
+                                    viewModel.cancelShiftSale(sale, reason, pin).map {
+                                        "Venta #${it.folio} cancelada."
+                                    }
+                                }
+                            }
+                            ShiftHistoryAction.REFUND -> ShiftRefundPane(
+                                sale, cashSessionId, cashierId, requiresSupervisor, authorizing,
+                                error, busy, ::goBack, authorize
+                            ) { request ->
+                                runAction {
+                                    viewModel.refundShiftSale(sale, request).map {
+                                        "Devolución #${it.folio} registrada por ${Money(it.totalCents).format()}."
+                                    }
+                                }
+                            }
+                            ShiftHistoryAction.WHATSAPP -> ShiftWhatsAppPane(
+                                message = remember(sale) { viewModel.formatWhatsAppTicket(sale) },
+                                countryCode = viewModel.currentSettings?.whatsappCountryCode ?: "52",
+                                error = error,
+                                onBack = ::goBack,
+                                onCopy = onCopyText,
+                                onOpen = onOpenWhatsApp,
+                                onOpened = {
+                                    notice = "Mensaje del folio #${sale.folio} abierto en WhatsApp."
+                                    finishAction()
+                                },
+                                onError = { error = it }
+                            )
+                            ShiftHistoryAction.REPRINT -> ShiftReprintPane(
+                                receipt = remember(sale) { viewModel.formatReprint(sale) },
+                                error = error,
+                                busy = busy,
+                                onBack = ::goBack,
+                                onPrint = { runAction { onPrint(sale).map { "Copia del folio #${sale.folio} enviada a la impresora." } } }
+                            )
+                        }
+                    }
+                    return@Column
+                }
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (showCompactDetail) {
                         IconButton(onClick = { detailRequested = false }) {
@@ -103,6 +222,7 @@ fun ShiftHistoryDialogV2(
                     }
                 }
 
+                notice?.let { ShiftActionMessage(it) }
                 if (!showCompactDetail) ShiftSalesSummary(sales)
 
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -128,6 +248,7 @@ fun ShiftHistoryDialogV2(
                                 ) {
                                     items(matchingSales, key = { it.id }) { sale ->
                                         ShiftHistorySaleRow(sale, sale.id == visibleSelection?.id) {
+                                            notice = null
                                             onSelectSale(sale)
                                             detailRequested = true
                                         }
@@ -141,10 +262,11 @@ fun ShiftHistoryDialogV2(
                             key(visibleSelection.id) {
                                 ShiftHistorySaleDetail(
                                     sale = visibleSelection,
-                                    onReprint = { onReprintTicket(visibleSelection) },
-                                    onRefund = { onRefundSale(visibleSelection) },
-                                    onCancel = { onCancelSale(visibleSelection) },
-                                    onWhatsApp = { onSendWhatsApp(visibleSelection) },
+                                    actionsEnabled = !isLoading,
+                                    onAction = { requested ->
+                                        notice = null
+                                        activeAction = requested to visibleSelection
+                                    },
                                     modifier = Modifier.weight(if (compact) 1f else 0.58f).fillMaxHeight()
                                 )
                             }

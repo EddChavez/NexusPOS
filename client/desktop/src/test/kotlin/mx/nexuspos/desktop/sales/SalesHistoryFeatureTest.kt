@@ -2,9 +2,15 @@ package mx.nexuspos.desktop.sales
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.contracts.cash.CashSessionSummary
+import mx.nexuspos.contracts.identity.AuthorizeResponse
+import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
+import mx.nexuspos.contracts.sales.RefundLineItemRequest
+import mx.nexuspos.contracts.sales.SaleRefundLineResponse
+import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleLineItemResponse
 import mx.nexuspos.contracts.sales.SalePaymentResponse
 import mx.nexuspos.contracts.sales.SaleResponse
@@ -98,6 +104,31 @@ class SalesHistoryFeatureTest {
     private class FakeSalesApiClient(
         var salesList: MutableList<SaleResponse> = mutableListOf()
     ) : ApiClient() {
+        var supervisorUsedForCancellation: String? = null
+        var refundRequest: CreateSaleRefundRequest? = null
+        var refundResponse: SaleRefundResponse? = null
+
+        override suspend fun authorizeSupervisor(pin: String, action: String): Result<AuthorizeResponse> {
+            assertEquals("CANCEL_SALE", action)
+            return Result.success(
+                if (pin == "1234") AuthorizeResponse(true, supervisorId = "usr-supervisor") else AuthorizeResponse(false)
+            )
+        }
+
+        override suspend fun refundSale(id: String, req: CreateSaleRefundRequest): Result<SaleRefundResponse> {
+            refundRequest = req
+            if (req.supervisorPin != "1234") return Result.failure(IllegalArgumentException("PIN incorrecto"))
+            val refund = refundResponse ?: return Result.failure(IllegalArgumentException("Devolución no disponible"))
+            val index = salesList.indexOfFirst { it.id == id }
+            val sale = salesList[index]
+            val lines = sale.lines.map { line ->
+                val quantity = refund.lines.filter { it.saleLineId == line.id }.sumOf { it.quantityMillis }
+                line.copy(refundedQuantityMillis = line.refundedQuantityMillis + quantity)
+            }
+            salesList[index] = sale.copy(status = "PARTIALLY_REFUNDED", lines = lines, refunds = listOf(refund))
+            return Result.success(refund)
+        }
+
         override suspend fun getSales(
             sessionId: String?,
             folio: Long?,
@@ -126,6 +157,7 @@ class SalesHistoryFeatureTest {
         ): Result<SaleResponse> {
             val idx = salesList.indexOfFirst { it.id == id }
             if (idx == -1) return Result.failure(Exception("Venta no encontrada"))
+            supervisorUsedForCancellation = authorizedByUserId
             val updated = salesList[idx].copy(status = "CANCELLED")
             salesList[idx] = updated
             return Result.success(updated)
@@ -154,6 +186,83 @@ class SalesHistoryFeatureTest {
 
     private fun createTestSalesVm(apiClient: FakeSalesApiClient): SalesViewModel {
         return SalesViewModel(apiClient = apiClient, scope = CoroutineScope(Dispatchers.Unconfined))
+    }
+
+    @Test
+    fun shiftCancellationKeepsTheFolioAndUsesTheAuthorizedSupervisor() = runBlocking {
+        val api = FakeSalesApiClient(mutableListOf(sampleSale1, sampleSale2))
+        val viewModel = createTestSalesVm(api)
+        viewModel.openDailySalesAndReturns()
+
+        assertTrue(viewModel.cancelShiftSale(sampleSale1, "Cobro duplicado", null).isFailure)
+        assertTrue(viewModel.cancelShiftSale(sampleSale1, "Cobro duplicado", "0000").isFailure)
+        assertEquals("COMPLETED", viewModel.uiState.value.selectedShiftSale?.status)
+
+        assertTrue(viewModel.cancelShiftSale(sampleSale1, "Cobro duplicado", "1234").isSuccess)
+        assertEquals("usr-supervisor", api.supervisorUsedForCancellation)
+        assertTrue(viewModel.uiState.value.isShowingSalesHistory)
+        assertEquals(sampleSale1.id, viewModel.uiState.value.selectedShiftSale?.id)
+        assertEquals("CANCELLED", viewModel.uiState.value.selectedShiftSale?.status)
+    }
+
+    @Test
+    fun shiftRefundSendsThePinAndRefreshesTheSelectedSaleExactlyOnce() = runBlocking {
+        val line = sampleSale1.lines.first()
+        val refund = SaleRefundResponse(
+            id = "refund-1", folio = 22, saleId = sampleSale1.id, saleFolio = sampleSale1.folio,
+            cashSessionId = sampleSale1.cashSessionId, cashierName = sampleSale1.cashierName,
+            reason = "DEFECTO", refundMethod = "CASH", subtotalCents = 900, taxCents = 0, totalCents = 900,
+            lines = listOf(
+                SaleRefundLineResponse(
+                    "refund-line", line.id, line.productId, line.presentationId, line.description,
+                    quantityMillis = 500, unitPriceCents = 1800, taxRate = 0.0, taxCents = 0,
+                    totalCents = 900, reenterStock = false
+                )
+            ),
+            createdAt = sampleSale1.createdAt
+        )
+        val api = FakeSalesApiClient(mutableListOf(sampleSale1)).apply { refundResponse = refund }
+        val viewModel = createTestSalesVm(api)
+        viewModel.openDailySalesAndReturns()
+        val printed = mutableListOf<SaleRefundResponse>()
+        viewModel.onPrintSaleRefund = { printed.add(it) }
+        val request = CreateSaleRefundRequest(
+            cashSessionId = sampleSale1.cashSessionId,
+            cashierUserId = "usr-cajero",
+            reason = "DEFECTO",
+            supervisorPin = "0000",
+            lines = listOf(RefundLineItemRequest(line.id, quantityMillis = 500, reenterStock = false))
+        )
+
+        assertTrue(viewModel.refundShiftSale(sampleSale1, request).isFailure)
+        assertEquals(sampleSale1, viewModel.uiState.value.selectedShiftSale)
+        assertTrue(printed.isEmpty())
+
+        assertEquals(refund, viewModel.refundShiftSale(sampleSale1, request.copy(supervisorPin = "1234")).getOrThrow())
+        assertEquals("1234", api.refundRequest?.supervisorPin)
+        assertEquals(request.lines, api.refundRequest?.lines)
+        assertEquals(listOf(refund), printed)
+        val selected = assertNotNull(viewModel.uiState.value.selectedShiftSale)
+        assertEquals(sampleSale1.id, selected.id)
+        assertEquals("PARTIALLY_REFUNDED", selected.status)
+        assertEquals(1500L, selected.lines.first().returnableQuantityMillis)
+        assertEquals(listOf(refund), selected.refunds)
+    }
+
+    @Test
+    fun reprintKeepsTheTicketThatWasPreviewed() {
+        val viewModel = createTestSalesVm(FakeSalesApiClient(mutableListOf(sampleSale1, sampleSale2)))
+        viewModel.openDailySalesAndReturns()
+        viewModel.reprintTicket(sampleSale2)
+        viewModel.selectShiftSale(sampleSale1)
+
+        val printed = mutableListOf<SaleResponse>()
+        viewModel.onPrintPhysicalReceipt = { printed.add(it) }
+        viewModel.uiState.value.reprintTicketSale?.let(viewModel::printPhysicalTicket)
+
+        assertEquals(listOf(sampleSale2), printed)
+        assertNull(viewModel.uiState.value.reprintTicketPreview)
+        assertNull(viewModel.uiState.value.reprintTicketSale)
     }
 
     @Test

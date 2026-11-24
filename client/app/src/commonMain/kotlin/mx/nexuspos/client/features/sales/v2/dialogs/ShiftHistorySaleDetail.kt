@@ -36,10 +36,8 @@ internal fun ShiftSaleStatus(status: String) {
 @Composable
 internal fun ShiftHistorySaleDetail(
     sale: SaleResponse,
-    onReprint: () -> Unit,
-    onRefund: () -> Unit,
-    onCancel: () -> Unit,
-    onWhatsApp: () -> Unit,
+    actionsEnabled: Boolean,
+    onAction: (ShiftHistoryAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
     OutlinedCard(modifier, colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
@@ -111,7 +109,7 @@ internal fun ShiftHistorySaleDetail(
             }
         }
         HorizontalDivider()
-        HistorySaleActions(sale, onReprint, onRefund, onCancel, onWhatsApp)
+        HistorySaleActions(sale, actionsEnabled, onAction)
     }
 }
 
@@ -157,40 +155,34 @@ private fun SecondaryText(text: String) {
 @Composable
 private fun HistorySaleActions(
     sale: SaleResponse,
-    onReprint: () -> Unit,
-    onRefund: () -> Unit,
-    onCancel: () -> Unit,
-    onWhatsApp: () -> Unit
+    enabled: Boolean,
+    onAction: (ShiftHistoryAction) -> Unit
 ) {
     FlowRow(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         itemVerticalAlignment = Alignment.CenterVertically
     ) {
-        TextButton(
-            onClick = onCancel,
-            enabled = sale.status == "COMPLETED" && sale.refunds.isEmpty(),
-            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-        ) {
-            Text("Cancelar venta")
-        }
-        OutlinedButton(
-            onClick = onRefund,
-            enabled = (sale.status == "COMPLETED" || sale.status == "PARTIALLY_REFUNDED") &&
-                sale.lines.any { it.returnableQuantityMillis > 0 }
-        ) {
-            Text("Devolución")
-        }
-        TextButton(onClick = onWhatsApp) {
-            Icon(Icons.AutoMirrored.Filled.Chat, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("WhatsApp")
-        }
-        FilledTonalButton(onClick = onReprint) {
+        FilledTonalButton(onClick = { onAction(ShiftHistoryAction.REPRINT) }, enabled = enabled) {
             Icon(Icons.Default.Print, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text("Reimprimir")
         }
+        OutlinedButton(onClick = { onAction(ShiftHistoryAction.WHATSAPP) }, enabled = enabled) {
+            Icon(Icons.AutoMirrored.Filled.Chat, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("WhatsApp")
+        }
+        OutlinedButton(
+            onClick = { onAction(ShiftHistoryAction.REFUND) },
+            enabled = enabled && (sale.status == "COMPLETED" || sale.status == "PARTIALLY_REFUNDED") &&
+                sale.lines.any { it.returnableQuantityMillis > 0 }
+        ) { Text("Devolución") }
+        TextButton(
+            onClick = { onAction(ShiftHistoryAction.CANCEL) },
+            enabled = enabled && sale.status == "COMPLETED" && sale.refunds.isEmpty(),
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+        ) { Text("Cancelar venta") }
     }
 }
 

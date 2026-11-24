@@ -88,6 +88,7 @@ data class SalesUiState(
     val isShowingRefundDialog: Boolean = false,
     val salePendingRefund: SaleResponse? = null,
     val reprintTicketPreview: String? = null,
+    val reprintTicketSale: SaleResponse? = null,
     val lastCompletedSale: SaleResponse? = null,
     val isShowingWhatsAppDialog: Boolean = false,
     val whatsAppMessageText: String = "",
