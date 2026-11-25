@@ -89,7 +89,7 @@ internal fun SalesAnalysisPanel(
             if (ready == null) {
                 OutlinedTextField(
                     value = pin,
-                    onValueChange = { value -> if (value.length <= 4 && value.all { it in '0'..'9' }) pin = value },
+                    onValueChange = { value -> if (value.length <= 6 && value.all { it in '0'..'9' }) pin = value },
                     label = { Text("PIN de encargado") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     visualTransformation = PasswordVisualTransformation(),
@@ -112,7 +112,7 @@ internal fun SalesAnalysisPanel(
                     }
                     loading = false
                 }
-            }, enabled = canEdit && pin.length == 4 && dateError == null) { Text("Consultar") }
+            }, enabled = canEdit && pin.length in setOf(4, 6) && dateError == null) { Text("Consultar") }
 
             if (ready != null && onExport != null) {
                 OutlinedButton(onClick = {
@@ -147,9 +147,11 @@ internal fun SalesAnalysisPanel(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AnalysisMetric("Ventas brutas", ready.totals.salesCents)
                 AnalysisMetric("Ventas netas", ready.totals.netSalesCents)
-                AnalysisMetric("Costo", ready.totals.costCents)
-                AnalysisMetric("Utilidad bruta", ready.totals.profitCents)
-                ready.totals.marginBasisPoints?.let { MetricValue("Margen bruto", Money(it).format().replace("$", "") + "%") }
+                if (ready.costsVisible) {
+                    AnalysisMetric("Costo", ready.totals.costCents)
+                    AnalysisMetric("Utilidad bruta", ready.totals.profitCents)
+                    ready.totals.marginBasisPoints?.let { MetricValue("Margen bruto", Money(it).format().replace("$", "") + "%") }
+                }
             }
             val estimates = ready.totals.estimatedCostEvents
             if (estimates > 0) {
@@ -161,7 +163,7 @@ internal fun SalesAnalysisPanel(
             if (ready.rows.isEmpty()) Text("No hay ventas, devoluciones ni cancelaciones para este periodo.")
             key(ready) {
                 LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(ready.rows, key = { it.key }) { AnalysisRow(it) }
+                    items(ready.rows, key = { it.key }) { AnalysisRow(it, ready.costsVisible) }
                 }
             }
         }
@@ -181,7 +183,7 @@ private fun MetricValue(label: String, value: String) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AnalysisRow(row: SalesAnalysisRow) {
+private fun AnalysisRow(row: SalesAnalysisRow, costsVisible: Boolean) {
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(row.label, style = MaterialTheme.typography.titleMedium)
@@ -191,8 +193,10 @@ private fun AnalysisRow(row: SalesAnalysisRow) {
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AnalysisMetric("Ventas netas", row.totals.netSalesCents)
-                AnalysisMetric("Costo", row.totals.costCents)
-                AnalysisMetric("Utilidad bruta", row.totals.profitCents)
+                if (costsVisible) {
+                    AnalysisMetric("Costo", row.totals.costCents)
+                    AnalysisMetric("Utilidad bruta", row.totals.profitCents)
+                }
                 if (row.totals.cancellationsCents != 0L) AnalysisMetric("Cancelaciones", row.totals.cancellationsCents)
                 if (row.totals.refundsCents != 0L) AnalysisMetric("Devoluciones", row.totals.refundsCents)
             }

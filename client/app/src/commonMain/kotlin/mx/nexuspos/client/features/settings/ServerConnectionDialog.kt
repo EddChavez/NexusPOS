@@ -26,16 +26,18 @@ fun ServerConnectionDialog(
     isOpen: Boolean,
     initialHost: String = "localhost",
     initialPort: Int = 8080,
+    initialScheme: String = "http",
     initialRegisterId: String = "caja-1",
     initialRegisterName: String = "Caja Principal",
-    onTestConnection: suspend (host: String, port: Int) -> Result<String>,
-    onSaveAndConnect: (host: String, port: Int, registerId: String, registerName: String) -> Unit,
+    onTestConnection: suspend (scheme: String, host: String, port: Int) -> Result<String>,
+    onSaveAndConnect: (scheme: String, host: String, port: Int, registerId: String, registerName: String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (!isOpen) return
 
     val coroutineScope = rememberCoroutineScope()
+    var scheme by remember { mutableStateOf(initialScheme) }
     var host by remember { mutableStateOf(initialHost) }
     var portText by remember { mutableStateOf(initialPort.toString()) }
     var registerId by remember { mutableStateOf(initialRegisterId) }
@@ -118,6 +120,8 @@ fun ServerConnectionDialog(
                         onClick = {
                             host = "localhost"
                             portText = "8080"
+                            scheme = "http"
+                            testResult = null
                         },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         shape = RoundedCornerShape(8.dp)
@@ -134,6 +138,17 @@ fun ServerConnectionDialog(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text("IP LAN (192.168.x.x)", fontSize = 11.sp)
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("http", "https").forEach { option ->
+                        FilterChip(scheme == option, onClick = {
+                            scheme = option
+                            portText = if (option == "https") "443" else "8080"
+                            testResult = null
+                            isTestSuccess = false
+                        }, label = { Text(option.uppercase()) })
                     }
                 }
 
@@ -232,7 +247,7 @@ fun ServerConnectionDialog(
                             isTesting = true
                             testResult = null
                             coroutineScope.launch {
-                                val res = onTestConnection(host, port)
+                                val res = onTestConnection(scheme, host, port)
                                 isTesting = false
                                 res.onSuccess { info ->
                                     isTestSuccess = true
@@ -260,7 +275,7 @@ fun ServerConnectionDialog(
                     Button(
                         onClick = {
                             val port = portText.toIntOrNull() ?: 8080
-                            onSaveAndConnect(host, port, registerId, registerName)
+                            onSaveAndConnect(scheme, host, port, registerId, registerName)
                             onDismiss()
                         },
                         enabled = host.isNotBlank(),

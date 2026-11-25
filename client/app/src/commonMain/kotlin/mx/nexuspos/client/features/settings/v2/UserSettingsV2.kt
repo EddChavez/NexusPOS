@@ -24,8 +24,12 @@ private val userRoles = listOf("CASHIER" to "Cajero", "SUPERVISOR" to "Superviso
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun UserSettingsV2(state: SettingsUiState, viewModel: SettingsViewModel) {
+    var roleOptions by remember { mutableStateOf(userRoles) }
+    LaunchedEffect(viewModel) {
+        viewModel.apiClient.listRoles().onSuccess { roles -> roleOptions = roles.map { it.id to it.name } }
+    }
     if (state.showUserDialog) {
-        UserEditor(state, viewModel)
+        UserEditor(state, viewModel, roleOptions)
         return
     }
 
@@ -66,7 +70,7 @@ internal fun UserSettingsV2(state: SettingsUiState, viewModel: SettingsViewModel
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(filtered, key = { it.id }) { user ->
-                val role = userRoles.firstOrNull { it.first == user.role }?.second ?: user.role
+                val role = if (user.isRoot) "Administrador raíz" else roleOptions.firstOrNull { it.first == user.role }?.second ?: user.role
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                     shape = MaterialTheme.shapes.medium,
@@ -78,7 +82,7 @@ internal fun UserSettingsV2(state: SettingsUiState, viewModel: SettingsViewModel
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (user.isActive) {
                                 TextButton({ viewModel.openEditUserDialog(user) }, enabled = !busy) { Text("Editar") }
-                                TextButton({ pendingDeactivation = user }, enabled = !busy) { Text("Desactivar") }
+                                if (!user.isRoot) TextButton({ pendingDeactivation = user }, enabled = !busy) { Text("Desactivar") }
                             } else {
                                 TextButton({ viewModel.reactivateUser(user) }, enabled = !busy) { Text("Reactivar") }
                             }
@@ -91,7 +95,7 @@ internal fun UserSettingsV2(state: SettingsUiState, viewModel: SettingsViewModel
 }
 
 @Composable
-private fun UserEditor(state: SettingsUiState, viewModel: SettingsViewModel) {
+private fun UserEditor(state: SettingsUiState, viewModel: SettingsViewModel, roleOptions: List<Pair<String, String>>) {
     val editing = state.editingUser != null
     val enabled = !state.isSaving
     val nameFocus = remember { FocusRequester() }
@@ -106,14 +110,17 @@ private fun UserEditor(state: SettingsUiState, viewModel: SettingsViewModel) {
                     "Nombre completo", state.userFormName, viewModel::onUserFormNameChanged,
                     modifier = Modifier.focusRequester(nameFocus), enabled = enabled
                 )
-                SettingsChoice("Rol", state.userFormRole, userRoles, viewModel::onUserFormRoleChanged, enabled = enabled)
+                SettingsField("Correo (opcional)", state.userFormEmail, viewModel::onUserFormEmailChanged, enabled = enabled)
+                SettingsField("Teléfono (opcional)", state.userFormPhone, viewModel::onUserFormPhoneChanged, enabled = enabled)
+                val root = state.editingUser?.isRoot == true
+                SettingsChoice("Rol", state.userFormRole, roleOptions, viewModel::onUserFormRoleChanged, enabled = enabled && !root)
                 OutlinedTextField(
                     value = state.userFormPin,
                     onValueChange = viewModel::onUserFormPinChanged,
-                    label = { Text("PIN de 4 dígitos") },
+                    label = { Text(if (root) "PIN raíz protegido" else "PIN de 4 dígitos") },
                     supportingText = if (editing) ({ Text("Deja el campo vacío para conservar el PIN actual.") }) else null,
                     singleLine = true,
-                    enabled = enabled,
+                    enabled = enabled && !root,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     modifier = Modifier.fillMaxWidth()

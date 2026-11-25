@@ -14,6 +14,10 @@ import mx.nexuspos.core.Money
 import mx.nexuspos.core.PricingRules
 import mx.nexuspos.core.Quantity
 import mx.nexuspos.server.modules.system.SettingsService
+import mx.nexuspos.server.modules.cash.requireOperator
+import mx.nexuspos.server.modules.cash.CashSessionService
+import mx.nexuspos.server.modules.permissions.permissionsForRole
+import mx.nexuspos.server.modules.permissions.writeAudit
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.*
 import java.sql.Connection
@@ -29,7 +33,7 @@ class SalesService(
         prettyPrint = false
     }
 
-    fun completeSale(request: CreateSaleRequest): SaleResponse {
+    fun completeSale(request: CreateSaleRequest, verifyOperator: Boolean = false, drawerApproval: String? = null): SaleResponse {
         return db.inTransaction { conn ->
             val requestHash = java.security.MessageDigest.getInstance("SHA-256")
                 .digest(json.encodeToString(request).toByteArray())
@@ -58,6 +62,8 @@ class SalesService(
                 }
             }
 
+            if (verifyOperator) requireOperator(conn, request.cashSessionId, request.cashierUserId)
+
             // 2. Validate Session is OPEN
             val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ? FOR UPDATE")
             sessStmt.setString(1, request.cashSessionId)
@@ -74,8 +80,17 @@ class SalesService(
                 throw SessionClosedException("La sesión de caja está cerrada. No se pueden procesar ventas.")
             }
 
+            val cashIncrease = request.payments.filter { it.method == "CASH" }.sumOf { it.amountCents }
+            CashSessionService(db).enforceDrawerLimit(conn, request.cashSessionId, cashIncrease, drawerApproval, request.cashierUserId)
+
             // 3. Fetch Settings for Negative Stock Policy
             val settings = settingsService.getSettings()
+            if (!settings.commerce.quickSaleEnabled && request.lines.any { it.productId == null && it.presentationId == null }) {
+                throw ForbiddenException("La venta rápida está deshabilitada en esta sucursal.")
+            }
+            if (!settings.commerce.creditSalesEnabled && request.payments.any { it.method.equals("CREDIT", ignoreCase = true) }) {
+                throw ForbiddenException("Las nuevas ventas a crédito están deshabilitadas.")
+            }
 
             // 4. Validate lines and calculate exact totals
             var calculatedSubtotalCents = 0L
@@ -94,7 +109,9 @@ class SalesService(
                 val discountPercent: Double,
                 val kitStock: List<KitComponent>,
                 val stock: List<KitComponent>,
-                val factorMillis: Long
+                val factorMillis: Long,
+                val priceListLevel: Int?,
+                val manualPriceOverride: Boolean
             )
 
             val validatedLines = mutableListOf<ValidatedLine>()
@@ -108,10 +125,13 @@ class SalesService(
                 var usesInventory = false
                 var resolvedProdId = line.productId
 
+                if (line.priceListLevel != null && line.presentationId.isNullOrBlank()) {
+                    throw ValidationException("Selecciona una presentación para aplicar la lista de precios.")
+                }
                 if (!line.presentationId.isNullOrBlank()) {
                     val presStmt = conn.prepareStatement(
                         """
-                        SELECT pp.price_cents, pp.price_tiers_json, pp.factor_millis, pp.product_id, p.tax_rate, p.uses_inventory,
+                        SELECT pp.price_cents, pp.price_tiers_json, pp.price_list_prices, pp.factor_millis, pp.product_id, p.tax_rate, p.uses_inventory,
                             EXISTS(SELECT 1 FROM product_kit_components k WHERE k.kit_product_id = p.id) AS is_kit
                         FROM product_presentations pp
                         JOIN products p ON pp.product_id = p.id
@@ -121,7 +141,16 @@ class SalesService(
                     presStmt.setString(1, line.presentationId)
                     val presRs = presStmt.executeQuery()
                     if (presRs.next()) {
-                        currentPriceCents = resolvePresentationPrice(
+                        val selectedList = line.priceListLevel
+                        currentPriceCents = if (selectedList != null) {
+                            val enabled = conn.prepareStatement("SELECT enabled FROM price_lists WHERE level_id = ? FOR UPDATE").use {
+                                it.setInt(1, selectedList)
+                                it.executeQuery().use { row -> row.next() && row.getBoolean(1) }
+                            }
+                            val prices = json.decodeFromString<Map<Int, Long>>(presRs.getString("price_list_prices"))
+                            prices[selectedList]?.takeIf { enabled }
+                                ?: throw PriceChangedException("La lista de precios ya no está disponible para '${line.description}'.")
+                        } else resolvePresentationPrice(
                             presRs.getLong("price_cents"),
                             json.decodeFromString(presRs.getString("price_tiers_json")),
                             line.quantityMillis
@@ -153,6 +182,14 @@ class SalesService(
                     }
                     pRs.close()
                     pStmt.close()
+                }
+
+                if (line.manualPriceCents != null) {
+                    val manual = line.manualPriceCents ?: error("Precio manual ausente.")
+                    if (line.priceListLevel != null || manual < 0 || (line.productId == null && line.presentationId == null)) {
+                        throw ValidationException("El precio manual requiere un artículo de catálogo y no se combina con una lista.")
+                    }
+                    currentPriceCents = manual
                 }
 
                 // RN-VEN-02: Validate current price
@@ -233,7 +270,9 @@ class SalesService(
                         discountPercent = line.discountPercent,
                         kitStock = components,
                         stock = stock,
-                        factorMillis = factorMillis
+                        factorMillis = factorMillis,
+                        priceListLevel = line.priceListLevel,
+                        manualPriceOverride = line.manualPriceCents != null
                     )
                 )
             }
@@ -465,8 +504,8 @@ class SalesService(
                     id, sale_id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate,
                     tax_cents, total_cents, discount_cents, discount_percent, kit_stock_json,
                     cost_snapshot_cents, base_factor_millis, snapshot_product_name, snapshot_sku, snapshot_base_unit,
-                    snapshot_department_id, snapshot_department_name
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    snapshot_department_id, snapshot_department_name, price_list_level, manual_price_override
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent()
             )
             val lineResponses = mutableListOf<SaleLineItemResponse>()
@@ -495,6 +534,8 @@ class SalesService(
                 insertLineStmt.setString(18, product?.unit ?: "PZA")
                 insertLineStmt.setString(19, product?.departmentId)
                 insertLineStmt.setString(20, product?.departmentName)
+                insertLineStmt.setObject(21, vl.priceListLevel, java.sql.Types.INTEGER)
+                insertLineStmt.setBoolean(22, vl.manualPriceOverride)
                 insertLineStmt.executeUpdate()
 
                 lineResponses.add(
@@ -510,7 +551,9 @@ class SalesService(
                         totalCents = vl.totalCents,
                         discountCents = vl.discountCents,
                         discountPercent = vl.discountPercent,
-                        isKit = vl.kitStock.isNotEmpty()
+                        isKit = vl.kitStock.isNotEmpty(),
+                        priceListLevel = vl.priceListLevel,
+                        manualPriceOverride = vl.manualPriceOverride
                     )
                 )
 
@@ -660,12 +703,22 @@ class SalesService(
         }
     }
 
-    fun getSaleById(id: String): SaleResponse = db.inTransaction { conn ->
+    fun getSaleById(id: String, ownerId: String? = null): SaleResponse = db.inTransaction { conn ->
+        requireSaleOwner(conn, id, ownerId)
         requireOpenSaleRead(conn, id)
         getSaleById(conn, id)
     }
 
-    fun getClosedShiftSales(sessionId: String, folio: Long?, beforeFolio: Long?): ClosedShiftSalesPage {
+    private fun requireSaleOwner(connection: Connection, saleId: String, ownerId: String?) {
+        if (ownerId == null) return
+        connection.prepareStatement("SELECT 1 FROM sales WHERE id = ? AND user_id = ?").use {
+            it.setString(1, saleId)
+            it.setString(2, ownerId)
+            it.executeQuery().use { row -> if (!row.next()) throw NotFoundException("Venta no encontrada.") }
+        }
+    }
+
+    fun getClosedShiftSales(sessionId: String, folio: Long?, beforeFolio: Long?, ownerId: String? = null): ClosedShiftSalesPage {
         if ((folio != null && folio <= 0) || (beforeFolio != null && beforeFolio <= 0)) {
             throw ValidationException("Indica un folio positivo.")
         }
@@ -681,6 +734,7 @@ class SalesService(
                 )
                 if (folio != null) append(" AND s.folio = ?")
                 if (beforeFolio != null) append(" AND s.folio < ?")
+                if (ownerId != null) append(" AND s.user_id = ?")
                 append(" ORDER BY s.folio DESC LIMIT ?")
             }
             val size = 30
@@ -689,6 +743,7 @@ class SalesService(
                 query.setString(column++, sessionId)
                 if (folio != null) query.setLong(column++, folio)
                 if (beforeFolio != null) query.setLong(column++, beforeFolio)
+                if (ownerId != null) query.setString(column++, ownerId)
                 query.setInt(column, size + 1)
                 query.executeQuery().use { rows ->
                     buildList {
@@ -704,8 +759,9 @@ class SalesService(
         }
     }
 
-    fun getClosedShiftSale(sessionId: String, id: String): ClosedShiftSaleDetail = db.inTransaction { conn ->
+    fun getClosedShiftSale(sessionId: String, id: String, ownerId: String? = null): ClosedShiftSaleDetail = db.inTransaction { conn ->
         requireClosedShift(conn, sessionId)
+        requireSaleOwner(conn, id, ownerId)
         val cancellation = conn.prepareStatement(
             "SELECT cancellation_reason, cancelled_at FROM sales WHERE id = ? AND cash_session_id = ? FOR UPDATE"
         ).use { query ->
@@ -782,7 +838,7 @@ class SalesService(
         val lineStmt = conn.prepareStatement(
             """
             SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
-                   sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent, sl.kit_stock_json,
+                   sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent, sl.kit_stock_json, sl.price_list_level, sl.manual_price_override,
                    COALESCE((SELECT SUM(srl.quantity_millis) FROM sale_refund_lines srl WHERE srl.sale_line_id = sl.id), 0) as refunded_quantity_millis
             FROM sale_lines sl
             WHERE sl.sale_id = ?
@@ -806,7 +862,9 @@ class SalesService(
                     discountCents = lineRs.getLong("discount_cents"),
                     discountPercent = lineRs.getDouble("discount_percent"),
                     refundedQuantityMillis = lineRs.getLong("refunded_quantity_millis"),
-                    isKit = lineRs.getString("kit_stock_json") != null
+                    isKit = lineRs.getString("kit_stock_json") != null,
+                    priceListLevel = lineRs.getObject("price_list_level", Integer::class.java)?.toInt(),
+                    manualPriceOverride = lineRs.getBoolean("manual_price_override")
                 )
             )
         }
@@ -856,8 +914,9 @@ class SalesService(
         )
     }
 
-    fun cancelSale(saleId: String, request: CancelSaleRequest): SaleResponse {
+    fun cancelSale(saleId: String, request: CancelSaleRequest, actorId: String? = null, ownerId: String? = null): SaleResponse {
         return db.inTransaction { conn ->
+            requireSaleOwner(conn, saleId, ownerId)
             conn.prepareStatement("SELECT id FROM sales WHERE id = ? FOR UPDATE").use { lock ->
                 lock.setString(1, saleId)
                 lock.executeQuery().use { if (!it.next()) throw NotFoundException("Venta '$saleId' no encontrada") }
@@ -885,6 +944,8 @@ class SalesService(
             if (existingRefunds > 0) {
                 throw ValidationException("No se puede cancelar una venta que ya tiene devoluciones registradas. Realice una devolución por las partidas restantes.")
             }
+
+            if (actorId != null) writeAudit(conn, "transactions.cancel", actorId, saleId, request.authorizedByUserId)
 
             val now = System.currentTimeMillis()
 
@@ -980,7 +1041,8 @@ class SalesService(
         endDate: Long? = null,
         folio: Long? = null,
         status: String? = null,
-        limit: Int = 100
+        limit: Int = 100,
+        ownerId: String? = null
     ): List<SaleResponse> {
         return db.inTransaction { conn ->
             if (!sessionId.isNullOrBlank()) {
@@ -1007,6 +1069,10 @@ class SalesService(
             )
 
             val params = mutableListOf<Any>()
+            if (ownerId != null) {
+                sql.append(" AND s.user_id = ?")
+                params.add(ownerId)
+            }
             if (!sessionId.isNullOrBlank()) {
                 sql.append(" AND s.cash_session_id = ?")
                 params.add(sessionId)
@@ -1087,7 +1153,7 @@ class SalesService(
                 val lineStmt = conn.prepareStatement(
                     """
                     SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
-                           sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent, sl.kit_stock_json,
+                           sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent, sl.kit_stock_json, sl.price_list_level, sl.manual_price_override,
                            COALESCE((SELECT SUM(srl.quantity_millis) FROM sale_refund_lines srl WHERE srl.sale_line_id = sl.id), 0) as refunded_quantity_millis
                     FROM sale_lines sl
                     WHERE sl.sale_id = ?
@@ -1111,7 +1177,9 @@ class SalesService(
                             discountCents = lineRs.getLong("discount_cents"),
                             discountPercent = lineRs.getDouble("discount_percent"),
                             refundedQuantityMillis = lineRs.getLong("refunded_quantity_millis"),
-                            isKit = lineRs.getString("kit_stock_json") != null
+                            isKit = lineRs.getString("kit_stock_json") != null,
+                            priceListLevel = lineRs.getObject("price_list_level", Integer::class.java)?.toInt(),
+                            manualPriceOverride = lineRs.getBoolean("manual_price_override")
                         )
                     )
                 }
@@ -1272,15 +1340,17 @@ class SalesService(
         }
     }
 
-    fun getRefundsBySaleId(saleId: String): List<SaleRefundResponse> {
+    fun getRefundsBySaleId(saleId: String, ownerId: String? = null): List<SaleRefundResponse> {
         return db.inTransaction { conn ->
+            requireSaleOwner(conn, saleId, ownerId)
             requireOpenSaleRead(conn, saleId)
             getRefundsBySaleIdInternal(conn, saleId)
         }
     }
 
-    fun refundSale(saleId: String, request: CreateSaleRefundRequest): SaleRefundResponse {
+    fun refundSale(saleId: String, request: CreateSaleRefundRequest, verifyOperator: Boolean = false, ownerId: String? = null): SaleRefundResponse {
         return db.inTransaction { conn ->
+            requireSaleOwner(conn, saleId, ownerId)
             // 1. Fetch Sale and lock
             val saleStmt = conn.prepareStatement(
                 "SELECT id, folio, cash_session_id, user_id, customer_id, status, subtotal_cents, tax_cents, total_cents FROM sales WHERE id = ? FOR UPDATE"
@@ -1325,6 +1395,7 @@ class SalesService(
                 throw SessionClosedException("La sesión de caja '${request.cashSessionId}' no está abierta para procesar devoluciones")
             }
 
+            if (verifyOperator) requireOperator(conn, request.cashSessionId, request.cashierUserId)
             val settings = settingsService.getSettings()
 
             // 3. Supervisor PIN check if cashier is CASHIER or supervisorPin provided
@@ -1336,19 +1407,20 @@ class SalesService(
             userStmt.close()
 
             var authorizedByUserId: String? = null
-            if (originalSessionId != request.cashSessionId || cashierRole == "CASHIER" || !request.supervisorPin.isNullOrBlank()) {
+            val allowedWithoutPin = "transactions.refund" in permissionsForRole(conn, cashierRole)
+            if (originalSessionId != request.cashSessionId || !allowedWithoutPin || !request.supervisorPin.isNullOrBlank()) {
                 val pin = request.supervisorPin
                 if (pin.isNullOrBlank()) {
                     throw ValidationException("Las devoluciones de mercancía requieren autorización de supervisor.")
                 }
                 val supStmt = conn.prepareStatement(
-                    "SELECT id, pin_hash FROM users WHERE role IN ('ADMIN', 'SUPERVISOR') AND is_active = TRUE"
+                    "SELECT id, pin_hash, role FROM users WHERE is_active = TRUE"
                 )
                 val supRs = supStmt.executeQuery()
                 while (supRs.next()) {
                     val supId = supRs.getString("id")
                     val hash = supRs.getString("pin_hash")
-                    if (Security.verifyPin(pin, hash)) {
+                    if ("transactions.refund" in permissionsForRole(conn, supRs.getString("role")) && Security.verifyPin(pin, hash)) {
                         authorizedByUserId = supId
                         break
                     }

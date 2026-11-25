@@ -85,7 +85,7 @@ internal fun ShiftSupervisorPane(
     var pin by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     val submit = {
-        if (pin.length == 4 && !busy) {
+        if (pin.length in setOf(4, 6) && !busy) {
             val enteredPin = pin
             pin = ""
             onConfirm(enteredPin)
@@ -98,7 +98,7 @@ internal fun ShiftSupervisorPane(
             TextButton(onClick = onBack, enabled = !busy) { Text("Volver") }
             Button(
                 onClick = submit,
-                enabled = pin.length == 4 && !busy,
+                enabled = pin.length in setOf(4, 6) && !busy,
                 colors = if (destructive) ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,
                     contentColor = MaterialTheme.colorScheme.onError
@@ -110,9 +110,9 @@ internal fun ShiftSupervisorPane(
         Text(summary, style = MaterialTheme.typography.bodyMedium)
         OutlinedTextField(
             value = pin,
-            onValueChange = { value -> if (value.length <= 4 && value.all { it in '0'..'9' }) pin = value },
+            onValueChange = { value -> if (value.length <= 6 && value.all { it in '0'..'9' }) pin = value },
             label = { Text("PIN de encargado") },
-            supportingText = { Text("4 dígitos") },
+            supportingText = { Text("4 o 6 dígitos") },
             singleLine = true,
             enabled = !busy,
             visualTransformation = PasswordVisualTransformation(),

@@ -55,11 +55,13 @@ fun CashSessionDialog(
         )
     } else {
         // Close session (Corte) mode
-        var countedText by remember { mutableStateOf((activeSession.expectedCashCents / 100.0).toString()) }
+        var countedText by remember(activeSession.sessionId, activeSession.cashCountVisible) {
+            mutableStateOf(if (activeSession.cashCountVisible) (activeSession.expectedCashCents / 100.0).toString() else "")
+        }
         var notesText by remember { mutableStateOf("") }
 
-        val countedCents = ((countedText.toDoubleOrNull() ?: 0.0) * 100.0).toLong()
-        val differenceCents = countedCents - activeSession.expectedCashCents
+        val countedCents = mx.nexuspos.client.features.sales.v2.dialogs.parseCheckoutCents(countedText)?.takeIf { it >= 0 }
+        val differenceCents = (countedCents ?: 0L) - activeSession.expectedCashCents
 
         AlertDialog(
             onDismissRequest = onDismiss,
@@ -68,7 +70,7 @@ fun CashSessionDialog(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Surface(
+                    if (activeSession.cashCountVisible) Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = MaterialTheme.shapes.small,
                         modifier = Modifier.fillMaxWidth()
@@ -107,7 +109,7 @@ fun CashSessionDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Row(
+                    if (activeSession.cashCountVisible) Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -136,7 +138,8 @@ fun CashSessionDialog(
             },
             confirmButton = {
                 Button(
-                    onClick = { onCloseSession(countedCents, notesText) },
+                    onClick = { countedCents?.let { onCloseSession(it, notesText) } },
+                    enabled = countedCents != null,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text("Cerrar Turno")

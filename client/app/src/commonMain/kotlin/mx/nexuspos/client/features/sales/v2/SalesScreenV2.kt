@@ -15,6 +15,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.sales.CashMovementDialog
 import mx.nexuspos.client.features.cash.CashSessionDialog
@@ -47,10 +48,13 @@ fun SalesScreenV2(
     },
     onNavigateToModule: (AppModule) -> Unit = {},
     onLockTerminal: () -> Unit = {},
-    onOpenCashDrawerHardware: () -> Unit = {},
+    onOpenCashDrawerHardware: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
+    if (state.barcodeChoices.isNotEmpty()) {
+        BarcodeChoicesDialog(state.barcodeChoices, viewModel::confirmBarcodeChoice)
+    }
     val omniboxFocusRequester = remember { FocusRequester() }
     val isOmniboxFocused = remember { mutableStateOf(false) }
     var isQuantityFocused by remember { mutableStateOf(false) }
@@ -180,8 +184,7 @@ fun SalesScreenV2(
                     PosAction.CASH_IN -> viewModel.showCashInDialog(true)
                     PosAction.CASH_OUT -> viewModel.showCashOutDialog(true)
                     PosAction.OPEN_DRAWER -> {
-                        onOpenCashDrawerHardware()
-                        viewModel.openCashDrawer()
+                        viewModel.openCashDrawer(onOpenCashDrawerHardware)
                         viewModel.recordManualDrawerOpen(state.activeCashierName)
                     }
                 }
@@ -298,6 +301,20 @@ fun SalesScreenV2(
                             isFocused = isOmniboxFocused
                         )
 
+                        if (selectedLine?.presentationId != null && (selectedLine.listPrices.isNotEmpty() || selectedLine.priceListLevel != null || viewModel.canPerform("sales.price.manual"))) {
+                            CartPriceListChoice(viewModel, selectedLine)
+                        }
+
+                        val shift = state.activeSession
+                        if (shift != null && shift.operatorUserId != state.activeCashierId) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Turno a cargo de ${shift.operatorName}.", style = MaterialTheme.typography.bodySmall)
+                                if (state.allowShiftHandoff && "cash.handoff" in state.activeCashierPermissions) {
+                                    TextButton(viewModel::handoffCurrentShift, enabled = !state.isHandingOffShift) { Text("Asumir turno") }
+                                }
+                            }
+                        }
+
                         // Lista de Productos en el Ticket con Re-pesaje RS-232 (Requisito 4.3)
                         CartProductList(
                             items = state.cartLines,
@@ -365,8 +382,7 @@ fun SalesScreenV2(
                                     ?: viewModel.setErrorMessage("No hay venta reciente para enviar por WhatsApp")
                             },
                             onOpenDrawer = {
-                                onOpenCashDrawerHardware()
-                                viewModel.openCashDrawer()
+                                viewModel.openCashDrawer(onOpenCashDrawerHardware)
                                 viewModel.recordManualDrawerOpen(state.activeCashierName)
                             }
                         )
@@ -409,7 +425,14 @@ fun SalesScreenV2(
                 errorMessage = state.checkoutErrorMessage,
                 onDismiss = { viewModel.showCashPaymentDialog(false) },
                 onRequestSelectCustomer = { viewModel.showCustomerDialog(true) },
-                onConfirmCheckout = viewModel::checkoutMultiPayment
+                onConfirmCheckout = viewModel::checkoutMultiPayment,
+                allowCashLimitApproval = state.cashDrawerLimitEnabled,
+                onConfirmWithApproval = viewModel::checkoutMultiPayment,
+                allowedMethods = CheckoutPaymentMethod.entries.filter {
+                    viewModel.canPerform("sales.pay.${it.methodCode.lowercase()}") &&
+                        (it != CheckoutPaymentMethod.CREDIT || viewModel.currentSettings?.commerce?.creditSalesEnabled != false)
+                }.toSet(),
+                allowMixedPayments = viewModel.canPerform("sales.pay.mixed")
             )
         }
 
@@ -460,7 +483,11 @@ fun SalesScreenV2(
         if (state.isShowingCashInDialog) {
             CashMovementDialog(
                 isCashIn = true,
-                onConfirm = { _, _ -> viewModel.showCashInDialog(false) },
+                onConfirm = { cents, reason -> viewModel.submitCashMovement(true, cents, reason) },
+                approvalRequired = state.cashDrawerLimitEnabled,
+                onConfirmWithApproval = { cents, reason, pin -> viewModel.submitCashMovement(true, cents, reason, pin) },
+                isSubmitting = state.isCashMovementSubmitting,
+                serverError = state.cashMovementError,
                 onDismiss = { viewModel.showCashInDialog(false) }
             )
         }
@@ -468,7 +495,9 @@ fun SalesScreenV2(
         if (state.isShowingCashOutDialog) {
             CashMovementDialog(
                 isCashIn = false,
-                onConfirm = { _, _ -> viewModel.showCashOutDialog(false) },
+                onConfirm = { cents, reason -> viewModel.submitCashMovement(false, cents, reason) },
+                isSubmitting = state.isCashMovementSubmitting,
+                serverError = state.cashMovementError,
                 onDismiss = { viewModel.showCashOutDialog(false) }
             )
         }
@@ -638,5 +667,55 @@ private fun ContingencyBanner(pendingCount: Int, onOpenSync: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+
+@Composable
+private fun CartPriceListChoice(viewModel: SalesViewModel, line: mx.nexuspos.client.features.sales.CartLine) {
+    val scope = rememberCoroutineScope()
+    var choices by remember(line.id) { mutableStateOf<List<mx.nexuspos.contracts.catalog.CatalogPriceList>?>(null) }
+    var error by remember(line.id) { mutableStateOf<String?>(null) }
+    var manual by remember(line.id) { mutableStateOf<String?>(null) }
+    manual?.let { amount ->
+        val cents = parseCheckoutCents(amount)
+        AlertDialog(onDismissRequest = { manual = null }, title = { Text("Precio manual") },
+            text = { OutlinedTextField(amount, { manual = it.take(16) }, singleLine = true, label = { Text("Precio unitario") }) },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.updateCartLinePrice(line.id, mx.nexuspos.core.Money(checkNotNull(cents)))
+                    manual = null
+                }, enabled = cents != null && cents >= 0) { Text("Aplicar") }
+            },
+            dismissButton = { TextButton(onClick = { manual = null }) { Text("Cancelar") } }
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box {
+            TextButton(onClick = {
+                scope.launch {
+                    viewModel.activePriceLists().onSuccess { choices = it; error = null }.onFailure { error = it.message }
+                }
+            }) { Text(if (line.manualPriceCents != null) "Precio manual" else line.priceListLevel?.let { "Precio $it" } ?: "Precio público") }
+            DropdownMenu(choices != null, onDismissRequest = { choices = null }) {
+                DropdownMenuItem({ Text("Precio público") }, onClick = {
+                    viewModel.chooseLinePrice(line.id, null)
+                    choices = null
+                })
+                if (viewModel.canPerform("sales.price.manual")) DropdownMenuItem({ Text("Precio manual") }, onClick = {
+                    choices = null
+                    manual = checkoutAmountText(line.unitPrice.cents)
+                })
+                choices.orEmpty().forEach { choice ->
+                    val amount = line.listPrices[choice.level]
+                    DropdownMenuItem(
+                        text = { Text(choice.name + (amount?.let { " · ${mx.nexuspos.core.Money(it).format()}" } ?: " · Sin precio")) },
+                        enabled = amount != null,
+                        onClick = { viewModel.chooseLinePrice(line.id, choice.level); choices = null }
+                    )
+                }
+            }
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
 }

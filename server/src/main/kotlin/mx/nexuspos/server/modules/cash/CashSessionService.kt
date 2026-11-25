@@ -3,6 +3,10 @@ package mx.nexuspos.server.modules.cash
 import mx.nexuspos.contracts.cash.*
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.NotFoundException
+import mx.nexuspos.server.platform.ConflictException
+import mx.nexuspos.server.platform.AppException
+import mx.nexuspos.server.platform.ForbiddenException
+import mx.nexuspos.server.modules.permissions.writeAudit
 import mx.nexuspos.server.platform.SessionClosedException
 import mx.nexuspos.server.platform.ValidationException
 import java.sql.Connection
@@ -10,8 +14,71 @@ import java.util.UUID
 
 class CashSessionService(private val db: DatabaseFactory) {
 
+    fun listRegisters(): List<CashRegisterDto> = db.inTransaction { connection ->
+        connection.prepareStatement("SELECT id, name, is_active FROM cash_registers ORDER BY name, id").use {
+            it.executeQuery().use { rows -> buildList { while (rows.next()) add(CashRegisterDto(rows.getString(1), rows.getString(2), rows.getBoolean(3))) } }
+        }
+    }
+
+    fun saveRegister(id: String?, request: SaveCashRegisterRequest): CashRegisterDto {
+        val name = request.name.trim()
+        if (name.length !in 1..100) throw ValidationException("El nombre de la caja debe tener de 1 a 100 caracteres.")
+        val registerId = id ?: "caja-${UUID.randomUUID().toString().take(12)}"
+        return db.inTransaction { connection ->
+            if (id == null) {
+                connection.prepareStatement("INSERT INTO cash_registers (id, name, is_active) VALUES (?, ?, ?)").use {
+                    it.setString(1, registerId)
+                    it.setString(2, name)
+                    it.setBoolean(3, request.active)
+                    it.executeUpdate()
+                }
+            } else {
+                lockRegister(connection, id)
+                if (!request.active) {
+                    connection.prepareStatement("SELECT 1 FROM cash_sessions WHERE register_id = ? AND status = 'OPEN'").use {
+                        it.setString(1, id)
+                        it.executeQuery().use { row -> if (row.next()) throw ConflictException("Cierra el turno antes de desactivar la caja.") }
+                    }
+                }
+                connection.prepareStatement("UPDATE cash_registers SET name = ?, is_active = ? WHERE id = ?").use {
+                    it.setString(1, name)
+                    it.setBoolean(2, request.active)
+                    it.setString(3, id)
+                    it.executeUpdate()
+                }
+            }
+            CashRegisterDto(registerId, name, request.active)
+        }
+    }
+
+    fun handoff(sessionId: String, incomingOperator: String): CashSessionSummary = db.inTransaction { connection ->
+        val current = lockOperator(connection, sessionId)
+        if (current == incomingOperator) return@inTransaction getSessionSummary(connection, sessionId)
+        val enabled = connection.prepareStatement("SELECT setting_value FROM settings WHERE setting_key = 'allow_shift_handoff'").use {
+            it.executeQuery().use { row -> row.next() && row.getString(1).toBoolean() }
+        }
+        if (!enabled) throw ForbiddenException("El relevo de operador está deshabilitado.")
+        connection.prepareStatement("UPDATE cash_sessions SET operator_user_id = ? WHERE id = ?").use {
+            it.setString(1, incomingOperator)
+            it.setString(2, sessionId)
+            it.executeUpdate()
+        }
+        writeAudit(connection, "cash.handoff", incomingOperator, sessionId)
+        getSessionSummary(connection, sessionId)
+    }
+
+    private fun lockRegister(connection: Connection, id: String): Boolean =
+        connection.prepareStatement("SELECT is_active FROM cash_registers WHERE id = ? FOR UPDATE").use {
+            it.setString(1, id)
+            it.executeQuery().use { row ->
+                if (!row.next()) throw NotFoundException("Caja no encontrada.")
+                row.getBoolean(1)
+            }
+        }
+
     fun openSession(request: OpenSessionRequest): CashSessionSummary {
         return db.inTransaction { conn ->
+            if (!lockRegister(conn, request.registerId)) throw ForbiddenException("La caja está inactiva.")
             // Check if there is already an open session on this register (RN-CAJ-01)
             val checkStmt = conn.prepareStatement(
                 "SELECT id FROM cash_sessions WHERE register_id = ? AND status = 'OPEN'"
@@ -76,8 +143,12 @@ class CashSessionService(private val db: DatabaseFactory) {
         }
     }
 
-    fun recordMovement(sessionId: String, request: CashMovementRequest) {
+    fun recordMovement(sessionId: String, request: CashMovementRequest, verifyOperator: Boolean = false, drawerApproval: String? = null) {
+        if (request.type !in setOf("CASH_IN", "CASH_OUT") || request.amountCents <= 0 || request.concept.trim().length !in 1..256) {
+            throw ValidationException("Verifica el tipo, importe y motivo del movimiento de efectivo.")
+        }
         db.inTransaction { conn ->
+            if (verifyOperator) requireOperator(conn, sessionId, request.userId)
             val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ? FOR UPDATE")
             sessStmt.setString(1, sessionId)
             val rs = sessStmt.executeQuery()
@@ -94,9 +165,10 @@ class CashSessionService(private val db: DatabaseFactory) {
             rs.close()
             sessStmt.close()
 
+            if (request.type == "CASH_IN") enforceDrawerLimit(conn, sessionId, request.amountCents, drawerApproval, request.userId)
             val movId = "mov-" + UUID.randomUUID().toString().take(8)
             val insertStmt = conn.prepareStatement(
-                "INSERT INTO cash_movements (id, session_id, type, amount_cents, concept, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO cash_movements (id, session_id, type, amount_cents, concept, user_id, created_at, authorized_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
             insertStmt.setString(1, movId)
             insertStmt.setString(2, sessionId)
@@ -105,8 +177,28 @@ class CashSessionService(private val db: DatabaseFactory) {
             insertStmt.setString(5, request.concept)
             insertStmt.setString(6, request.userId)
             insertStmt.setLong(7, System.currentTimeMillis())
+            insertStmt.setString(8, drawerApproval)
             insertStmt.executeUpdate()
             insertStmt.close()
+        }
+    }
+
+    internal fun enforceDrawerLimit(connection: Connection, sessionId: String, additionalCash: Long, approvedBy: String?, actorId: String) {
+        if (additionalCash <= 0) return
+        val limit = connection.prepareStatement("SELECT setting_value FROM settings WHERE setting_key = 'cash_drawer_limit_cents'").use {
+            it.executeQuery().use { row -> if (row.next()) row.getString(1).toLongOrNull() else null }
+        } ?: return
+        val expected = getSessionSummary(connection, sessionId).expectedCashCents
+        if (expected <= limit && additionalCash <= limit - expected) return
+        if (approvedBy == null) throw CashLimitException()
+        connection.prepareStatement("INSERT INTO security_audit (id, action, actor_user_id, target_id, created_at, approved_by_user_id) VALUES (?, ?, ?, ?, ?, ?)").use {
+            it.setString(1, UUID.randomUUID().toString())
+            it.setString(2, "cash.limit.approved")
+            it.setString(3, actorId)
+            it.setString(4, sessionId)
+            it.setLong(5, System.currentTimeMillis())
+            it.setString(6, approvedBy)
+            it.executeUpdate()
         }
     }
 
@@ -119,10 +211,12 @@ class CashSessionService(private val db: DatabaseFactory) {
                 """
                 SELECT s.id, s.register_id, r.name as reg_name, s.user_id, u.name as user_name,
                        s.initial_fund_cents, s.opened_at, s.closed_at, s.status, s.notes,
-                       s.counted_cash_cents, s.difference_cents
+                       s.counted_cash_cents, s.difference_cents, COALESCE(s.operator_user_id, s.user_id) AS operator_id,
+                       COALESCE(o.name, u.name) AS operator_name
                 FROM cash_sessions s
                 JOIN cash_registers r ON s.register_id = r.id
                 JOIN users u ON s.user_id = u.id
+                LEFT JOIN users o ON o.id = s.operator_user_id
                 WHERE s.id = ?
                 """.trimIndent()
             )
@@ -138,6 +232,8 @@ class CashSessionService(private val db: DatabaseFactory) {
             val regName = rs.getString("reg_name")
             val userId = rs.getString("user_id")
             val userName = rs.getString("user_name")
+            val operatorId = rs.getString("operator_id")
+            val operatorName = rs.getString("operator_name")
             val initialFund = rs.getLong("initial_fund_cents")
             val openedAt = rs.getLong("opened_at")
             val closedAt = rs.getLong("closed_at").let { if (rs.wasNull()) null else it }
@@ -168,7 +264,7 @@ class CashSessionService(private val db: DatabaseFactory) {
                 """
                 SELECT COALESCE(SUM(amount_cents), 0) as credit_cash
                 FROM credit_movements
-                WHERE cash_session_id = ? AND type = 'PAYMENT'
+                WHERE cash_session_id = ? AND type = 'PAYMENT' AND COALESCE(payment_method, 'CASH') = 'CASH'
                 """.trimIndent()
             )
             creditStmt.setString(1, sessionId)
@@ -262,11 +358,13 @@ class CashSessionService(private val db: DatabaseFactory) {
                 countedCashCents = countedCash,
                 differenceCents = diff,
                 status = status,
-                denominations = denomList
+                denominations = denomList,
+                operatorUserId = operatorId,
+                operatorName = operatorName
             )
         }
 
-    fun closeSession(sessionId: String, request: CloseSessionRequest): CashSessionSummary =
+    fun closeSession(sessionId: String, request: CloseSessionRequest, operatorId: String? = null): CashSessionSummary =
         db.inTransaction { conn ->
             conn.prepareStatement("SELECT id FROM cash_sessions WHERE id = ? FOR UPDATE").use {
                 it.setString(1, sessionId)
@@ -274,6 +372,7 @@ class CashSessionService(private val db: DatabaseFactory) {
                     if (!row.next()) throw NotFoundException("Sesión de caja no encontrada")
                 }
             }
+            if (operatorId != null) requireOperator(conn, sessionId, operatorId)
             val summary = getSessionSummary(conn, sessionId)
             if (summary.status == "CLOSED") {
                 throw SessionClosedException("La sesión '$sessionId' ya está cerrada")
@@ -343,3 +442,20 @@ class CashSessionService(private val db: DatabaseFactory) {
         }
     }
 }
+
+
+internal fun requireOperator(connection: Connection, sessionId: String, userId: String) {
+    if (lockOperator(connection, sessionId) != userId) throw ForbiddenException("Este turno pertenece a otro operador. Solicita un relevo.")
+}
+
+private fun lockOperator(connection: Connection, sessionId: String): String =
+    connection.prepareStatement("SELECT status, COALESCE(operator_user_id, user_id) FROM cash_sessions WHERE id = ? FOR UPDATE").use {
+        it.setString(1, sessionId)
+        it.executeQuery().use { row ->
+            if (!row.next()) throw NotFoundException("Turno no encontrado.")
+            if (row.getString(1) != "OPEN") throw SessionClosedException("El turno ya está cerrado.")
+            row.getString(2)
+        }
+    }
+
+internal class CashLimitException : AppException("CASH_LIMIT", "Captura el PIN de una persona autorizada para superar el límite de efectivo.")

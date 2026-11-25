@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -225,21 +226,29 @@ fun CommonArticlesDialog(
 fun CashMovementDialog(
     isCashIn: Boolean,
     onConfirm: (amountCents: Long, reason: String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    approvalRequired: Boolean = false,
+    onConfirmWithApproval: ((Long, String, String?) -> Unit)? = null,
+    isSubmitting: Boolean = false,
+    serverError: String? = null
 ) {
+    var approvalPin by remember { mutableStateOf("") }
     var amountInput by remember { mutableStateOf("") }
     var reason by remember { mutableStateOf("") }
     var errorText by remember { mutableStateOf<String?>(null) }
 
     fun submit() {
-        val amount = amountInput.toDoubleOrNull()
-        if (amount == null || amount <= 0) {
+        val cents = mx.nexuspos.client.features.sales.v2.dialogs.parseCheckoutCents(amountInput)
+        if (isSubmitting) return
+        if (cents == null || cents <= 0) {
             errorText = "Ingrese un importe válido"
             return
         }
-        val cents = (amount * 100).toLong()
         val concept = reason.ifBlank { if (isCashIn) "Entrada de Efectivo" else "Salida de Efectivo" }
-        onConfirm(cents, concept)
+        val pin = approvalPin.ifBlank { null }
+        approvalPin = ""
+        if (onConfirmWithApproval != null) onConfirmWithApproval(cents, concept, pin)
+        else onConfirm(cents, concept)
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -300,7 +309,14 @@ fun CashMovementDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                errorText?.let {
+                if (approvalRequired) OutlinedTextField(
+                    approvalPin, { approvalPin = it.filter { c -> c in '0'..'9' }.take(6) },
+                    label = { Text("PIN de autorización si se supera el límite") }, enabled = !isSubmitting,
+                    singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                (errorText ?: serverError)?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 }
 
@@ -314,6 +330,7 @@ fun CashMovementDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = { submit() },
+                        enabled = !isSubmitting,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (isCashIn) Color(0xFF2E7D32) else Color(0xFFC62828)
                         )

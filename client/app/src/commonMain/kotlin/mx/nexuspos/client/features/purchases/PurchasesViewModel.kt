@@ -73,6 +73,8 @@ class PurchasesViewModel(
         )
     }
 
+    fun openSupplierWorkspace() = openSuppliers()
+
     internal fun openSuppliers() {
         open(PurchasesPage.SUPPLIERS)
         loadSuppliers()

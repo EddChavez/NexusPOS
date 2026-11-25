@@ -12,7 +12,7 @@ import mx.nexuspos.client.features.settings.SettingsViewModel
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun PrinterSettingsV2(state: SettingsUiState, viewModel: SettingsViewModel) {
+internal fun PrinterSettingsV2(state: SettingsUiState, viewModel: SettingsViewModel, canTestHardware: Boolean = true) {
     val ethernet = state.printerConnectionType == "ETHERNET_TCP"
     val invalidPort = ethernet && !state.tcpPort.isTcpPort()
     val connectionValid = !ethernet || (state.tcpHost.isNotBlank() && !invalidPort)
@@ -53,10 +53,10 @@ internal fun PrinterSettingsV2(state: SettingsUiState, viewModel: SettingsViewMo
             Text("Las pruebas usan los datos de conexión del formulario.", style = MaterialTheme.typography.bodySmall)
             if (state.isTestingPrinter) LinearProgressIndicator(Modifier.fillMaxWidth())
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(viewModel::testPrinter, enabled = canTest) {
+                OutlinedButton(viewModel::testPrinter, enabled = canTest && canTestHardware) {
                     Text("Imprimir prueba")
                 }
-                OutlinedButton(viewModel::testCashDrawer, enabled = canTest) { Text("Abrir cajón") }
+                OutlinedButton(viewModel::testCashDrawer, enabled = canTest && canTestHardware) { Text("Abrir cajón") }
             }
         }
     }
@@ -64,7 +64,7 @@ internal fun PrinterSettingsV2(state: SettingsUiState, viewModel: SettingsViewMo
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ScaleSettingsV2(state: SettingsUiState, viewModel: SettingsViewModel) {
+internal fun ScaleSettingsV2(state: SettingsUiState, viewModel: SettingsViewModel, canTestHardware: Boolean = true) {
     val enabled = !state.isTestingScale
     val hasChanges = viewModel.getCurrentScaleConfig() != state.appliedScaleConfig
     TerminalSettingsForm("Guardar báscula", viewModel::saveScaleConfig, hasChanges && enabled) {
@@ -103,11 +103,11 @@ internal fun ScaleSettingsV2(state: SettingsUiState, viewModel: SettingsViewMode
             }
             val canTest = state.scaleEnabled && !hasChanges && enabled
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(viewModel::testScale, enabled = canTest) {
+                OutlinedButton(viewModel::testScale, enabled = canTest && canTestHardware) {
                     Text(if (state.isTestingScale) "Leyendo…" else "Probar lectura")
                 }
-                OutlinedButton(viewModel::tareScale, enabled = canTest) { Text("Tarar") }
-                OutlinedButton(viewModel::zeroScale, enabled = canTest) { Text("Poner a cero") }
+                OutlinedButton(viewModel::tareScale, enabled = canTest && canTestHardware) { Text("Tarar") }
+                OutlinedButton(viewModel::zeroScale, enabled = canTest && canTestHardware) { Text("Poner a cero") }
             }
         }
     }

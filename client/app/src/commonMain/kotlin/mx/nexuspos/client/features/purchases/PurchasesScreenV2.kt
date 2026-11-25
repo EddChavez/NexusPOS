@@ -201,7 +201,7 @@ internal fun PurchaseConfirmation(
         amount?.let { Text("Total ${Money(it).format()}", style = MaterialTheme.typography.titleMedium) }
         OutlinedTextField(
             value = pin,
-            onValueChange = { input -> if (input.length <= 4 && input.all { it in '0'..'9' }) pin = input },
+            onValueChange = { input -> if (input.length <= 6 && input.all { it in '0'..'9' }) pin = input },
             label = { Text("PIN de encargado") },
             enabled = !saving,
             visualTransformation = PasswordVisualTransformation(),
@@ -209,7 +209,7 @@ internal fun PurchaseConfirmation(
             singleLine = true,
             modifier = Modifier.width(192.dp)
         )
-        Button(onClick = { onConfirm(pin) }, enabled = valid && pin.length == 4 && !saving) {
+        Button(onClick = { onConfirm(pin) }, enabled = valid && pin.length in setOf(4, 6) && !saving) {
             Text(if (saving) "Registrando…" else action)
         }
     }

@@ -39,3 +39,20 @@ class StockChangedException(message: String) :
 
 class DuplicatePurchaseDocumentException(message: String) :
     AppException("PURCHASE_DOCUMENT_EXISTS", message)
+
+class ConflictException(message: String) : AppException("CONFLICT", message)
+
+internal class PinAttemptLimitException : AppException("RATE_LIMITED", "Demasiados intentos de PIN. Espera un minuto.")
+
+internal class PinAttemptWindow {
+    private val attempts = LinkedHashMap<String, Pair<Long, Int>>()
+
+    @Synchronized
+    fun check(scope: String) {
+        val now = System.currentTimeMillis()
+        attempts.entries.removeIf { now - it.value.first >= 60_000 }
+        val window = attempts[scope] ?: (now to 0)
+        if (window.second >= 18) throw PinAttemptLimitException()
+        attempts[scope] = window.first to window.second + 1
+    }
+}

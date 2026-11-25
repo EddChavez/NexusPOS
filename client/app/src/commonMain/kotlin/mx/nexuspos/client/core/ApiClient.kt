@@ -3,6 +3,7 @@ package mx.nexuspos.client.core
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -13,18 +14,24 @@ import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.AuditedCashMovement
 import mx.nexuspos.contracts.cash.CashMovementHistoryPage
 import mx.nexuspos.contracts.cash.CashMovementHistoryRequest
+import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.cash.ReverseCashMovementRequest
 import mx.nexuspos.contracts.cash.CashCutDetailRequest
 import mx.nexuspos.contracts.cash.CashCutHistoryDetail
 import mx.nexuspos.contracts.cash.CashCutHistoryPage
 import mx.nexuspos.contracts.cash.CashCutHistoryRequest
 import mx.nexuspos.contracts.cash.CashSessionSummary
+import mx.nexuspos.contracts.cash.CashRegisterDto
+import mx.nexuspos.contracts.cash.SaveCashRegisterRequest
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.ClosedShiftSaleDetail
 import mx.nexuspos.contracts.cash.ClosedShiftSalesPage
 import mx.nexuspos.contracts.cash.ClosedShiftSalesRequest
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
 import mx.nexuspos.contracts.cash.OpenSessionRequest
+import mx.nexuspos.contracts.catalog.CatalogPriceList
+import mx.nexuspos.contracts.catalog.UpdateCatalogPriceList
+import mx.nexuspos.contracts.catalog.UpdatePresentationListPrice
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
 import mx.nexuspos.contracts.catalog.CatalogImportResponse
 import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
@@ -48,6 +55,9 @@ import mx.nexuspos.contracts.identity.LoginResponse
 import mx.nexuspos.contracts.identity.CreateUserRequest
 import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
+import mx.nexuspos.contracts.identity.RoleDto
+import mx.nexuspos.contracts.identity.PermissionDto
+import mx.nexuspos.contracts.identity.SaveRoleRequest
 import mx.nexuspos.contracts.inventory.CreateProductLotRequest
 import mx.nexuspos.contracts.inventory.ExpirationsReportDto
 import mx.nexuspos.contracts.inventory.InventorySummaryDto
@@ -74,27 +84,138 @@ import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.purchases.*
-import mx.nexuspos.contracts.system.SettingsDto
-import mx.nexuspos.contracts.system.SettingsPreferencesPatch
+import mx.nexuspos.contracts.system.*
 
 internal class CashCutHistoryAccessDenied(message: String) : Exception(message)
 
 internal class PurchaseRequestException(val status: Int, val error: ApiError) : Exception(error.message)
 
 open class ApiClient(
-    var baseUrl: String = "http://localhost:8080",
+    baseUrl: String = "http://localhost:8080",
     client: HttpClient? = null
 ) {
+    internal var sessionToken: String? = null
+    var baseUrl: String = baseUrl
+        set(value) {
+            if (value != field) sessionToken = null
+            field = value
+        }
+
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
     }
 
     val http = client ?: HttpClient {
+        followRedirects = false
+        defaultRequest {
+            val expected = Url(this@ApiClient.baseUrl)
+            if (url.host == expected.host && url.port == expected.port && url.protocol == expected.protocol) {
+                if (!headers.contains(HttpHeaders.Authorization)) {
+                    this@ApiClient.sessionToken?.let { headers.append(HttpHeaders.Authorization, "Bearer $it") }
+                }
+            }
+        }
         install(ContentNegotiation) {
             json(this@ApiClient.json)
         }
     }
+
+    suspend fun setupStatus(): Result<SetupStatus> = setupCall {
+        http.get("$baseUrl/api/v1/setup/status")
+    }
+
+    suspend fun completeSetup(request: StoreSetupRequest): Result<StoreSetupResult> = setupCall {
+        http.post("$baseUrl/api/v1/setup/complete") { contentType(ContentType.Application.Json); setBody(request) }
+    }
+
+    suspend fun getStoreProfile(): Result<StoreProfile> = setupCall {
+        http.get("$baseUrl/api/v1/system/store-profile")
+    }
+
+    suspend fun updateStoreProfile(profile: StoreProfile): Result<StoreProfile> = setupCall {
+        http.put("$baseUrl/api/v1/system/store-profile") { contentType(ContentType.Application.Json); setBody(profile) }
+    }
+
+    suspend fun adoptRoot(request: AdoptRootRequest): Result<Unit> = setupCommand {
+        http.post("$baseUrl/api/v1/setup/adopt-root") { contentType(ContentType.Application.Json); setBody(request) }
+    }
+
+    suspend fun recoverRoot(request: RecoverRootRequest): Result<Unit> = setupCommand {
+        http.post("$baseUrl/api/v1/setup/recover-root") { contentType(ContentType.Application.Json); setBody(request) }
+    }
+
+    suspend fun saleFolioStatus(): Result<SaleFolioStatus> = setupCall { http.get("$baseUrl/api/v1/system/sale-folio") }
+
+    suspend fun cashRegisters(): Result<List<CashRegisterDto>> = setupCall { http.get("$baseUrl/api/v1/registers") }
+
+    suspend fun saveCashRegister(id: String?, change: SaveCashRegisterRequest): Result<CashRegisterDto> = setupCall {
+        val url = "$baseUrl/api/v1/registers"
+        val body: HttpRequestBuilder.() -> Unit = {
+            contentType(ContentType.Application.Json)
+            setBody(change)
+        }
+        if (id == null) http.post(url, body) else http.put("$url/$id", body)
+    }
+
+    suspend fun handoffShift(id: String): Result<CashSessionSummary> = setupCall {
+        http.post("$baseUrl/api/v1/cash-sessions/$id/handoff")
+    }
+
+    suspend fun priceLists(): Result<List<CatalogPriceList>> = setupCall { http.get("$baseUrl/api/v1/price-lists") }
+
+    suspend fun updatePriceList(level: Int, change: UpdateCatalogPriceList): Result<CatalogPriceList> = setupCall {
+        http.put("$baseUrl/api/v1/price-lists/$level") { contentType(ContentType.Application.Json); setBody(change) }
+    }
+
+    suspend fun updateListPrice(product: String, presentation: String, level: Int, cents: Long?): Result<ProductDto> = setupCall {
+        http.put("$baseUrl/api/v1/products/$product/presentations/$presentation/list-prices/$level") {
+            contentType(ContentType.Application.Json)
+            setBody(UpdatePresentationListPrice(cents))
+        }
+    }
+
+    suspend fun listRoles(): Result<List<RoleDto>> = setupCall { http.get("$baseUrl/api/v1/roles") }
+
+    suspend fun permissionCatalog(): Result<List<PermissionDto>> = setupCall { http.get("$baseUrl/api/v1/roles/permissions") }
+
+    suspend fun saveRole(id: String?, request: SaveRoleRequest): Result<RoleDto> = setupCall {
+        val path = "$baseUrl/api/v1/roles"
+        val body: HttpRequestBuilder.() -> Unit = {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+        if (id == null) http.post(path, body) else http.put("$path/$id", body)
+    }
+
+    suspend fun deleteRole(id: String): Result<Unit> = setupCommand { http.delete("$baseUrl/api/v1/roles/$id") }
+
+    suspend fun updateCommerce(preferences: CommercialPreferences): Result<CommercialPreferences> = setupCall {
+        http.put("$baseUrl/api/v1/system/settings/commerce") {
+            contentType(ContentType.Application.Json)
+            setBody(preferences)
+        }
+    }
+
+    suspend fun closeDesktopSession(token: String, serverUrl: String) {
+        setupCommand { http.delete("$serverUrl/api/v1/auth/session") { bearerAuth(token) } }
+    }
+
+    private suspend fun setupCommand(call: suspend () -> HttpResponse): Result<Unit> = setupCall(call) { Unit }
+
+    private suspend inline fun <reified T> setupCall(noinline call: suspend () -> HttpResponse): Result<T> =
+        setupCall(call) { it.body<T>() }
+
+    private suspend fun <T> setupCall(call: suspend () -> HttpResponse, decode: suspend (HttpResponse) -> T): Result<T> =
+        try {
+            val response = call()
+            if (response.status.isSuccess()) Result.success(decode(response))
+            else Result.failure(Exception(parseError(response).message))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
 
     open suspend fun checkHealth(): Boolean {
         return try {
@@ -779,11 +900,24 @@ open class ApiClient(
         }
     }
 
-    open suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> {
+    suspend fun recordCashMovement(sessionId: String, request: CashMovementRequest, approvalPin: String?): Result<Unit> = setupCommand {
+        http.post("$baseUrl/api/v1/cash-sessions/$sessionId/movements") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+            if (!approvalPin.isNullOrBlank()) header("X-Nexus-Cash-Approval", approvalPin)
+        }
+    }
+
+    open suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> = submitSale(req, null)
+
+    suspend fun completeSaleWithCashApproval(req: CreateSaleRequest, pin: String): Result<SaleResponse> = submitSale(req, pin)
+
+    private suspend fun submitSale(req: CreateSaleRequest, approvalPin: String?): Result<SaleResponse> {
         return try {
             val res = http.post("$baseUrl/api/v1/sales") {
                 contentType(ContentType.Application.Json)
                 setBody(req)
+                if (!approvalPin.isNullOrBlank()) header("X-Nexus-Cash-Approval", approvalPin)
             }
             if (res.status.isSuccess()) {
                 Result.success(res.body())
@@ -840,11 +974,18 @@ open class ApiClient(
         }
     }
 
-    open suspend fun cancelSale(id: String, reason: String, authorizedByUserId: String? = null): Result<SaleResponse> {
+    open suspend fun cancelSale(id: String, reason: String, authorizedByUserId: String? = null): Result<SaleResponse> =
+        submitCancellation(id, reason, authorizedByUserId, null)
+
+    suspend fun cancelSaleWithPin(id: String, reason: String, pin: String): Result<SaleResponse> =
+        submitCancellation(id, reason, null, pin)
+
+    private suspend fun submitCancellation(id: String, reason: String, authorizedByUserId: String?, pin: String?): Result<SaleResponse> {
         return try {
             val res = http.post("$baseUrl/api/v1/sales/$id/cancel") {
                 contentType(ContentType.Application.Json)
                 setBody(CancelSaleRequest(reason = reason, authorizedByUserId = authorizedByUserId))
+                if (pin != null) header("X-Nexus-Action-Approval", pin)
             }
             if (res.status.isSuccess()) {
                 Result.success(res.body())

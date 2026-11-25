@@ -26,6 +26,7 @@ import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
 import mx.nexuspos.contracts.catalog.resolvePresentationPrice
+import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -88,10 +89,15 @@ class SalesViewModel(
 
     fun applySettings(settings: SettingsDto) {
         currentSettings = settings
-        _uiState.update { it.copy(maxCashierDiscountPercent = settings.maxCashierDiscountPercent) }
+        _uiState.update { it.copy(
+            maxCashierDiscountPercent = settings.maxCashierDiscountPercent,
+            allowShiftHandoff = settings.commerce.allowShiftHandoff,
+            cashDrawerLimitEnabled = settings.commerce.cashDrawerLimitCents != null
+        ) }
     }
 
     fun openSaleWhatsAppDialog(sale: SaleResponse) {
+        if (!allowAction("transactions.share")) return
         val phone = _uiState.value.selectedCustomer?.phone.orEmpty()
         val text = formatWhatsAppTicket(sale)
         _uiState.update {
@@ -253,31 +259,10 @@ class SalesViewModel(
                 val res = apiClient.searchProducts(barcode = input)
                 res.onSuccess { prods ->
                     if (prods.isNotEmpty()) {
-                        val prod = prods.first()
-                        val pres = prod.presentations.firstOrNull { it.barcode == input } ?: prod.presentations.firstOrNull()
-                        if (pres != null) {
-                            if (prod.baseUnit.equals("KG", ignoreCase = true)) {
-                                val scale = scaleReadingProvider?.invoke()
-                                val autoAccept = autoAcceptScaleWeightProvider?.invoke() == true
-                                if (scale != null && scale.isStableWeight && autoAccept) {
-                                    addProductPresentation(prod, pres, mx.nexuspos.core.Quantity.fromDouble(scale.weightKg))
-                                    _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
-                                } else {
-                                    // Open bulk weight dialog
-                                    _uiState.update {
-                                        it.copy(
-                                            scannerInput = "",
-                                            isWeighingProduct = Pair(prod, pres),
-                                            weighingCartLineId = null,
-                                            errorMessage = null
-                                        )
-                                    }
-                                }
-                            } else {
-                                addProductPresentation(prod, pres, Quantity.ONE)
-                                _uiState.update { it.copy(scannerInput = "", errorMessage = null) }
-                            }
-                        }
+                        val exactMatches = prods.flatMap { product -> product.presentations.filter { it.barcode == input }.map { product to it } }
+                        val matches = exactMatches.ifEmpty { prods.flatMap { product -> product.presentations.map { product to it } } }
+                        if (matches.size == 1) confirmBarcodeChoice(matches.single())
+                        else if (matches.isNotEmpty()) _uiState.update { it.copy(barcodeChoices = matches, scannerInput = "") }
                     } else {
                         // Try searching by name/query
                         val queryRes = apiClient.searchProducts(query = input)
@@ -359,7 +344,32 @@ class SalesViewModel(
         }
     }
 
+    fun confirmBarcodeChoice(choice: Pair<ProductDto, ProductPresentationDto>?) {
+        _uiState.update { it.copy(barcodeChoices = emptyList(), scannerInput = "", errorMessage = null) }
+        val (product, presentation) = choice ?: return
+        val unit = ProductUnit.fromCode(product.baseUnit)
+        if (unit == ProductUnit.KILOGRAM) {
+            val scale = scaleReadingProvider?.invoke()
+            if (scale != null && scale.isStableWeight && autoAcceptScaleWeightProvider?.invoke() == true) {
+                addProductPresentation(product, presentation, Quantity.fromDouble(scale.weightKg))
+            } else _uiState.update { it.copy(isWeighingProduct = choice, weighingCartLineId = null) }
+        } else addProductPresentation(product, presentation, Quantity.ONE)
+    }
+
+    fun canPerform(permission: String): Boolean {
+        val state = _uiState.value
+        return permission in state.activeCashierPermissions ||
+            (state.activeCashierPermissions.isEmpty() && !state.activeCashierRole.startsWith("ROLE-"))
+    }
+
+    private fun allowAction(permission: String): Boolean {
+        if (canPerform(permission)) return true
+        setErrorMessage("Tu rol no permite realizar esta acción.")
+        return false
+    }
+
     fun addProductPresentation(prod: ProductDto, pres: ProductPresentationDto, qty: Quantity) {
+        if (!allowAction("cart.add")) return
         val unit = ProductUnit.fromCode(prod.baseUnit)
         val unitPrice = Money.fromCents(pres.priceFor(qty.millis))
         val lineTotal = PricingRules.calculateLineTotal(unitPrice, qty)
@@ -377,7 +387,7 @@ class SalesViewModel(
         }
 
         _uiState.update { state ->
-            val existingIndex = state.cartLines.indexOfFirst { it.presentationId == pres.id }
+            val existingIndex = state.cartLines.indexOfFirst { it.presentationId == pres.id && it.priceListLevel == null && it.manualPriceCents == null }
             val updatedLines = if (existingIndex >= 0 && unit == ProductUnit.PIECE) {
                 state.cartLines.mapIndexed { idx, line ->
                     if (idx == existingIndex) {
@@ -403,6 +413,7 @@ class SalesViewModel(
                     isWeighed = unit == ProductUnit.KILOGRAM,
                     publicPriceCents = pres.priceCents,
                     priceTiers = pres.priceTiers,
+                    listPrices = pres.listPrices,
                     kitComponents = prod.kitComponents
                 )
             }
@@ -428,6 +439,9 @@ class SalesViewModel(
 
     fun updateCartLineQuantity(lineId: String, newQuantity: Quantity) {
         if (newQuantity.millis <= 0L) return
+        val current = _uiState.value.cartLines.firstOrNull { it.id == lineId } ?: return
+        if (newQuantity > current.quantity && !allowAction("cart.increase")) return
+        if (newQuantity < current.quantity && !allowAction("cart.decrease")) return
         if (newQuantity.millis % 1000 != 0L &&
             _uiState.value.cartLines.any { it.id == lineId && !it.kitComponents.isNullOrEmpty() }
         ) {
@@ -463,12 +477,31 @@ class SalesViewModel(
     ).coerceAtLeast(0)
 
     private fun CartLine.pricedAt(newQuantity: Quantity, fixedDiscount: Long = fixedDiscount()): CartLine {
-        val price = Money(resolvePresentationPrice(publicPriceCents ?: unitPrice.cents, priceTiers, newQuantity.millis))
+        val price = Money(
+            manualPriceCents ?: priceListLevel?.let { listPrices[it] ?: unitPrice.cents }
+                ?: resolvePresentationPrice(publicPriceCents ?: unitPrice.cents, priceTiers, newQuantity.millis)
+        )
         val (total, discount) = PricingRules.calculateLineTotalWithDiscount(price, newQuantity, discountPercent, fixedDiscount)
         return copy(quantity = newQuantity, unitPrice = price, total = total, discountCents = discount.cents, fixedDiscountCents = fixedDiscount)
     }
 
+    suspend fun activePriceLists() = apiClient.priceLists().map { lists ->
+        lists.filter { it.enabled && "sales.price.${it.level}" in _uiState.value.activeCashierPermissions }
+    }
+
+    fun chooseLinePrice(lineId: String, level: Int?) {
+        _uiState.update { state ->
+            val updated = state.cartLines.map { line ->
+                if (line.id != lineId || (level != null && (level !in line.listPrices || "sales.price.$level" !in state.activeCashierPermissions))) {
+                    line
+                } else line.copy(priceListLevel = level, manualPriceCents = null).pricedAt(line.quantity, line.fixedDiscount())
+            }
+            recalculateTotals(state.copy(cartLines = updated))
+        }
+    }
+
     fun removeCartLine(lineId: String) {
+        if (!allowAction("cart.remove")) return
         _uiState.update { state ->
             val updated = state.cartLines.filterNot { it.id == lineId }
             recalculateTotals(state.copy(cartLines = updated))
@@ -499,6 +532,7 @@ class SalesViewModel(
     // ==========================================
 
     fun newTicket() {
+        if (!allowAction("cart.create")) return
         _uiState.update { state ->
             val newId = "ticket-${UUID.randomUUID().toString().take(6)}"
             val newTicket = TicketState(id = newId, title = "Ticket ${state.tickets.size + 1}")
@@ -587,26 +621,14 @@ class SalesViewModel(
     }
 
     fun updateCartLinePrice(lineId: String, newPrice: Money) {
+        if (newPrice.cents < 0 || !allowAction("sales.price.manual")) return
         _uiState.update { state ->
-            val updatedLines = state.cartLines.map { line ->
-                if (line.id == lineId) {
-                    val factor = line.quantity.millis.toDouble() / 1000.0
-                    val totalCents = (newPrice.cents * factor).toLong()
-                    line.copy(
-                        unitPrice = newPrice,
-                        total = Money.fromCents(totalCents)
-                    )
+            val lines = state.cartLines.map { line ->
+                if (line.id == lineId && line.presentationId != null) {
+                    line.copy(priceListLevel = null, manualPriceCents = newPrice.cents).pricedAt(line.quantity, line.fixedDiscount())
                 } else line
             }
-            val newSubtotal = Money.fromCents(updatedLines.sumOf { it.total.cents })
-            val newTax = Money.fromCents((newSubtotal.cents * 0.16).toLong())
-            val newTotal = newSubtotal
-            state.copy(
-                cartLines = updatedLines,
-                subtotal = newSubtotal,
-                tax = newTax,
-                total = newTotal
-            )
+            recalculateTotals(state.copy(cartLines = lines))
         }
     }
 
@@ -757,7 +779,10 @@ class SalesViewModel(
                 discountCents = line.discountCents,
                 discountPercent = line.discountPercent,
                 fixedDiscountCents = line.fixedDiscount(),
-                kitComponents = line.kitComponents
+                kitComponents = line.kitComponents,
+                listPrices = line.listPrices,
+                priceListLevel = line.priceListLevel,
+                manualPriceCents = line.manualPriceCents
             )
         }
 
@@ -822,7 +847,10 @@ class SalesViewModel(
                         publicPriceCents = item.publicPriceCents,
                         priceTiers = item.priceTiers,
                         fixedDiscountCents = item.fixedDiscountCents,
-                        kitComponents = item.kitComponents
+                        kitComponents = item.kitComponents,
+                        listPrices = item.listPrices,
+                        priceListLevel = item.priceListLevel,
+                        manualPriceCents = item.manualPriceCents
                     ).let { line -> if (line.publicPriceCents == null) line else line.pricedAt(line.quantity) }
                 }
 
@@ -880,12 +908,14 @@ class SalesViewModel(
     var scaleReadingProvider: (() -> ScaleReading)? = null
     var autoAcceptScaleWeightProvider: (() -> Boolean)? = null
 
-    fun openCashDrawer() {
-        onOpenCashDrawer?.invoke()
+    fun openCashDrawer(hardware: (() -> Unit)? = null) {
+        if (!allowAction("cash.drawer.open")) return
+        (hardware ?: onOpenCashDrawer)?.invoke()
         _uiState.update { it.copy(successMessage = "Comando de apertura enviado al cajón de dinero.") }
     }
 
     fun printPhysicalTicket(sale: SaleResponse) {
+        if (!allowAction("transactions.reprint")) return
         onPrintPhysicalReceipt?.invoke(sale)
         _uiState.update {
             it.copy(
@@ -956,6 +986,12 @@ class SalesViewModel(
         WhatsAppMessageFormatter.formatSaleTicket(sale, currentSettings)
 
     suspend fun cancelShiftSale(sale: SaleResponse, reason: String, supervisorPin: String?): Result<SaleResponse> {
+        if (!supervisorPin.isNullOrBlank() && apiClient.sessionToken != null) {
+            return apiClient.cancelSaleWithPin(sale.id, reason, supervisorPin).onSuccess {
+                updateShiftSale(it)
+                loadActiveSession()
+            }
+        }
         if (_uiState.value.activeCashierRole == "CASHIER" && supervisorPin.isNullOrBlank()) {
             return Result.failure(IllegalStateException("Se requiere autorización de encargado."))
         }
@@ -1006,6 +1042,7 @@ class SalesViewModel(
     }
 
     fun reprintTicket(sale: SaleResponse) {
+        if (!allowAction("transactions.reprint")) return
         val formatted = formatReprint(sale)
         _uiState.update {
             it.copy(
@@ -1228,6 +1265,7 @@ class SalesViewModel(
     }
 
     fun addGenericProduct(name: String, priceCents: Long, qty: Quantity = Quantity.ONE) {
+        if (currentSettings?.commerce?.quickSaleEnabled == false || !allowAction("sales.quick")) return
         val unitPrice = Money.fromCents(priceCents)
         val lineTotal = PricingRules.calculateLineTotal(unitPrice, qty)
         _uiState.update { state ->
@@ -1252,6 +1290,11 @@ class SalesViewModel(
     }
 
     fun showGenericProductDialog(show: Boolean) {
+        if (show && !allowAction("sales.quick")) return
+        if (show && currentSettings?.commerce?.quickSaleEnabled == false) {
+            _uiState.update { it.copy(errorMessage = "La venta rápida está deshabilitada.") }
+            return
+        }
         _uiState.update { it.copy(isShowingGenericProductDialog = show) }
     }
 
@@ -1282,7 +1325,49 @@ class SalesViewModel(
         _uiState.update { it.copy(isShowingCustomerDialog = show) }
     }
 
+    fun submitCashMovement(isCashIn: Boolean, amountCents: Long, reason: String, approvalPin: String? = null) {
+        val state = _uiState.value
+        if (state.isCashMovementSubmitting) return
+        val session = state.activeSession
+        if (session == null) {
+            _uiState.update { it.copy(cashMovementError = "Abre un turno para registrar el movimiento.") }
+            return
+        }
+        _uiState.update { it.copy(isCashMovementSubmitting = true, cashMovementError = null) }
+        scope.launch {
+            val request = CashMovementRequest(if (isCashIn) "CASH_IN" else "CASH_OUT", amountCents, reason, state.activeCashierId)
+            apiClient.recordCashMovement(session.sessionId, request, approvalPin).onSuccess {
+                _uiState.update { it.copy(isCashMovementSubmitting = false, isShowingCashInDialog = false, isShowingCashOutDialog = false) }
+                loadActiveSession()
+            }.onFailure { failure ->
+                _uiState.update { it.copy(isCashMovementSubmitting = false, cashMovementError = failure.message) }
+            }
+        }
+    }
+
+    fun handoffCurrentShift() {
+        val state = _uiState.value
+        val session = state.activeSession ?: return
+        if (!state.allowShiftHandoff || state.isHandingOffShift) return
+        if (hasUnconfirmedSales(session.sessionId)) {
+            _uiState.update { it.copy(errorMessage = "Sincroniza las ventas pendientes antes del relevo.") }
+            return
+        }
+        _uiState.update { it.copy(isHandingOffShift = true, errorMessage = null) }
+        scope.launch {
+            apiClient.handoffShift(session.sessionId).onSuccess { updated ->
+                _uiState.update { it.copy(activeSession = updated, isHandingOffShift = false) }
+            }.onFailure { error ->
+                _uiState.update { it.copy(isHandingOffShift = false, errorMessage = error.message) }
+            }
+        }
+    }
+
     fun showSessionDialog(show: Boolean) {
+        if (show && _uiState.value.activeSession == null && currentSettings?.commerce?.requireOpeningFund == false) {
+            openCashSession(0)
+            return
+        }
         _uiState.update { it.copy(isShowingSessionDialog = show) }
     }
 
@@ -1367,7 +1452,9 @@ class SalesViewModel(
         )
     }
 
-    fun checkoutMultiPayment(payments: List<SalePaymentRequest>) {
+    fun checkoutMultiPayment(payments: List<SalePaymentRequest>) = checkoutMultiPayment(payments, null)
+
+    fun checkoutMultiPayment(payments: List<SalePaymentRequest>, approvalPin: String?) {
         val state = _uiState.getAndUpdate {
             if (it.isCheckoutInProgress) it else it.copy(isCheckoutInProgress = true, checkoutErrorMessage = null)
         }
@@ -1379,6 +1466,10 @@ class SalesViewModel(
             payments.isEmpty() -> "Debe especificar al menos una forma de pago."
             state.cartLines.any { !it.kitComponents.isNullOrEmpty() && it.quantity.millis % 1000 != 0L } ->
                 "Los kits se venden en cantidades enteras."
+            currentSettings?.commerce?.creditSalesEnabled == false && payments.any { it.method == "CREDIT" } ->
+                "Las nuevas ventas a crédito están deshabilitadas."
+            isOffline && state.cashDrawerLimitEnabled && payments.any { it.method == "CASH" } ->
+                "Conéctate al servidor para validar el límite de efectivo antes de cobrar."
             isOffline && payments.any { it.method == "CREDIT" || it.method == "LOYALTY" } ->
                 "En Modo Contingencia (sin servidor LAN) solo se permiten pagos en Efectivo o Tarjeta."
             state.activeSession?.status != "OPEN" || server != apiClient.baseUrl -> if (isOffline) {
@@ -1409,7 +1500,9 @@ class SalesViewModel(
                     taxRate = line.taxRate,
                     discountCents = line.fixedDiscount(),
                     discountPercent = line.discountPercent,
-                    expectedKitComponents = line.kitComponents
+                    expectedKitComponents = line.kitComponents,
+                    priceListLevel = line.priceListLevel,
+                    manualPriceCents = line.manualPriceCents
                 )
             }
 
@@ -1507,7 +1600,7 @@ class SalesViewModel(
                 return@launch
             }
             val response = try {
-                apiClient.completeSale(saleReq)
+                if (approvalPin.isNullOrBlank()) apiClient.completeSale(saleReq) else apiClient.completeSaleWithCashApproval(saleReq, approvalPin)
             } catch (error: CancellationException) {
                 throw error
             } finally {

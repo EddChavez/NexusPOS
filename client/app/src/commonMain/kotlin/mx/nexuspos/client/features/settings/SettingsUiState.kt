@@ -3,7 +3,7 @@ package mx.nexuspos.client.features.settings
 import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.client.features.scale.ScaleUiConfig
 
-enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, SCALE, NETWORK, USERS, DEVICES }
+enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, SCALE, NETWORK, USERS, DEVICES, BUSINESS, GENERAL, DIAGNOSTICS, SALES, SHIFTS, CATALOG, CREDIT, ROLES }
 
 data class SettingsUiState(
     val isLoading: Boolean = true,
@@ -39,6 +39,8 @@ data class SettingsUiState(
     val userFormName: String = "",
     val userFormRole: String = "CASHIER",
     val userFormPin: String = "",
+    val userFormEmail: String = "",
+    val userFormPhone: String = "",
     val userFormError: String? = null,
     // Printer Hardware settings
     val printerConnectionType: String = "NONE", // "NONE", "USB_OS", "ETHERNET_TCP"

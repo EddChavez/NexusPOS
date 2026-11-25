@@ -52,6 +52,13 @@ fun ProductsScreenV2(
     pricingTarget?.let { target ->
         PresentationPricingDialogV2(
             product = target,
+            loadLists = viewModel::loadPriceLists,
+            onSaveListPrice = { presentationId, level, cents ->
+                viewModel.saveListPrice(target.id, presentationId, level, cents).onSuccess {
+                    pricingTarget = it
+                    onCatalogChanged()
+                }
+            },
             onSave = { presentationId, tiers ->
                 viewModel.savePresentationPrices(target.id, presentationId, tiers).onSuccess {
                     pricingTarget = it
@@ -149,6 +156,7 @@ fun ProductsScreenV2(
             if (editing) {
                 key(state.productToEdit?.id) {
                     ProductFormPaneV2(
+                        loadPreferences = viewModel::catalogPreferences,
                         product = state.productToEdit,
                         departments = state.departments,
                         busy = state.isSubmitting,
@@ -425,7 +433,7 @@ private fun ProductDetail(
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(onClick = onEdit, enabled = !busy) { Text("Editar ficha") }
-                    OutlinedButton(onClick = onPricing, enabled = !busy && product.presentations.isNotEmpty()) { Text("Precios por cantidad") }
+                    OutlinedButton(onClick = onPricing, enabled = !busy && product.presentations.isNotEmpty()) { Text("Precios de presentaciones") }
                     if (isKit || (!product.usesInventory && unit == ProductUnit.PIECE && product.presentations.isNotEmpty())) {
                         OutlinedButton(onClick = onKit, enabled = !busy) { Text(if (isKit) "Editar kit" else "Configurar kit") }
                     }

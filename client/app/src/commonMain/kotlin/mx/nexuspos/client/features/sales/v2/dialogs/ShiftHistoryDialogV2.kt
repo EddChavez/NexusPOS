@@ -191,7 +191,12 @@ fun ShiftHistoryDialogV2(
                                 error = error,
                                 busy = busy,
                                 onBack = ::goBack,
-                                onPrint = { runAction { onPrint(sale).map { "Copia del folio #${sale.folio} enviada a la impresora." } } }
+                                onPrint = {
+                                    runAction {
+                                        if (viewModel.canPerform("transactions.reprint")) onPrint(sale).map { "Copia del folio #${sale.folio} enviada a la impresora." }
+                                        else Result.failure(IllegalStateException("Tu rol no permite reimprimir comprobantes."))
+                                    }
+                                }
                             )
                         }
                     }

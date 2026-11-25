@@ -157,6 +157,7 @@ fun CustomersScreenV2(
                 }
                 state.showPaymentDialog && customer != null -> key(customer.id, state.isFullLiquidation) {
                     CustomerPaymentPaneV2(
+                        allowedMethods = viewModel.currentSettings?.commerce?.creditPaymentMethods ?: setOf("CASH", "CARD", "TRANSFER"),
                         customer = customer,
                         full = state.isFullLiquidation,
                         cashSessionReady = !cashSessionId.isNullOrBlank(),

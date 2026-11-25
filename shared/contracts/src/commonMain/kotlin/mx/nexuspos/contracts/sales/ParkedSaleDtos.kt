@@ -22,7 +22,10 @@ data class ParkedSaleItemDto(
     val fixedDiscountCents: Long? = null,
     val publicPriceCents: Long? = null,
     val priceTiers: List<PresentationPriceTier> = emptyList(),
-    val kitComponents: List<KitComponent>? = null
+    val kitComponents: List<KitComponent>? = null,
+    val listPrices: Map<Int, Long> = emptyMap(),
+    val priceListLevel: Int? = null,
+    val manualPriceCents: Long? = null
 )
 
 @Serializable

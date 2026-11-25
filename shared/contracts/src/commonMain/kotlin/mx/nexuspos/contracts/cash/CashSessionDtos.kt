@@ -52,7 +52,10 @@ data class CashSessionSummary(
     val countedCashCents: Long? = null,
     val differenceCents: Long? = null, // counted - expected
     val status: String, // OPEN, CLOSED
-    val denominations: List<CashDenominationCountDto> = emptyList()
+    val denominations: List<CashDenominationCountDto> = emptyList(),
+    val operatorUserId: String = cashierId,
+    val operatorName: String = cashierName,
+    val cashCountVisible: Boolean = true
 )
 
 @Serializable
@@ -75,3 +78,10 @@ data class DailyFinancialReportDto(
     val activeSessionsCount: Int,
     val estimatedCostLines: Long = 0
 )
+
+
+@Serializable
+data class CashRegisterDto(val id: String, val name: String, val active: Boolean)
+
+@Serializable
+data class SaveCashRegisterRequest(val name: String, val active: Boolean = true)

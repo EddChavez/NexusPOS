@@ -20,10 +20,10 @@ import mx.nexuspos.server.platform.NotFoundException
 import mx.nexuspos.server.platform.ValidationException
 import java.util.UUID
 
-class CatalogService(private val db: DatabaseFactory) {
+class CatalogService(private val db: DatabaseFactory, seedDefaults: Boolean = true) {
 
     init {
-        seedInitialCatalog()
+        if (seedDefaults) seedInitialCatalog()
     }
 
     private fun seedInitialCatalog() {
@@ -259,6 +259,27 @@ class CatalogService(private val db: DatabaseFactory) {
         }
     }
 
+    fun resolveBarcode(barcode: String, includeLeadingZeroMatches: Boolean): List<ProductDto> {
+        val exact = searchProducts(barcode = barcode)
+        if (exact.isNotEmpty() || !includeLeadingZeroMatches || !barcode.matches(Regex("[0-9]{1,100}"))) return exact
+        val codes = db.inTransaction { connection ->
+            connection.prepareStatement(
+                """
+                SELECT DISTINCT pp.barcode FROM product_presentations pp
+                JOIN products p ON p.id = pp.product_id
+                WHERE pp.is_active AND p.is_active AND TRIM(LEADING '0' FROM pp.barcode) = ?
+                ORDER BY pp.barcode LIMIT 100
+                """.trimIndent()
+            ).use {
+                it.setString(1, barcode.trimStart('0'))
+                it.executeQuery().use { rows -> buildList { while (rows.next()) add(rows.getString(1)) } }
+            }
+        }
+        return codes.flatMap { code -> searchProducts(barcode = code) }
+            .distinctBy(ProductDto::id)
+            .map { product -> product.copy(presentations = product.presentations.filter { it.barcode in codes }) }
+    }
+
     fun searchProducts(
         barcode: String? = null,
         query: String? = null,
@@ -341,9 +362,9 @@ class CatalogService(private val db: DatabaseFactory) {
             // Fetch presentations for found products
             if (products.isNotEmpty()) {
                 val presSql = if (includeInactive) {
-                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
+                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
                 } else {
-                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json FROM product_presentations WHERE product_id = ? AND is_active = TRUE ORDER BY factor_millis ASC"
+                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices FROM product_presentations WHERE product_id = ? AND is_active = TRUE ORDER BY factor_millis ASC"
                 }
                 val presStmt = conn.prepareStatement(presSql)
                 val fullProducts = products.map { prod ->
@@ -359,7 +380,8 @@ class CatalogService(private val db: DatabaseFactory) {
                                 name = presRs.getString("name"),
                                 factorMillis = presRs.getLong("factor_millis"),
                                 priceCents = presRs.getLong("price_cents"),
-                                priceTiers = Json.decodeFromString(presRs.getString("price_tiers_json"))
+                                priceTiers = Json.decodeFromString(presRs.getString("price_tiers_json")),
+                                listPrices = Json.decodeFromString(presRs.getString("price_list_prices"))
                             )
                         )
                     }
@@ -513,10 +535,11 @@ class CatalogService(private val db: DatabaseFactory) {
         }
     }
 
-    fun updateProduct(id: String, request: UpdateProductRequest): ProductDto {
+    fun updateProduct(id: String, request: UpdateProductRequest, verify: (ProductDto) -> Unit = {}): ProductDto {
         return db.inTransaction { conn ->
             lockProduct(conn, id)
             val existing = fetchProductById(conn, id)
+            verify(existing)
 
             if (request.name.isBlank()) {
                 throw ValidationException("El nombre del producto es obligatorio")
@@ -856,7 +879,7 @@ class CatalogService(private val db: DatabaseFactory) {
         stmt.close()
 
         val presStmt = conn.prepareStatement(
-            "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
+            "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
         )
         presStmt.setString(1, id)
         val presRs = presStmt.executeQuery()
@@ -870,7 +893,8 @@ class CatalogService(private val db: DatabaseFactory) {
                     name = presRs.getString("name"),
                     factorMillis = presRs.getLong("factor_millis"),
                     priceCents = presRs.getLong("price_cents"),
-                    priceTiers = Json.decodeFromString(presRs.getString("price_tiers_json"))
+                    priceTiers = Json.decodeFromString(presRs.getString("price_tiers_json")),
+                                listPrices = Json.decodeFromString(presRs.getString("price_list_prices"))
                 )
             )
         }

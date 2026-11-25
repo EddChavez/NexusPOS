@@ -21,21 +21,40 @@ import mx.nexuspos.client.ui.components.FeedbackMessageHost
 private data class SettingsDestination(val tab: SettingsTab, val label: String, val icon: ImageVector)
 
 private val storeDestinations = listOf(
+    SettingsDestination(SettingsTab.BUSINESS, "Negocio y sucursal", Icons.Default.Store),
     SettingsDestination(SettingsTab.STORE_TICKET, "Tienda y ticket", Icons.Default.Store),
-    SettingsDestination(SettingsTab.POLICIES, "Políticas", Icons.Default.Policy),
+    SettingsDestination(SettingsTab.SALES, "Ventas", Icons.Default.ShoppingCart),
+    SettingsDestination(SettingsTab.SHIFTS, "Turnos", Icons.Default.Schedule),
+    SettingsDestination(SettingsTab.CATALOG, "Productos e inventario", Icons.Default.Inventory),
+    SettingsDestination(SettingsTab.CREDIT, "Crédito y monedero", Icons.Default.AccountBalanceWallet),
+    SettingsDestination(SettingsTab.POLICIES, "Políticas de operación", Icons.Default.Policy),
     SettingsDestination(SettingsTab.USERS, "Usuarios", Icons.Default.Group),
+    SettingsDestination(SettingsTab.ROLES, "Roles y permisos", Icons.Default.AdminPanelSettings),
     SettingsDestination(SettingsTab.DEVICES, "Dispositivos", Icons.Default.PhoneAndroid)
 )
 private val registerDestinations = listOf(
+    SettingsDestination(SettingsTab.GENERAL, "General", Icons.Default.Settings),
+    SettingsDestination(SettingsTab.DIAGNOSTICS, "Diagnóstico y acerca de", Icons.Default.Info),
     SettingsDestination(SettingsTab.PRINTER, "Impresora y cajón", Icons.Default.Print),
     SettingsDestination(SettingsTab.SCALE, "Báscula", Icons.Default.Scale),
     SettingsDestination(SettingsTab.NETWORK, "Red y servidor", Icons.Default.Wifi)
 )
 
 @Composable
-fun SettingsScreenV2(viewModel: SettingsViewModel, onBackToSales: () -> Unit) {
+fun SettingsScreenV2(
+    viewModel: SettingsViewModel,
+    onBackToSales: () -> Unit,
+    onRootConfigured: () -> Unit = {},
+    terminalId: String = "",
+    permissions: Set<String>? = null,
+    generalSettings: @Composable () -> Unit = {},
+    catalogLinks: @Composable () -> Unit = {}
+) {
     val state by viewModel.uiState.collectAsState()
-    val selected = (storeDestinations + registerDestinations).first { it.tab == state.selectedTab }
+    val allowedStore = storeDestinations.filter { settingsTabAllowed(it.tab, permissions) }
+    val allowedRegister = registerDestinations.filter { settingsTabAllowed(it.tab, permissions) }
+    val destinations = allowedStore + allowedRegister
+    val selected = destinations.firstOrNull { it.tab == state.selectedTab } ?: destinations.first()
     val stateHolder = rememberSaveableStateHolder()
     val canNavigate = !state.showUserDialog && !state.isSaving
     val navigate: (SettingsTab) -> Unit = {
@@ -68,9 +87,9 @@ fun SettingsScreenV2(viewModel: SettingsViewModel, onBackToSales: () -> Unit) {
                             Modifier.verticalScroll(rememberScrollState()).padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            SettingsNavGroup("Toda la tienda", storeDestinations, selected, canNavigate, navigate)
+                            SettingsNavGroup("Toda la tienda", allowedStore, selected, canNavigate, navigate)
                             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                            SettingsNavGroup("Esta caja", registerDestinations, selected, canNavigate, navigate)
+                            SettingsNavGroup("Esta caja", allowedRegister, selected, canNavigate, navigate)
                         }
                     }
                 }
@@ -80,8 +99,8 @@ fun SettingsScreenV2(viewModel: SettingsViewModel, onBackToSales: () -> Unit) {
                         SettingsChoice(
                             "Sección",
                             selected.tab.name,
-                            storeDestinations.map { it.tab.name to "${it.label} · Tienda" } +
-                                registerDestinations.map { it.tab.name to "${it.label} · Esta caja" },
+                            allowedStore.map { it.tab.name to "${it.label} · Tienda" } +
+                                allowedRegister.map { it.tab.name to "${it.label} · Esta caja" },
                             { navigate(SettingsTab.valueOf(it)) },
                             enabled = canNavigate
                         )
@@ -112,10 +131,19 @@ fun SettingsScreenV2(viewModel: SettingsViewModel, onBackToSales: () -> Unit) {
                                         selected.tab == SettingsTab.STORE_TICKET -> StoreSettingsV2(state, viewModel)
                                         else -> PolicySettingsV2(state, viewModel)
                                     }
+                                    SettingsTab.SALES, SettingsTab.SHIFTS, SettingsTab.CATALOG, SettingsTab.CREDIT ->
+                                        CommercialSettingsV2(viewModel.apiClient, selected.tab, catalogLinks) {
+                                            viewModel.loadSettings()
+                                            viewModel.apiClient.getSettings().onSuccess { viewModel.onPreferencesSaved?.invoke(it) }
+                                        }
+                                    SettingsTab.BUSINESS -> BusinessSettingsV2(viewModel.apiClient, terminalId, state.registerId, onRootConfigured) { viewModel.loadSettings() }
+                                    SettingsTab.GENERAL -> GeneralSettingsWithDemo(generalSettings)
+                                    SettingsTab.DIAGNOSTICS -> DiagnosticsSettingsV2(viewModel.apiClient, state.registerId)
+                                    SettingsTab.ROLES -> RolesSettingsV2(viewModel.apiClient)
                                     SettingsTab.USERS -> UserSettingsV2(state, viewModel)
                                     SettingsTab.DEVICES -> MobileDevicesSettings(viewModel.apiClient)
-                                    SettingsTab.PRINTER -> PrinterSettingsV2(state, viewModel)
-                                    SettingsTab.SCALE -> ScaleSettingsV2(state, viewModel)
+                                    SettingsTab.PRINTER -> PrinterSettingsV2(state, viewModel, "hardware.test" in permissions.orEmpty() || permissions == null)
+                                    SettingsTab.SCALE -> ScaleSettingsV2(state, viewModel, "hardware.test" in permissions.orEmpty() || permissions == null)
                                     SettingsTab.NETWORK -> NetworkSettingsV2(state, viewModel)
                                 }
                             }
@@ -255,5 +283,22 @@ internal fun SettingsSave(label: String, onSave: () -> Unit, enabled: Boolean = 
     HorizontalDivider()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Button(onSave, enabled = enabled && !saving) { Text(if (saving) "Guardando…" else label) }
+    }
+}
+
+
+private fun settingsTabAllowed(tab: SettingsTab, permissions: Set<String>?): Boolean {
+    if (permissions == null) return true
+    return when (tab) {
+        SettingsTab.BUSINESS -> "settings.profile" in permissions || "registers.manage" in permissions
+        SettingsTab.STORE_TICKET, SettingsTab.POLICIES -> "settings.operating" in permissions
+        SettingsTab.SALES, SettingsTab.SHIFTS, SettingsTab.CATALOG, SettingsTab.CREDIT -> "settings.commerce" in permissions
+        SettingsTab.USERS -> "users.view" in permissions
+        SettingsTab.ROLES -> "roles.manage" in permissions
+        SettingsTab.DEVICES -> "devices.manage" in permissions
+        SettingsTab.PRINTER -> "hardware.printer" in permissions
+        SettingsTab.SCALE -> "hardware.scale" in permissions
+        SettingsTab.NETWORK -> "settings.operating" in permissions
+        SettingsTab.DIAGNOSTICS, SettingsTab.GENERAL -> true
     }
 }

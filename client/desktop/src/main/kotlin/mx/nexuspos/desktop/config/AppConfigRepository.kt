@@ -43,7 +43,10 @@ class AppConfigRepository(
                 registerId = if (registerId.isBlank()) "caja-1" else registerId,
                 registerName = if (registerName.isBlank()) "Caja Principal" else registerName,
                 connectTimeoutMs = timeout,
-                salesUiVersion = if (salesUiVersion.isBlank()) "V2" else salesUiVersion
+                salesUiVersion = if (salesUiVersion.isBlank()) "V2" else salesUiVersion,
+                theme = TerminalTheme.entries.firstOrNull { it.name == props.getProperty("ui.theme") } ?: TerminalTheme.SYSTEM,
+                startFullScreen = props.getProperty("ui.startFullScreen").toBoolean(),
+                terminalId = props.getProperty("terminal.id", "")
             )
         } catch (e: Exception) {
             AppConfig()
@@ -63,6 +66,9 @@ class AppConfigRepository(
             props.setProperty("register.name", config.registerName)
             props.setProperty("server.connectTimeoutMs", config.connectTimeoutMs.toString())
             props.setProperty("ui.salesVersion", config.salesUiVersion)
+            props.setProperty("ui.theme", config.theme.name)
+            props.setProperty("ui.startFullScreen", config.startFullScreen.toString())
+            props.setProperty("terminal.id", config.terminalId)
 
             FileOutputStream(configFile).use { out ->
                 props.store(out, "NexusPOS Configuration - Terminal & Server LAN")

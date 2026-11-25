@@ -16,7 +16,9 @@ data class SaleLineItemRequest(
     val taxRate: Double = 0.0,
     val discountCents: Long = 0L,
     val discountPercent: Double = 0.0,
-    val expectedKitComponents: List<KitComponent>? = null
+    val expectedKitComponents: List<KitComponent>? = null,
+    val priceListLevel: Int? = null,
+    val manualPriceCents: Long? = null
 )
 
 @Serializable
@@ -55,7 +57,9 @@ data class SaleLineItemResponse(
     val discountCents: Long = 0L,
     val discountPercent: Double = 0.0,
     val refundedQuantityMillis: Long = 0L,
-    val isKit: Boolean = false
+    val isKit: Boolean = false,
+    val priceListLevel: Int? = null,
+    val manualPriceOverride: Boolean = false
 ) {
     val returnableQuantityMillis: Long
         get() = (quantityMillis - refundedQuantityMillis).coerceAtLeast(0L)

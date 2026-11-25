@@ -37,12 +37,13 @@ internal fun CheckoutMethodPicker(
     selectedMethod: CheckoutPaymentMethod,
     onSelectMethod: (CheckoutPaymentMethod) -> Unit,
     isOffline: Boolean,
-    enabled: Boolean
+    enabled: Boolean,
+    availableMethods: Set<CheckoutPaymentMethod> = CheckoutPaymentMethod.entries.toSet()
 ) {
     Column {
         Text("Forma de pago", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CheckoutPaymentMethod.entries.forEach { method ->
+            CheckoutPaymentMethod.entries.filter { it in availableMethods }.forEach { method ->
                 FilterChip(
                     selected = selectedMethod == method,
                     enabled = enabled && (!isOffline || !method.requiresCustomer),

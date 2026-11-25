@@ -97,7 +97,7 @@ class ReportsService(private val db: DatabaseFactory) {
             val credSql = """
                 SELECT COALESCE(SUM(amount_cents), 0) as credit_cash
                 FROM credit_movements
-                WHERE type = 'PAYMENT'
+                WHERE type = 'PAYMENT' AND COALESCE(payment_method, 'CASH') = 'CASH'
                   AND created_at >= ? AND created_at <= ?
                   AND (? IS NULL OR cash_session_id = ?)
             """.trimIndent()

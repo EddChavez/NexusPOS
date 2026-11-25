@@ -38,6 +38,14 @@ class ProductsViewModel(
     private var searchJob: Job? = null
     private val catalogRequests = MutableStateFlow(0L)
 
+    suspend fun loadPriceLists() = apiClient.priceLists()
+
+    suspend fun saveListPrice(productId: String, presentationId: String, level: Int, cents: Long?) =
+        apiClient.updateListPrice(productId, presentationId, level, cents)
+            .onSuccess { updateSelectedProduct(it, "Precio guardado para ${it.name}.") }
+
+    suspend fun catalogPreferences() = apiClient.getSettings().map { it.commerce }
+
     init {
         loadDepartments()
         loadProducts()

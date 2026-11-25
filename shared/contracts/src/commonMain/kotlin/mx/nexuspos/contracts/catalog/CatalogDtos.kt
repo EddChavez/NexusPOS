@@ -26,7 +26,8 @@ data class ProductPresentationDto(
     val name: String,
     val factorMillis: Long, // 1000 = 1 base unit, 24000 = caja de 24
     val priceCents: Long,
-    val priceTiers: List<PresentationPriceTier> = emptyList()
+    val priceTiers: List<PresentationPriceTier> = emptyList(),
+    val listPrices: Map<Int, Long> = emptyMap()
 ) {
     fun priceFor(quantityMillis: Long): Long = resolvePresentationPrice(priceCents, priceTiers, quantityMillis)
 }
@@ -116,3 +117,12 @@ data class UpdateProductRequest(
     val isActive: Boolean = true,
     val presentations: List<CreatePresentationRequest> = emptyList()
 )
+
+@Serializable
+data class CatalogPriceList(val level: Int, val name: String, val enabled: Boolean)
+
+@Serializable
+data class UpdateCatalogPriceList(val name: String, val enabled: Boolean)
+
+@Serializable
+data class UpdatePresentationListPrice(val priceCents: Long?)

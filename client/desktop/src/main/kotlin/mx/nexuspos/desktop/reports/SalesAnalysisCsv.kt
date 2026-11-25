@@ -38,7 +38,8 @@ internal fun salesAnalysisCsv(report: SalesAnalysisReport): String = buildString
     append('\uFEFF')
     appendLine(
         "Desde,Hasta,Zona horaria,Agrupación,Nombre,SKU,Unidad,Cantidad neta," +
-            "Ventas sin IVA,Cancelaciones sin IVA,Devoluciones sin IVA,Ventas netas sin IVA,Costo,Utilidad bruta,Margen bruto (%),Partidas con costo estimado"
+            "Ventas sin IVA,Cancelaciones sin IVA,Devoluciones sin IVA,Ventas netas sin IVA" +
+            if (report.costsVisible) ",Costo,Utilidad bruta,Margen bruto (%),Partidas con costo estimado" else ""
     )
     val group = when (report.groupBy) {
         SalesAnalysisGroup.DAY -> "Día"
@@ -51,8 +52,10 @@ internal fun salesAnalysisCsv(report: SalesAnalysisReport): String = buildString
             csvText(report.fromDate), csvText(report.toDate), csvText(report.timeZone), csvText(group), csvText(label),
             csvText(sku.orEmpty()), csvText(unit.orEmpty()), quantity?.let { BigDecimal.valueOf(it, 3).toPlainString() }.orEmpty(),
             decimal(totals.salesCents), decimal(totals.cancellationsCents), decimal(totals.refundsCents),
-            decimal(totals.netSalesCents), decimal(totals.costCents), decimal(totals.profitCents), totals.marginBasisPoints?.let(::decimal).orEmpty(), totals.estimatedCostEvents.toString()
-        )
+            decimal(totals.netSalesCents)
+        ) + if (report.costsVisible) listOf(
+            decimal(totals.costCents), decimal(totals.profitCents), totals.marginBasisPoints?.let(::decimal).orEmpty(), totals.estimatedCostEvents.toString()
+        ) else emptyList()
         appendLine(fields.joinToString(","))
     }
     report.rows.forEach { appendRow(it.label, it.sku, it.unit, it.netQuantityMillis, it.totals) }

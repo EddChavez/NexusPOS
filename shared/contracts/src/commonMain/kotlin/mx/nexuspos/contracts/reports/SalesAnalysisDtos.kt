@@ -46,5 +46,6 @@ data class SalesAnalysisReport(
     val timeZone: String,
     val groupBy: SalesAnalysisGroup,
     val totals: SalesAnalysisTotals,
-    val rows: List<SalesAnalysisRow>
+    val rows: List<SalesAnalysisRow>,
+    val costsVisible: Boolean = true
 )

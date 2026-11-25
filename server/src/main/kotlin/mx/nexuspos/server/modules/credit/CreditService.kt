@@ -1,5 +1,7 @@
 package mx.nexuspos.server.modules.credit
 
+import mx.nexuspos.server.modules.cash.requireOperator
+
 import mx.nexuspos.contracts.credit.*
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.NotFoundException
@@ -7,10 +9,10 @@ import mx.nexuspos.server.platform.ValidationException
 import java.sql.Connection
 import java.util.UUID
 
-class CreditService(private val db: DatabaseFactory) {
+class CreditService(private val db: DatabaseFactory, seedDefaults: Boolean = true) {
 
     init {
-        seedInitialCustomers()
+        if (seedDefaults) seedInitialCustomers()
     }
 
     private fun seedInitialCustomers() {
@@ -257,13 +259,18 @@ class CreditService(private val db: DatabaseFactory) {
         }
     }
 
-    fun updateCustomer(id: String, request: UpdateCustomerRequest): CustomerDto {
+    fun updateCustomer(id: String, request: UpdateCustomerRequest, verify: (CustomerDto) -> Unit = {}): CustomerDto {
         if (request.name.isBlank()) {
             throw ValidationException("El nombre del cliente es obligatorio")
         }
         val now = System.currentTimeMillis()
 
         return db.inTransaction { conn ->
+            conn.prepareStatement("SELECT id FROM customers WHERE id = ? FOR UPDATE").use {
+                it.setString(1, id)
+                it.executeQuery().use { row -> if (!row.next()) throw NotFoundException("Cliente '$id' no encontrado") }
+            }
+            verify(getCustomerFromConn(conn, id))
             val stmt = conn.prepareStatement(
                 """
                 UPDATE customers SET
@@ -319,12 +326,17 @@ class CreditService(private val db: DatabaseFactory) {
         }
     }
 
-    fun registerPayment(request: RegisterCreditPaymentRequest): CreditMovementDto {
+    fun registerPayment(request: RegisterCreditPaymentRequest, verifyOperator: Boolean = false): CreditMovementDto {
         if (request.amountCents <= 0L) {
             throw ValidationException("El monto del abono debe ser mayor a cero")
         }
 
         return db.inTransaction { conn ->
+            if (verifyOperator) requireOperator(conn, request.cashSessionId, request.cashierUserId)
+            val configuredMethods = conn.prepareStatement("SELECT setting_value FROM settings WHERE setting_key = 'credit_payment_methods'").use {
+                it.executeQuery().use { row -> if (row.next()) row.getString(1).split(',').toSet() else setOf("CASH", "TRANSFER", "CARD") }
+            }
+            if (request.paymentMethod.uppercase() !in configuredMethods) throw ValidationException("Ese método está deshabilitado para abonos.")
             // Fetch customer with lock
             val custStmt = conn.prepareStatement(
                 "SELECT name, credit_enabled, current_balance_cents FROM customers WHERE id = ? FOR UPDATE"
@@ -365,8 +377,8 @@ class CreditService(private val db: DatabaseFactory) {
 
             val movStmt = conn.prepareStatement(
                 """
-                INSERT INTO credit_movements (id, customer_id, type, amount_cents, balance_after_cents, cash_session_id, receipt_folio, description, user_id, created_at)
-                VALUES (?, ?, 'PAYMENT', ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO credit_movements (id, customer_id, type, amount_cents, balance_after_cents, cash_session_id, receipt_folio, description, user_id, created_at, payment_method)
+                VALUES (?, ?, 'PAYMENT', ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent()
             )
             movStmt.setString(1, movId)
@@ -378,6 +390,7 @@ class CreditService(private val db: DatabaseFactory) {
             movStmt.setString(7, desc)
             movStmt.setString(8, request.cashierUserId)
             movStmt.setLong(9, now)
+            movStmt.setString(10, request.paymentMethod.uppercase())
             movStmt.executeUpdate()
             movStmt.close()
 

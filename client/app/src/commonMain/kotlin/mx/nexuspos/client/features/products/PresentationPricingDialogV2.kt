@@ -25,6 +25,7 @@ import mx.nexuspos.client.features.sales.v2.dialogs.checkoutAmountText
 import mx.nexuspos.client.features.sales.v2.dialogs.parseCheckoutCents
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.catalog.CatalogPriceList
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.ProductUnit
 import mx.nexuspos.core.Quantity
@@ -35,6 +36,10 @@ private data class TierDraft(val id: Int, val quantity: String, val price: Strin
 @Composable
 internal fun PresentationPricingDialogV2(
     product: ProductDto,
+    loadLists: suspend () -> Result<List<CatalogPriceList>> = { Result.success(emptyList()) },
+    onSaveListPrice: suspend (String, Int, Long?) -> Result<ProductDto> = { _, _, _ ->
+        Result.failure(IllegalStateException("Las listas de precio se editan en Productos V2."))
+    },
     onSave: suspend (String, List<PresentationPriceTier>) -> Result<ProductDto>,
     onDismiss: () -> Unit
 ) {
@@ -46,6 +51,8 @@ internal fun PresentationPricingDialogV2(
     var error by remember(presentation.id) { mutableStateOf<String?>(null) }
     var saved by remember(presentation.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    var priceLists by remember { mutableStateOf<List<CatalogPriceList>>(emptyList()) }
+    LaunchedEffect(product.id) { loadLists().onSuccess { priceLists = it } }
     val drafts = remember(presentation.id, presentation.priceTiers) {
         mutableStateListOf<TierDraft>().apply {
             presentation.priceTiers.forEachIndexed { index, tier ->
@@ -98,7 +105,7 @@ internal fun PresentationPricingDialogV2(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Precios por cantidad", style = MaterialTheme.typography.headlineSmall)
+                        Text("Precios de presentaciones", style = MaterialTheme.typography.headlineSmall)
                         Text(product.name, style = MaterialTheme.typography.bodyMedium)
                     }
                     IconButton(onClick = onDismiss, enabled = !saving) { Icon(Icons.Default.Close, "Cerrar") }
@@ -168,6 +175,28 @@ internal fun PresentationPricingDialogV2(
                         Icon(Icons.Default.Add, null)
                         Spacer(Modifier.width(6.dp))
                         Text("Agregar tarifa")
+                    }
+                    if (priceLists.isNotEmpty()) {
+                        HorizontalDivider()
+                        Text("Listas de precio", style = MaterialTheme.typography.titleMedium)
+                        priceLists.forEach { list ->
+                            val savedPrice = presentation.listPrices[list.level]
+                            var price by remember(presentation.id, list.level, savedPrice) { mutableStateOf(savedPrice?.let(::checkoutAmountText).orEmpty()) }
+                            val cents = parseCheckoutCents(price)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(price, { price = it }, label = { Text(list.name + if (list.enabled) "" else " (inactiva)") },
+                                    singleLine = true, enabled = !saving, modifier = Modifier.weight(1f),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                                TextButton(onClick = {
+                                    saving = true
+                                    error = null
+                                    scope.launch {
+                                        onSaveListPrice(presentation.id, list.level, cents).onFailure { error = it.message }
+                                        saving = false
+                                    }
+                                }, enabled = !saving && (price.isBlank() || cents != null) && cents != savedPrice) { Text("Guardar precio") }
+                            }
+                        }
                     }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }

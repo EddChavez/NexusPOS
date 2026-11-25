@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import mx.nexuspos.client.features.setup.RootCredentialForm
+import mx.nexuspos.client.features.setup.StoreSetupScreen
+import mx.nexuspos.contracts.system.SetupState
 import mx.nexuspos.client.features.auth.AuthViewModel
 import mx.nexuspos.client.features.auth.LoginScreen
 import mx.nexuspos.client.features.auth.SupervisorAction
@@ -77,6 +81,7 @@ import mx.nexuspos.client.features.scale.ScaleUiConfig
 import mx.nexuspos.desktop.hardware.scale.ScaleConfigRepository
 import mx.nexuspos.desktop.hardware.scale.ScaleManager
 import mx.nexuspos.desktop.config.AppConfigRepository
+import mx.nexuspos.desktop.config.TerminalTheme
 import mx.nexuspos.desktop.hardware.DefaultPrinterDispatcher
 import mx.nexuspos.desktop.hardware.EscPosReceiptPrinter
 import mx.nexuspos.desktop.hardware.KeyboardWedgeBarcodeInput
@@ -89,13 +94,31 @@ import mx.nexuspos.desktop.hardware.PrinterDispatcher
 fun main() = application {
     val windowState = rememberWindowState(width = 1280.dp, height = 820.dp)
     val appConfigRepo = remember { AppConfigRepository() }
-    var appConfig by remember { mutableStateOf(appConfigRepo.load()) }
+    var appConfig by remember {
+        val saved = appConfigRepo.load()
+        mutableStateOf(if (saved.terminalId.isNotBlank()) saved else {
+            saved.copy(terminalId = java.util.UUID.randomUUID().toString()).also(appConfigRepo::save)
+        })
+    }
     var isShowingServerDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (appConfig.startFullScreen) windowState.placement = WindowPlacement.Fullscreen
+    }
 
     val viewModel = remember {
         SalesViewModel(apiClient = ApiClient(baseUrl = appConfig.baseUrl), initialRegisterId = appConfig.registerId)
     }
     val authViewModel = remember { AuthViewModel(viewModel.apiClient) }
+    var setupState by remember(appConfig.baseUrl) { mutableStateOf<SetupState?>(null) }
+    var setupError by remember(appConfig.baseUrl) { mutableStateOf<String?>(null) }
+    var setupRetry by remember { mutableIntStateOf(0) }
+    var recoveringRoot by remember(appConfig.baseUrl) { mutableStateOf(false) }
+    LaunchedEffect(appConfig.baseUrl, setupRetry) {
+        viewModel.apiClient.baseUrl = appConfig.baseUrl
+        setupError = null
+        viewModel.apiClient.setupStatus().onSuccess { setupState = it.state }
+            .onFailure { setupError = it.message ?: "No se pudo comprobar la conexión." }
+    }
     val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
     val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
     val inventoryViewModel = remember { InventoryViewModel(viewModel.apiClient) }
@@ -103,7 +126,7 @@ fun main() = application {
     val cashCutViewModel = remember { CashCutViewModel(viewModel.apiClient, registerId = appConfig.registerId) }
     val salesState by viewModel.uiState.collectAsState()
     val authState by authViewModel.uiState.collectAsState()
-    val canManagePurchases = authState.isAuthenticated && authState.currentUser?.role in setOf("ADMIN", "SUPERVISOR")
+    val canManagePurchases = authState.isAuthenticated && authState.currentUser?.let { "purchases.view" in it.permissions || it.role in setOf("ADMIN", "SUPERVISOR") } == true
     val purchasesViewModel = remember(appConfig.baseUrl, authState.isAuthenticated, authState.currentUser?.userId) {
         PurchasesViewModel(viewModel.apiClient, onInventoryChanged = {
             inventoryViewModel.refreshAll()
@@ -178,6 +201,7 @@ fun main() = application {
             )
             appConfigRepo.save(newCfg)
             val serverChanged = newCfg.baseUrl != viewModel.apiClient.baseUrl
+            if (serverChanged) authViewModel.lockTerminal()
             appConfig = newCfg
             viewModel.apiClient.baseUrl = newCfg.baseUrl
             if (serverChanged) {
@@ -366,6 +390,13 @@ fun main() = application {
                 role = user.role,
                 permissions = user.permissions
             )
+            viewModel.loadActiveSession(appConfig.registerId)
+            viewModel.loadParkedSales()
+            viewModel.preloadCatalogCache()
+            viewModel.loadSettings()
+            productsViewModel.loadProducts()
+            settingsViewModel.loadUsers()
+            customersViewModel.loadSettings()
         }
         authViewModel.onSupervisorSuccess = { action ->
             when (action) {
@@ -429,11 +460,7 @@ fun main() = application {
             }
         }
 
-        cashCutViewModel.onOpenCashDrawer = {
-            CoroutineScope(Dispatchers.IO).launch {
-                printerDispatcher.openCashDrawer(printerConfig)
-            }
-        }
+        cashCutViewModel.onOpenCashDrawer = { viewModel.openCashDrawer() }
 
         cashCutViewModel.onSessionClosedCallback = {
             viewModel.loadActiveSession()
@@ -471,6 +498,7 @@ fun main() = application {
         onKeyEvent = { keyEvent ->
             // 1. First check if terminal is locked (Login Screen input)
             if (!authState.isAuthenticated) {
+                if (setupState == null || setupState == SetupState.NEW || recoveringRoot || isShowingServerDialog) return@Window false
                 if (keyEvent.type == KeyEventType.KeyDown) {
                     when (keyEvent.key) {
                         Key.Zero, Key.NumPad0 -> { authViewModel.onDigit('0'); true }
@@ -781,13 +809,42 @@ fun main() = application {
             }
         }
     ) {
-        NexusTheme {
-            if (!authState.isAuthenticated) {
+        NexusTheme(darkTheme = when (appConfig.theme) {
+            TerminalTheme.SYSTEM -> isSystemInDarkTheme()
+            TerminalTheme.LIGHT -> false
+            TerminalTheme.DARK -> true
+        }) {
+            if (setupState == SetupState.NEW) {
+                StoreSetupScreen(viewModel.apiClient, onConfigureConnection = { isShowingServerDialog = true }) { result ->
+                    val updated = appConfig.copy(registerId = result.registerId, registerName = result.registerName)
+                    appConfigRepo.save(updated)
+                    appConfig = updated
+                    setupState = SetupState.READY
+                    viewModel.loadSettings()
+                    viewModel.loadActiveSession(result.registerId)
+                }
+            } else if (setupState == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (setupError == null) CircularProgressIndicator()
+                        else Text(setupError.orEmpty(), color = MaterialTheme.colorScheme.error)
+                        Button(onClick = { isShowingServerDialog = true }) { Text("Configurar conexión") }
+                        TextButton(onClick = { setupRetry++ }) { Text("Reintentar") }
+                    }
+                }
+            } else if (recoveringRoot && !authState.isAuthenticated) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    RootCredentialForm(viewModel.apiClient, recovery = true, onCancel = { recoveringRoot = false }) {
+                        recoveringRoot = false
+                    }
+                }
+            } else if (!authState.isAuthenticated) {
                 LoginScreen(
                     viewModel = authViewModel,
                     connectionState = salesState.connectionState,
                     registerId = appConfig.registerId,
-                    onConfigureServerConnection = { isShowingServerDialog = true }
+                    onConfigureServerConnection = { isShowingServerDialog = true },
+                    onRecoverRoot = if (setupState == SetupState.READY) ({ recoveringRoot = true }) else null
                 )
             } else {
                 val isV2 = appConfig.salesUiVersion == "V2"
@@ -889,7 +946,10 @@ fun main() = application {
                                             onBackToSales = { activeModule = AppModule.SALES },
                                             activeCashierUserId = salesState.activeCashierId,
                                             useMaterialWorkspace = isV2,
-                                            onExportSalesCsv = { report -> exportSalesAnalysisCsv(window, report) }
+                                            onExportSalesCsv = { report ->
+                                                if (viewModel.canPerform("reports.export")) exportSalesAnalysisCsv(window, report)
+                                                else Result.failure(IllegalStateException("Tu rol no permite exportar reportes."))
+                                            }
                                         )
                                     }
                                 }
@@ -1029,6 +1089,44 @@ fun main() = application {
                                         key(appConfig.baseUrl) {
                                             SettingsScreenV2(
                                                 viewModel = settingsViewModel,
+                                                terminalId = appConfig.terminalId,
+                                                permissions = authState.currentUser?.permissions?.toSet(),
+                                                onRootConfigured = {
+                                                    setupState = SetupState.READY
+                                                    authViewModel.lockTerminal()
+                                                },
+                                                catalogLinks = {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                        TextButton(onClick = {
+                                                            activeModule = AppModule.PRODUCTS
+                                                            productsViewModel.openDepartmentsDialog()
+                                                        }) { Text("Administrar departamentos") }
+                                                        TextButton(onClick = {
+                                                            activeModule = AppModule.PURCHASES
+                                                            purchasesViewModel.openSupplierWorkspace()
+                                                        }, enabled = canManagePurchases) { Text("Administrar proveedores") }
+                                                    }
+                                                },
+                                                generalSettings = {
+                                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                        Text("Tema de esta terminal")
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                            TerminalTheme.entries.forEach { theme ->
+                                                                FilterChip(appConfig.theme == theme, onClick = {
+                                                                    appConfig = appConfig.copy(theme = theme)
+                                                                    appConfigRepo.save(appConfig)
+                                                                }, label = { Text(theme.label) })
+                                                            }
+                                                        }
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                            Text("Iniciar en pantalla completa")
+                                                            Switch(appConfig.startFullScreen, onCheckedChange = {
+                                                                appConfig = appConfig.copy(startFullScreen = it)
+                                                                appConfigRepo.save(appConfig)
+                                                            })
+                                                        }
+                                                    }
+                                                },
                                                 onBackToSales = { activeModule = AppModule.SALES }
                                             )
                                         }
@@ -1048,6 +1146,7 @@ fun main() = application {
                                     onDigit = { authViewModel.onSupervisorDigit(it) },
                                     onBackspace = { authViewModel.onSupervisorBackspace() },
                                     onSubmit = { authViewModel.submitSupervisorElevation() },
+                                    onToggleRootPin = authViewModel::toggleSupervisorRootPin,
                                     onDismiss = { authViewModel.cancelSupervisorElevation() }
                                 )
                             }
@@ -1061,29 +1160,32 @@ fun main() = application {
                 isOpen = isShowingServerDialog,
                 initialHost = appConfig.serverHost,
                 initialPort = appConfig.serverPort,
+                initialScheme = appConfig.serverScheme,
                 initialRegisterId = appConfig.registerId,
                 initialRegisterName = appConfig.registerName,
-                onTestConnection = { host, port ->
-                    val testClient = ApiClient(baseUrl = "http://$host:$port")
+                onTestConnection = { scheme, host, port ->
+                    val testClient = ApiClient(baseUrl = "$scheme://$host:$port")
                     val ok = testClient.checkHealth()
                     if (ok) {
                         Result.success("Servidor NexusPOS responde OK (HTTP 200 /health)")
                     } else {
-                        Result.failure(Exception("Host inaccesible en http://$host:$port"))
+                        Result.failure(Exception("Host inaccesible en $scheme://$host:$port"))
                     }
                 },
-                onSaveAndConnect = { host, port, regId, regName ->
+                onSaveAndConnect = { scheme, host, port, regId, regName ->
                     val newCfg = appConfig.copy(
                         serverHost = host,
                         serverPort = port,
-                        serverScheme = "http",
+                        serverScheme = scheme,
                         registerId = regId,
                         registerName = regName
                     )
                     appConfigRepo.save(newCfg)
                     val serverChanged = newCfg.baseUrl != viewModel.apiClient.baseUrl
+                    if (serverChanged) authViewModel.lockTerminal()
                     appConfig = newCfg
                     viewModel.apiClient.baseUrl = newCfg.baseUrl
+                    setupRetry++
                     settingsViewModel.loadNetworkConfig()
                     if (serverChanged || !settingsViewModel.uiState.value.settingsAvailable) {
                         settingsViewModel.loadSettings()

@@ -22,7 +22,7 @@ class OfflineCatalogCache(
             return emptyList()
         }
         return try {
-            val list = json.decodeFromString<List<ProductDto>>(raw)
+            val list = json.decodeFromString<List<ProductDto>>(raw).map { it.copy(costCents = 0) }
             inMemoryCatalog = list
             list
         } catch (e: Exception) {
@@ -32,9 +32,9 @@ class OfflineCatalogCache(
     }
 
     fun saveCatalog(products: List<ProductDto>) {
-        inMemoryCatalog = products
+        inMemoryCatalog = products.map { it.copy(costCents = 0) }
         try {
-            val encoded = json.encodeToString(products)
+            val encoded = json.encodeToString(inMemoryCatalog)
             storage.writeText(fileName, encoded)
         } catch (e: Exception) {
             // Log/ignore

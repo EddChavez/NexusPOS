@@ -54,20 +54,27 @@ data class UserDto(
     val id: String,
     val name: String,
     val role: String, // CASHIER, SUPERVISOR, ADMIN
-    val isActive: Boolean
+    val isActive: Boolean,
+    val isRoot: Boolean = false,
+    val email: String = "",
+    val phone: String = ""
 )
 
 @Serializable
 data class CreateUserRequest(
     val name: String,
     val role: String,
-    val pin: String
+    val pin: String,
+    val email: String = "",
+    val phone: String = ""
 )
 
 @Serializable
 data class UpdateUserRequest(
     val name: String,
     val role: String,
-    val pin: String? = null
+    val pin: String? = null,
+    val email: String? = null,
+    val phone: String? = null
 )
 

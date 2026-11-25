@@ -161,7 +161,7 @@ internal fun CashMovementAuditPanel(
         when {
             original != null -> CashMovementReversalForm(
                 original, reason, { reason = it }, reversalPin,
-                { value -> if (value.length <= 4 && value.all { it in '0'..'9' }) reversalPin = value },
+                { value -> if (value.length <= 6 && value.all { it in '0'..'9' }) reversalPin = value },
                 busy, { reverse(original) }
             )
             activePage == null -> {
@@ -169,7 +169,7 @@ internal fun CashMovementAuditPanel(
                     Text("Ingresa el PIN de un encargado para consultar los movimientos.")
                     OutlinedTextField(
                         value = pin,
-                        onValueChange = { input -> if (input.length <= 4 && input.all { it in '0'..'9' }) pin = input },
+                        onValueChange = { input -> if (input.length <= 6 && input.all { it in '0'..'9' }) pin = input },
                         label = { Text("PIN de encargado") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         visualTransformation = PasswordVisualTransformation(),
@@ -178,7 +178,7 @@ internal fun CashMovementAuditPanel(
                         modifier = Modifier.widthIn(max = 240.dp).fillMaxWidth()
                     )
                 }
-                Button(onClick = { load(listOf(null)) }, enabled = pin.length == 4 && !busy) {
+                Button(onClick = { load(listOf(null)) }, enabled = pin.length in setOf(4, 6) && !busy) {
                     Text(if (cutPin == null) "Consultar movimientos" else "Reintentar consulta")
                 }
             }
@@ -283,7 +283,7 @@ private fun CashMovementReversalForm(
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true, modifier = Modifier.weight(1f, fill = false).widthIn(max = 220.dp)
             )
-            Button(onConfirm, enabled = valid && pin.length == 4 && !busy) { Text("Confirmar reversión") }
+            Button(onConfirm, enabled = valid && pin.length in setOf(4, 6) && !busy) { Text("Confirmar reversión") }
         }
     }
 }

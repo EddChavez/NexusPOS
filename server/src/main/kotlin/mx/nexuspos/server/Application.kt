@@ -28,6 +28,7 @@ import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.cash.ReverseCashMovementRequest
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
+import mx.nexuspos.contracts.cash.SaveCashRegisterRequest
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
 import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
 import mx.nexuspos.contracts.catalog.UpdateProductKitRequest
@@ -65,7 +66,11 @@ import mx.nexuspos.contracts.system.SettingsPreferencesPatch
 import mx.nexuspos.server.modules.cash.CashCutHistoryService
 import mx.nexuspos.server.modules.cash.CashMovementAuditService
 import mx.nexuspos.server.modules.cash.CashSessionService
+import mx.nexuspos.server.modules.cash.CashLimitException
 import mx.nexuspos.server.modules.catalog.CatalogService
+import mx.nexuspos.server.modules.catalog.PriceListService
+import mx.nexuspos.contracts.catalog.UpdateCatalogPriceList
+import mx.nexuspos.contracts.catalog.UpdatePresentationListPrice
 import mx.nexuspos.server.modules.credit.CreditService
 import mx.nexuspos.server.modules.identity.IdentityService
 import mx.nexuspos.server.modules.inventory.InventoryService
@@ -78,30 +83,60 @@ import mx.nexuspos.server.modules.reports.SalesAnalysisService
 import mx.nexuspos.server.modules.sales.ParkedSalesService
 import mx.nexuspos.server.modules.sales.SalesService
 import mx.nexuspos.server.modules.system.SettingsService
+import mx.nexuspos.server.modules.setup.*
+import mx.nexuspos.server.modules.permissions.*
+import mx.nexuspos.contracts.system.SetupState
+import mx.nexuspos.contracts.system.SaleFolioStatus
+import mx.nexuspos.contracts.cash.CashSessionSummary
+import mx.nexuspos.contracts.system.CommercialPreferences
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.*
 import java.util.Collections
 import kotlin.time.Duration.Companion.seconds
 
-fun main() {
+fun main(args: Array<String>) {
+    if (args.isNotEmpty()) {
+        val purpose = when (args.singleOrNull()) {
+            "setup-code" -> SetupPurpose.COMPLETE
+            "adopt-root-code" -> SetupPurpose.ADOPT
+            "recover-root-code" -> SetupPurpose.RECOVER
+            else -> error("Comandos disponibles: setup-code, adopt-root-code, recover-root-code")
+        }
+        val db = DatabaseFactory()
+        val code = try {
+            db.migrate()
+            StoreSetupService(db).issue(purpose)
+        } finally {
+            (db.dataSource as AutoCloseable).close()
+        }
+        println(code)
+        return
+    }
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
-    embeddedServer(CIO, port = port, host = "0.0.0.0", module = Application::nexusModule)
+    val host = System.getenv("NEXUS_BIND_HOST") ?: "0.0.0.0"
+    embeddedServer(CIO, port = port, host = host, module = { nexusModule(provisioningRequired = true) })
         .start(wait = true)
 }
 
-fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
+fun Application.nexusModule(
+    dbFactory: DatabaseFactory = DatabaseFactory(),
+    provisioningRequired: Boolean = false
+) {
     // Run Flyway migrations
     dbFactory.migrate()
 
     // Initialize Services
-    val identityService = IdentityService(dbFactory)
-    val catalogService = CatalogService(dbFactory)
+    val setupService = StoreSetupService(dbFactory)
+    val roles = RoleService(dbFactory)
+    val identityService = IdentityService(dbFactory, seedDefaults = !provisioningRequired)
+    val catalogService = CatalogService(dbFactory, seedDefaults = !provisioningRequired)
+    val priceLists = PriceListService(dbFactory)
     val inventoryService = InventoryService(dbFactory)
     val productLotsService = ProductLotsService(dbFactory)
     val cashService = CashSessionService(dbFactory)
     val cashCutHistory = CashCutHistoryService(dbFactory)
     val cashMovementAudit = CashMovementAuditService(dbFactory)
-    val creditService = CreditService(dbFactory)
+    val creditService = CreditService(dbFactory, seedDefaults = !provisioningRequired)
     val loyaltyService = LoyaltyService(dbFactory)
     val settingsService = SettingsService(dbFactory)
     val salesService = SalesService(dbFactory, settingsService)
@@ -111,10 +146,42 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val purchaseService = PurchaseService(dbFactory)
 
     fun requireSupervisor(pin: String, action: String): String {
-        if (!pin.matches(Regex("[0-9]{4}"))) throw UnauthorizedException("Captura el PIN de un encargado.")
+        if (!pin.matches(Regex("[0-9]{4}([0-9]{2})?"))) throw UnauthorizedException("Captura el PIN de un encargado.")
+        if (provisioningRequired && setupService.status().state == SetupState.READY) {
+            val permission = when (action) {
+                "CASH_CUT_HISTORY" -> "cash.history"
+                "CASH_CUT_DETAIL" -> "cash.detail"
+                "CLOSED_SHIFT_SALES" -> "transactions.closed"
+                "CASH_MOVEMENT_HISTORY" -> "cash.audit"
+                "REVERSE_CASH_MOVEMENT" -> "cash.reverse"
+                "SALES_ANALYSIS" -> "reports.sales"
+                "PURCHASE_RECEIVE" -> "purchases.receive"
+                "PURCHASE_RETURN" -> "purchases.return"
+                "SUPPLIER_EDIT" -> "suppliers.edit"
+                else -> throw ForbiddenException("Autorización desconocida.")
+            }
+            return identityService.authorizePermissionPin(pin, permission)
+                ?: throw ForbiddenException("El PIN no autoriza esta operación.")
+        }
         val authorization = identityService.authorizeSupervisor(AuthorizeRequest(pin, action))
         if (!authorization.authorized) throw ForbiddenException("PIN de encargado incorrecto o usuario inactivo.")
         return authorization.supervisorId
+    }
+
+    fun blindSnapshot(session: CashSessionSummary): CashSessionSummary {
+        if (!provisioningRequired || session.status != "OPEN" || !settingsService.getSettings().blindCashCountEnabled) return session
+        return session.copy(
+            salesCashCents = 0, creditPaymentsCashCents = 0, cashInCents = 0, cashOutCents = 0,
+            refundsCashCents = 0, expectedCashCents = 0, cashCountVisible = false
+        )
+    }
+
+    val pinAttempts = PinAttemptWindow()
+    fun drawerApproval(call: ApplicationCall): String? {
+        val pin = call.request.headers["X-Nexus-Cash-Approval"] ?: return null
+        pinAttempts.check("approval:${call.request.local.remoteAddress}")
+        return identityService.authorizePermissionPin(pin, "cash.limit.approve")
+            ?: throw ForbiddenException("El PIN no autoriza superar el límite de efectivo.")
     }
 
     val activeWsSessions = Collections.synchronizedSet(HashSet<DefaultWebSocketServerSession>())
@@ -126,7 +193,8 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     }
 
     suspend fun broadcastEventJson(type: String, jsonPayload: String) {
-        val event = RealtimeEvent(type = type, payloadJson = jsonPayload, timestamp = System.currentTimeMillis())
+        val payload = if (provisioningRequired && setupService.status().state == SetupState.READY) "{}" else jsonPayload
+        val event = RealtimeEvent(type = type, payloadJson = payload, timestamp = System.currentTimeMillis())
         val messageText = jsonConfig.encodeToString(event)
         val sessionsToNotify = synchronized(activeWsSessions) { activeWsSessions.toList() }
         val deadSessions = mutableListOf<DefaultWebSocketServerSession>()
@@ -174,12 +242,13 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
         exception<AppException> { call, cause ->
             val status = when (cause) {
                 is NotFoundException -> HttpStatusCode.NotFound
-                is MobileRateLimitException -> HttpStatusCode.TooManyRequests
                 is UnauthorizedException -> HttpStatusCode.Unauthorized
+                is MobileRateLimitException, is PinAttemptLimitException -> HttpStatusCode.TooManyRequests
                 is ForbiddenException -> HttpStatusCode.Forbidden
                 is PriceChangedException, is IdempotencyMismatchException, is SessionClosedException,
-                is StockChangedException, is DuplicatePurchaseDocumentException -> HttpStatusCode.Conflict
+                is StockChangedException, is DuplicatePurchaseDocumentException, is ConflictException -> HttpStatusCode.Conflict
                 is ValidationException -> HttpStatusCode.BadRequest
+                is CashLimitException -> HttpStatusCode.Forbidden
                 is CreditLimitExceededException, is InsufficientStockException -> HttpStatusCode.UnprocessableEntity
                 else -> HttpStatusCode.InternalServerError
             }
@@ -212,6 +281,19 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
         }
     }
 
+    if (provisioningRequired) intercept(ApplicationCallPipeline.Plugins) {
+        val path = call.request.path().trimEnd('/')
+        val state = setupService.status().state
+        if (state == SetupState.NEW && path !in setOf("", "/health", "/api/v1/setup/status", "/api/v1/setup/complete")) {
+            throw ConflictException("Completa la configuración inicial de NexusPOS.")
+        }
+        if (state == SetupState.READY) {
+            permissionFor(path, call.request.httpMethod)?.let { permission ->
+                call.requireDesktopAccess(identityService, roles).require(permission)
+            }
+        }
+    }
+
     routing {
         get("/") {
             call.respondText("NexusPOS LAN-First Server v2.0 (PostgreSQL)", ContentType.Text.Plain)
@@ -230,10 +312,22 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
         }
 
         route("/api/v1") {
+            storeSetupRoutes(setupService, identityService, roles)
+            roleRoutes(identityService, roles, setupService)
             mobileRoutes(MobileAccess(dbFactory), MobileQueries(dbFactory, catalogService, salesAnalysis))
             // System
             get("/system/info") {
                 call.respond(settingsService.getSystemInfo())
+            }
+
+            get("/system/sale-folio") {
+                call.requireDesktopAccess(identityService, roles).require("settings.commerce")
+                val folio = dbFactory.inTransaction { connection ->
+                    connection.prepareStatement("SELECT MAX(folio) FROM sales").use {
+                        it.executeQuery().use { row -> row.next(); row.getLong(1).takeUnless { row.wasNull() } }
+                    }
+                }
+                call.respond(SaleFolioStatus(folio))
             }
 
             get("/system/settings") {
@@ -245,6 +339,12 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val updated = settingsService.updateSettings(req)
                 broadcastEventJson("settings.changed", jsonConfig.encodeToString(updated))
                 call.respond(updated)
+            }
+
+            put("/system/settings/commerce") {
+                val preferences = settingsService.updateCommerce(call.receive<CommercialPreferences>())
+                broadcastEventJson("settings.changed", jsonConfig.encodeToString(settingsService.getSettings()))
+                call.respond(preferences)
             }
 
             patch("/system/settings/preferences") {
@@ -273,7 +373,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
 
             post("/users") {
                 val req = call.receive<CreateUserRequest>()
-                val user = identityService.createUser(req)
+                val user = identityService.createUser(req, call.access?.user)
                 broadcastEventJson("user.created", jsonConfig.encodeToString(user))
                 call.respond(HttpStatusCode.Created, user)
             }
@@ -281,39 +381,42 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             put("/users/{id}") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de usuario requerido")
                 val req = call.receive<UpdateUserRequest>()
-                val updated = identityService.updateUser(id, req)
+                val updated = identityService.updateUser(id, req, call.access?.user)
                 broadcastEventJson("user.updated", jsonConfig.encodeToString(updated))
                 call.respond(updated)
             }
 
             delete("/users/{id}") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de usuario requerido")
-                val deactivated = identityService.deactivateUser(id)
+                val deactivated = identityService.deactivateUser(id, call.access?.user)
                 broadcastEventJson("user.deactivated", jsonConfig.encodeToString(deactivated))
                 call.respond(deactivated)
             }
 
             post("/users/{id}/reactivate") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de usuario requerido")
-                val reactivated = identityService.reactivateUser(id)
+                val reactivated = identityService.reactivateUser(id, call.access?.user)
                 broadcastEventJson("user.updated", jsonConfig.encodeToString(reactivated))
                 call.respond(reactivated)
             }
 
             // Identity & Auth
             post("/auth/login") {
+                if (provisioningRequired) pinAttempts.check("login:${call.request.local.remoteAddress}")
                 val req = call.receive<LoginRequest>()
                 val res = identityService.login(req)
                 call.respond(res)
             }
 
             post("/auth/authorize") {
+                if (provisioningRequired) pinAttempts.check("approval:${call.request.local.remoteAddress}")
                 val req = call.receive<AuthorizeRequest>()
                 val res = identityService.authorizeSupervisor(req)
                 call.respond(res)
             }
 
             post("/auth/authorize-supervisor") {
+                if (provisioningRequired) pinAttempts.check("approval:${call.request.local.remoteAddress}")
                 val req = call.receive<AuthorizeRequest>()
                 val res = identityService.authorizeSupervisor(req)
                 call.respond(res)
@@ -362,28 +465,35 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val query = call.request.queryParameters["query"]
                 val departmentId = call.request.queryParameters["departmentId"]
                 val includeInactive = call.request.queryParameters["includeInactive"]?.toBooleanStrictOrNull() ?: false
-                val products = catalogService.searchProducts(barcode, query, departmentId, includeInactive)
-                call.respond(products)
+                val products = if (!barcode.isNullOrBlank() && departmentId == null && !includeInactive) {
+                    catalogService.resolveBarcode(barcode.trim(), settingsService.getSettings().commerce.matchBarcodeWithoutLeadingZeros)
+                } else catalogService.searchProducts(barcode, query, departmentId, includeInactive)
+                call.respond(products.map { call.access.projectProduct(it) })
             }
 
             get("/products/{id}") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
-                call.respond(catalogService.getProductById(id))
+                call.respond(call.access.projectProduct(catalogService.getProductById(id)))
             }
 
             post("/products") {
                 val req = call.receive<CreateProductRequest>()
+                call.access?.let { actor ->
+                    if (req.costCents != 0L) actor.require("products.cost.edit")
+                    if (req.taxRate != 0.0) actor.require("products.tax.edit")
+                    if (req.initialStockMillis > 0) actor.require("inventory.receive")
+                }
                 val product = catalogService.createProduct(req)
                 broadcastEventJson("product.created", jsonConfig.encodeToString(product))
-                call.respond(HttpStatusCode.Created, product)
+                call.respond(HttpStatusCode.Created, call.access.projectProduct(product))
             }
 
             put("/products/{id}") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
                 val req = call.receive<UpdateProductRequest>()
-                val updated = catalogService.updateProduct(id, req)
+                val updated = catalogService.updateProduct(id, req) { call.access?.checkProductEdit(it, req) }
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
-                call.respond(updated)
+                call.respond(call.access.projectProduct(updated))
             }
 
             put("/products/{id}/presentations/{presentationId}/prices") {
@@ -393,7 +503,24 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val request = call.receive<UpdatePresentationPricesRequest>()
                 val updated = catalogService.updatePresentationPrices(id, presentationId, request.tiers)
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
-                call.respond(updated)
+                call.respond(call.access.projectProduct(updated))
+            }
+
+            get("/price-lists") { call.respond(priceLists.list()) }
+
+            put("/price-lists/{level}") {
+                val level = call.parameters["level"]?.toIntOrNull() ?: throw ValidationException("Indica la lista de precios.")
+                call.respond(priceLists.update(level, call.receive<UpdateCatalogPriceList>()))
+            }
+
+            put("/products/{id}/presentations/{presentationId}/list-prices/{level}") {
+                val id = call.parameters["id"] ?: throw ValidationException("Indica el producto.")
+                val presentation = call.parameters["presentationId"] ?: throw ValidationException("Indica la presentación.")
+                val level = call.parameters["level"]?.toIntOrNull() ?: throw ValidationException("Indica la lista de precios.")
+                priceLists.setPrice(id, presentation, level, call.receive<UpdatePresentationListPrice>().priceCents)
+                val product = catalogService.getProductById(id)
+                broadcastEventJson("product.updated", jsonConfig.encodeToString(product))
+                call.respond(call.access.projectProduct(product))
             }
 
             put("/products/{id}/kit") {
@@ -401,31 +528,33 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val request = call.receive<UpdateProductKitRequest>()
                 val updated = catalogService.updateProductKit(id, request.components)
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
-                call.respond(updated)
+                call.respond(call.access.projectProduct(updated))
             }
 
             delete("/products/{id}") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
                 val deactivated = catalogService.deactivateProduct(id)
                 broadcastEventJson("product.deactivated", jsonConfig.encodeToString(deactivated))
-                call.respond(deactivated)
+                call.respond(call.access.projectProduct(deactivated))
             }
 
             post("/products/{id}/reactivate") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
                 val reactivated = catalogService.reactivateProduct(id)
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(reactivated))
-                call.respond(reactivated)
+                call.respond(call.access.projectProduct(reactivated))
             }
 
             // Bulk Catalog Export & Import (Excel / CSV)
             get("/catalog/export") {
+                call.access?.require("products.cost.view", "inventory.stock")
                 val csv = catalogService.exportCatalogCsv()
                 call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=\"catalogo_nexuspos.csv\"")
                 call.respondText(csv, ContentType.Text.CSV.withCharset(Charsets.UTF_8))
             }
 
             post("/catalog/import") {
+                call.access?.require("products.cost.edit", "products.price.edit", "products.stock.edit", "products.tax.edit")
                 val req = call.receive<CatalogImportRequest>()
                 val result = catalogService.importCatalogRows(req.rows)
                 broadcastEventJson("catalog.changed", "{}")
@@ -434,7 +563,8 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
 
             // Inventory
             get("/inventory/summary") {
-                call.respond(inventoryService.getInventorySummary())
+                val summary = inventoryService.getInventorySummary()
+                call.respond(if (call.access?.permissions?.contains("inventory.valuation") == false) summary.copy(totalValuationCents = 0) else summary)
             }
 
             get("/inventory/reorder-suggestions") {
@@ -452,7 +582,9 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
 
             post("/inventory/movements") {
                 val req = call.receive<RegisterStockMovementRequest>()
-                val movement = inventoryService.registerMovement(req)
+                val actor = call.access
+                actor?.require(if (req.type.uppercase() == "ENTRY") "inventory.receive" else "inventory.adjust")
+                val movement = inventoryService.registerMovement(if (actor == null) req else req.copy(userId = actor.user.id))
                 broadcastEventJson("inventory.movement.created", jsonConfig.encodeToString(movement))
                 broadcastEventJson("inventory.updated", jsonConfig.encodeToString(mapOf("productId" to req.productId)))
                 call.respond(HttpStatusCode.Created, movement)
@@ -499,12 +631,31 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 }
             }
 
+            get("/registers") { call.respond(cashService.listRegisters()) }
+
+            post("/registers") {
+                call.respond(HttpStatusCode.Created, cashService.saveRegister(null, call.receive<SaveCashRegisterRequest>()))
+            }
+
+            put("/registers/{id}") {
+                val id = call.parameters["id"] ?: throw ValidationException("Indica la caja.")
+                call.respond(cashService.saveRegister(id, call.receive<SaveCashRegisterRequest>()))
+            }
+
+            post("/cash-sessions/{id}/handoff") {
+                val id = call.parameters["id"] ?: throw ValidationException("Indica el turno.")
+                val actor = call.requireDesktopAccess(identityService, roles)
+                actor.require("cash.handoff")
+                call.respond(blindSnapshot(cashService.handoff(id, actor.user.id)))
+            }
+
             // Cash Sessions
             post("/cash-sessions") {
                 val req = call.receive<OpenSessionRequest>()
-                val session = cashService.openSession(req)
+                call.access?.checkActor(req.userId)
+                val session = cashService.openSession(if (settingsService.getSettings().commerce.requireOpeningFund) req else req.copy(initialFundCents = 0))
                 broadcastEventJson("cash.session.opened", jsonConfig.encodeToString(session))
-                call.respond(HttpStatusCode.Created, session)
+                call.respond(HttpStatusCode.Created, blindSnapshot(session))
             }
 
             post("/cash-sessions/history/search") {
@@ -515,7 +666,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
 
             post("/cash-sessions/history/{id}") {
                 val req = call.receive<CashCutDetailRequest>()
-                requireSupervisor(req.pin, "CASH_CUT_HISTORY")
+                requireSupervisor(req.pin, "CASH_CUT_DETAIL")
                 val id = call.parameters["id"] ?: throw ValidationException("Indica el corte.")
                 call.respond(cashCutHistory.detail(id))
             }
@@ -524,7 +675,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val req = call.receive<ClosedShiftSalesRequest>()
                 requireSupervisor(req.pin, "CLOSED_SHIFT_SALES")
                 val id = call.parameters["id"] ?: throw ValidationException("Indica el turno cerrado.")
-                call.respond(salesService.getClosedShiftSales(id, req.folio, req.beforeFolio))
+                call.respond(salesService.getClosedShiftSales(id, req.folio, req.beforeFolio, call.access.ownSalesFilter()))
             }
 
             post("/cash-sessions/history/{id}/sales/{saleId}") {
@@ -532,7 +683,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 requireSupervisor(req.pin, "CLOSED_SHIFT_SALES")
                 val id = call.parameters["id"] ?: throw ValidationException("Indica el turno cerrado.")
                 val saleId = call.parameters["saleId"] ?: throw ValidationException("Indica la venta.")
-                call.respond(salesService.getClosedShiftSale(id, saleId))
+                call.respond(salesService.getClosedShiftSale(id, saleId, call.access.ownSalesFilter()))
             }
 
             get("/cash-sessions/current") {
@@ -541,19 +692,22 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 if (session == null) {
                     call.respond(HttpStatusCode.NotFound, ApiError("NO_OPEN_SESSION", "No hay sesión abierta para la caja '$registerId'"))
                 } else {
-                    call.respond(session)
+                    call.respond(blindSnapshot(session))
                 }
             }
 
             get("/cash-sessions/{id}/summary") {
                 val sessionId = call.parameters["id"] ?: throw ValidationException("ID de sesión requerido")
-                call.respond(cashService.getSessionSummary(sessionId))
+                call.respond(blindSnapshot(cashService.getSessionSummary(sessionId)))
             }
 
             post("/cash-sessions/{id}/movements") {
                 val sessionId = call.parameters["id"] ?: throw ValidationException("ID de sesión requerido")
                 val req = call.receive<CashMovementRequest>()
-                cashService.recordMovement(sessionId, req)
+                val actor = call.access
+                actor?.require(if (req.type == "CASH_IN") "cash.in" else "cash.out")
+                val request = if (actor == null) req else req.copy(userId = actor.user.id, authorizedByUserId = null)
+                cashService.recordMovement(sessionId, request, verifyOperator = actor != null, drawerApproval = drawerApproval(call))
                 call.respond(HttpStatusCode.Created, mapOf("status" to "OK"))
             }
 
@@ -575,7 +729,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             post("/cash-sessions/{id}/close") {
                 val sessionId = call.parameters["id"] ?: throw ValidationException("ID de sesión requerido")
                 val req = call.receive<CloseSessionRequest>()
-                val closed = cashService.closeSession(sessionId, req)
+                val closed = cashService.closeSession(sessionId, req, operatorId = call.access?.user?.id)
                 broadcastEventJson("cash.session.closed", jsonConfig.encodeToString(closed))
                 call.respond(closed)
             }
@@ -594,6 +748,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
 
             post("/customers") {
                 val req = call.receive<CreateCustomerRequest>()
+                if (req.creditEnabled || !req.hasCreditLimit || req.creditLimitCents > 0) call.access?.require("customers.credit.configure")
                 val customer = creditService.createCustomer(req)
                 broadcastEventJson("customer.created", jsonConfig.encodeToString(customer))
                 call.respond(HttpStatusCode.Created, customer)
@@ -602,7 +757,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             put("/customers/{id}") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
                 val req = call.receive<UpdateCustomerRequest>()
-                val updated = creditService.updateCustomer(id, req)
+                val updated = creditService.updateCustomer(id, req) { call.access?.checkCustomerEdit(it, req) }
                 broadcastEventJson("customer.updated", jsonConfig.encodeToString(updated))
                 call.respond(updated)
             }
@@ -628,7 +783,10 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
 
             post("/customers/{id}/credit/payments") {
                 val req = call.receive<RegisterCreditPaymentRequest>()
-                val mov = creditService.registerPayment(req)
+                call.access?.checkActor(req.cashierUserId)
+                val id = call.parameters["id"] ?: throw ValidationException("Indica el cliente.")
+                if (req.customerId != id) throw ValidationException("El abono debe corresponder al cliente indicado.")
+                val mov = creditService.registerPayment(req, verifyOperator = call.access != null)
                 broadcastEventJson("credit.payment", jsonConfig.encodeToString(mov))
                 call.respond(HttpStatusCode.Created, mov)
             }
@@ -652,7 +810,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             post("/customers/{id}/loyalty/adjust") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
                 val req = call.receive<AdjustLoyaltyBalanceRequest>()
-                val updated = loyaltyService.adjustLoyaltyBalance(req.copy(customerId = id))
+                val updated = loyaltyService.adjustLoyaltyBalance(req.copy(customerId = id, userId = call.access?.user?.id ?: req.userId))
                 broadcastEventJson("customer.loyalty.adjusted", jsonConfig.encodeToString(updated))
                 broadcastEventJson("customer.updated", jsonConfig.encodeToString(updated))
                 call.respond(updated)
@@ -672,27 +830,42 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                     endDate = endDate,
                     folio = folio,
                     status = status,
-                    limit = limit
+                    limit = limit,
+                    ownerId = call.access.ownSalesFilter()
                 )
                 call.respond(sales)
             }
 
             post("/sales") {
                 val req = call.receive<CreateSaleRequest>()
-                val sale = salesService.completeSale(req)
+                if (req.lines.any { it.manualPriceCents != null }) {
+                    call.requireDesktopAccess(identityService, roles).require("sales.price.manual")
+                }
+                call.access?.checkSale(req)
+                val sale = salesService.completeSale(req, verifyOperator = call.access != null, drawerApproval = drawerApproval(call))
                 broadcastEventJson("sale.completed", jsonConfig.encodeToString(sale))
                 call.respond(HttpStatusCode.Created, sale)
             }
 
             get("/sales/{id}") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de venta requerido")
-                call.respond(salesService.getSaleById(id))
+                call.respond(salesService.getSaleById(id, call.access.ownSalesFilter()))
             }
 
             post("/sales/{id}/cancel") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de venta requerido")
                 val req = call.receive<CancelSaleRequest>()
-                val cancelled = salesService.cancelSale(id, req)
+                val actor = call.access
+                val approver = if (actor == null) req.authorizedByUserId else {
+                    val authorization = call.request.headers["X-Nexus-Action-Approval"]
+                    if (authorization == null && "transactions.cancel" in actor.permissions) actor.user.id
+                    else {
+                        pinAttempts.check("approval:${call.request.local.remoteAddress}")
+                        authorization?.let { identityService.authorizePermissionPin(it, "transactions.cancel") }
+                            ?: throw ForbiddenException("Se requiere un PIN autorizado para cancelar esta venta.")
+                    }
+                }
+                val cancelled = salesService.cancelSale(id, req.copy(authorizedByUserId = approver), actor?.user?.id, actor.ownSalesFilter())
                 broadcastEventJson("sale.cancelled", jsonConfig.encodeToString(cancelled))
                 call.respond(cancelled)
             }
@@ -700,14 +873,15 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             post("/sales/{id}/refund") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de venta requerido")
                 val req = call.receive<CreateSaleRefundRequest>()
-                val refund = salesService.refundSale(id, req)
+                call.access?.checkActor(req.cashierUserId)
+                val refund = salesService.refundSale(id, req, verifyOperator = call.access != null, ownerId = call.access.ownSalesFilter())
                 broadcastEventJson("sale.refunded", jsonConfig.encodeToString(refund))
                 call.respond(HttpStatusCode.Created, refund)
             }
 
             get("/sales/{id}/refunds") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de venta requerido")
-                call.respond(salesService.getRefundsBySaleId(id))
+                call.respond(salesService.getRefundsBySaleId(id, call.access.ownSalesFilter()))
             }
 
             route("/purchases") {
@@ -716,12 +890,12 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 }
                 post("/suppliers") {
                     val req = call.receive<PurchaseAuthorization<SaveSupplierRequest>>()
-                    requireSupervisor(req.pin, "PURCHASES")
+                    requireSupervisor(req.pin, "SUPPLIER_EDIT")
                     call.respond(HttpStatusCode.Created, purchaseService.saveSupplier(null, req.data))
                 }
                 put("/suppliers/{id}") {
                     val req = call.receive<PurchaseAuthorization<SaveSupplierRequest>>()
-                    requireSupervisor(req.pin, "PURCHASES")
+                    requireSupervisor(req.pin, "SUPPLIER_EDIT")
                     val id = call.parameters["id"] ?: throw ValidationException("Indica el proveedor.")
                     call.respond(purchaseService.saveSupplier(id, req.data))
                 }
@@ -732,7 +906,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 }
                 post("/receipts") {
                     val req = call.receive<PurchaseAuthorization<ReceivePurchaseRequest>>()
-                    call.respond(HttpStatusCode.Created, purchaseService.receive(req.data, requireSupervisor(req.pin, "PURCHASES")))
+                    call.respond(HttpStatusCode.Created, purchaseService.receive(req.data, requireSupervisor(req.pin, "PURCHASE_RECEIVE")))
                 }
                 get("/receipts/{id}") {
                     val id = call.parameters["id"] ?: throw ValidationException("Indica la compra.")
@@ -741,22 +915,25 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 post("/receipts/{id}/returns") {
                     val id = call.parameters["id"] ?: throw ValidationException("Indica la compra.")
                     val req = call.receive<PurchaseAuthorization<ReturnPurchaseRequest>>()
-                    call.respond(HttpStatusCode.Created, purchaseService.returnStock(id, req.data, requireSupervisor(req.pin, "PURCHASES")))
+                    call.respond(HttpStatusCode.Created, purchaseService.returnStock(id, req.data, requireSupervisor(req.pin, "PURCHASE_RETURN")))
                 }
             }
 
             // Financial & Daily Reports
             post("/reports/sales-analysis") {
                 val request = call.receive<SalesAnalysisRequest>()
+                if (request.groupBy == mx.nexuspos.contracts.reports.SalesAnalysisGroup.CUSTOMER) call.access?.require("reports.customer")
                 requireSupervisor(request.pin, "SALES_ANALYSIS")
-                call.respond(salesAnalysis.report(request))
+                call.respond(call.access.projectSalesAnalysis(salesAnalysis.report(request)))
             }
 
             get("/reports/daily") {
                 val dateParam = call.request.queryParameters["date"]?.toLongOrNull() ?: System.currentTimeMillis()
                 val sessionParam = call.request.queryParameters["sessionId"]
                 val report = reportsService.getDailyFinancialReport(dateParam, sessionParam)
-                call.respond(report)
+                call.respond(if (call.access?.permissions?.contains("reports.margin") == false) {
+                    report.copy(totalCostCents = 0, estimatedGrossProfitCents = 0, profitMarginPercent = 0.0, estimatedCostLines = 0)
+                } else report)
             }
 
             // Parked Sales (Tickets en Espera)

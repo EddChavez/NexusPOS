@@ -37,9 +37,11 @@ fun LoginScreen(
     connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
     registerId: String = "01",
     onConfigureServerConnection: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRecoverRoot: (() -> Unit)? = null
 ) {
     val state by viewModel.uiState.collectAsState()
+    val pinLength = if (state.useRootPin) 6 else 4
 
     Box(
         modifier = modifier
@@ -147,7 +149,7 @@ fun LoginScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Ingrese su PIN de 4 dígitos",
+                        text = "Ingresa tu PIN de $pinLength dígitos",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -157,7 +159,7 @@ fun LoginScreen(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        repeat(4) { index ->
+                        repeat(pinLength) { index ->
                             val isFilled = index < state.pinInput.length
                             Box(
                                 modifier = Modifier
@@ -268,7 +270,7 @@ fun LoginScreen(
                         // Enter Button
                         Button(
                             onClick = { viewModel.submitLogin() },
-                            enabled = !state.isLoading && state.pinInput.length == 4,
+                            enabled = !state.isLoading && state.pinInput.length == pinLength,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -298,17 +300,18 @@ fun LoginScreen(
                     }
                 }
 
-                // 4. CREDENTIALS HINT FOR TESTING & KEYBOARD INFO
+                TextButton(viewModel::toggleRootPin, enabled = !state.isLoading) {
+                    Text(if (state.useRootPin) "Usar PIN de 4 dígitos" else "Usar PIN raíz")
+                }
+                if (onRecoverRoot != null) {
+                    TextButton(onRecoverRoot, enabled = !state.isLoading) { Text("Recuperar PIN raíz") }
+                }
+
+                // Keyboard shortcuts
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = "💡 PIN por defecto: 1234 (Admin) • 0000 (Cajero)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp
-                    )
                     Text(
                         text = "⌨️ Teclado físico numérico [0-9, Enter, Backspace] activo",
                         style = MaterialTheme.typography.bodySmall,

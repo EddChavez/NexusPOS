@@ -399,6 +399,8 @@ class SettingsViewModel(
                 showUserDialog = true,
                 editingUser = null,
                 userFormName = "",
+                userFormEmail = "",
+                userFormPhone = "",
                 userFormRole = "CASHIER",
                 userFormPin = "",
                 userFormError = null
@@ -414,6 +416,8 @@ class SettingsViewModel(
                 showUserDialog = true,
                 editingUser = user,
                 userFormName = user.name,
+                userFormEmail = user.email,
+                userFormPhone = user.phone,
                 userFormRole = user.role,
                 userFormPin = "",
                 userFormError = null
@@ -429,6 +433,8 @@ class SettingsViewModel(
     }
 
     fun onUserFormNameChanged(v: String) = _uiState.update { it.copy(userFormName = v) }
+    fun onUserFormEmailChanged(v: String) = _uiState.update { it.copy(userFormEmail = v.take(254)) }
+    fun onUserFormPhoneChanged(v: String) = _uiState.update { it.copy(userFormPhone = v.take(40)) }
     fun onUserFormRoleChanged(v: String) = _uiState.update { it.copy(userFormRole = v) }
     fun onUserFormPinChanged(v: String) {
         if (v.length <= 4 && v.all { it in '0'..'9' }) {
@@ -461,7 +467,7 @@ class SettingsViewModel(
         if (!_uiState.compareAndSet(s, s.copy(isSaving = true, userFormError = null))) return
         scope.launch {
             if (isCreating) {
-                val req = CreateUserRequest(name = name, role = role, pin = pin)
+                val req = CreateUserRequest(name = name, role = role, pin = pin, email = s.userFormEmail, phone = s.userFormPhone)
                 val res = apiClient.createUser(req)
                 res.onSuccess { created ->
                     _uiState.update {
@@ -475,7 +481,7 @@ class SettingsViewModel(
                 }
             } else {
                 val editing = s.editingUser!!
-                val req = UpdateUserRequest(name = name, role = role, pin = pin.ifBlank { null })
+                val req = UpdateUserRequest(name = name, role = role, pin = pin.ifBlank { null }, email = s.userFormEmail, phone = s.userFormPhone)
                 val res = apiClient.updateUser(editing.id, req)
                 res.onSuccess { updated ->
                     _uiState.update {

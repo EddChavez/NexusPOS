@@ -1,0 +1,1 @@
+ALTER TABLE sale_lines ADD COLUMN manual_price_override BOOLEAN NOT NULL DEFAULT FALSE;

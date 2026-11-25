@@ -1,5 +1,7 @@
 package mx.nexuspos.server.modules.system
 
+import mx.nexuspos.contracts.system.CommercialPreferences
+import mx.nexuspos.contracts.system.CatalogRounding
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.contracts.system.SettingsPreferencesPatch
 import mx.nexuspos.contracts.system.SystemInfoDto
@@ -29,6 +31,7 @@ class SettingsService(private val db: DatabaseFactory) {
             var whatsappBankDetails = ""
             var whatsappCustomFooter = "¡Gracias por su preferencia!"
 
+            var commerce = CommercialPreferences()
             while (rs.next()) {
                 when (rs.getString("setting_key")) {
                     "store_name" -> storeName = rs.getString("setting_value")
@@ -47,6 +50,15 @@ class SettingsService(private val db: DatabaseFactory) {
                     "whatsapp_country_code" -> whatsappCountryCode = rs.getString("setting_value")
                     "whatsapp_bank_details" -> whatsappBankDetails = rs.getString("setting_value")
                     "whatsapp_custom_footer" -> whatsappCustomFooter = rs.getString("setting_value")
+                    "quick_sale_enabled" -> commerce = commerce.copy(quickSaleEnabled = rs.getString("setting_value").toBoolean())
+                    "require_opening_fund" -> commerce = commerce.copy(requireOpeningFund = rs.getString("setting_value").toBoolean())
+                    "credit_sales_enabled" -> commerce = commerce.copy(creditSalesEnabled = rs.getString("setting_value").toBoolean())
+                    "credit_payment_methods" -> commerce = commerce.copy(creditPaymentMethods = rs.getString("setting_value").split(',').toSet())
+                    "default_vat_percent" -> commerce = commerce.copy(defaultVatPercent = rs.getString("setting_value").toIntOrNull() ?: 0)
+                    "catalog_rounding" -> commerce = commerce.copy(catalogRounding = CatalogRounding.entries.firstOrNull { it.name == rs.getString("setting_value") } ?: CatalogRounding.NONE)
+                    "cash_drawer_limit_cents" -> commerce = commerce.copy(cashDrawerLimitCents = rs.getString("setting_value").toLongOrNull())
+                    "allow_shift_handoff" -> commerce = commerce.copy(allowShiftHandoff = rs.getString("setting_value").toBoolean())
+                    "compatible_barcode" -> commerce = commerce.copy(matchBarcodeWithoutLeadingZeros = rs.getString("setting_value").toBoolean())
                 }
             }
             rs.close()
@@ -68,9 +80,32 @@ class SettingsService(private val db: DatabaseFactory) {
                 loyaltyMinRedeemCents = loyaltyMinRedeemCents,
                 whatsappCountryCode = whatsappCountryCode,
                 whatsappBankDetails = whatsappBankDetails,
-                whatsappCustomFooter = whatsappCustomFooter
+                whatsappCustomFooter = whatsappCustomFooter,
+                commerce = commerce
             )
         }
+    }
+
+    fun updateCommerce(preferences: CommercialPreferences): CommercialPreferences {
+        if (preferences.defaultVatPercent !in setOf(0, 8, 16)) throw ValidationException("Selecciona IVA de 0, 8 o 16%.")
+        if ((preferences.cashDrawerLimitCents ?: 1) <= 0) {
+            throw ValidationException("El límite de efectivo debe ser mayor a cero.")
+        }
+        val methods = preferences.creditPaymentMethods
+        if (methods.isEmpty() || !setOf("CASH", "TRANSFER", "CARD").containsAll(methods)) {
+            throw ValidationException("Habilita al menos un método válido para abonos.")
+        }
+        return updateSettingValues(mapOf(
+            "quick_sale_enabled" to preferences.quickSaleEnabled.toString(),
+            "require_opening_fund" to preferences.requireOpeningFund.toString(),
+            "credit_sales_enabled" to preferences.creditSalesEnabled.toString(),
+            "credit_payment_methods" to methods.sorted().joinToString(","),
+            "default_vat_percent" to preferences.defaultVatPercent.toString(),
+            "catalog_rounding" to preferences.catalogRounding.name,
+            "compatible_barcode" to preferences.matchBarcodeWithoutLeadingZeros.toString(),
+            "allow_shift_handoff" to preferences.allowShiftHandoff.toString(),
+            "cash_drawer_limit_cents" to (preferences.cashDrawerLimitCents?.toString() ?: "")
+        )).commerce
     }
 
     fun updateSettings(settings: SettingsDto): SettingsDto = updateSettingValues(

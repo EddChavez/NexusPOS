@@ -36,6 +36,9 @@ fun SalesScreen(
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
+    if (state.barcodeChoices.isNotEmpty()) {
+        BarcodeChoicesDialog(state.barcodeChoices, viewModel::confirmBarcodeChoice)
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(

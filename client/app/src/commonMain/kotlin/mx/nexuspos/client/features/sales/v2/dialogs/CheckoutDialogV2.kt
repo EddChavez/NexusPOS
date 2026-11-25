@@ -1,6 +1,9 @@
 package mx.nexuspos.client.features.sales.v2.dialogs
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -35,11 +38,16 @@ fun CheckoutDialogV2(
     errorMessage: String?,
     onRequestSelectCustomer: () -> Unit,
     onConfirmCheckout: (List<SalePaymentRequest>) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    allowCashLimitApproval: Boolean = false,
+    onConfirmWithApproval: ((List<SalePaymentRequest>, String?) -> Unit)? = null,
+    allowedMethods: Set<CheckoutPaymentMethod> = CheckoutPaymentMethod.entries.toSet(),
+    allowMixedPayments: Boolean = true
 ) {
+    var approvalPin by remember { mutableStateOf("") }
     var payments by remember { mutableStateOf(emptyList<SalePaymentRequest>()) }
     var paymentCustomerId by remember { mutableStateOf(selectedCustomer?.id) }
-    var method by remember { mutableStateOf(CheckoutPaymentMethod.CASH) }
+    var method by remember(allowedMethods) { mutableStateOf(allowedMethods.firstOrNull() ?: CheckoutPaymentMethod.CASH) }
     var inputs by remember { mutableStateOf(emptyMap<CheckoutPaymentMethod, CheckoutPaymentInput>()) }
 
     LaunchedEffect(selectedCustomer?.id) {
@@ -50,7 +58,7 @@ fun CheckoutDialogV2(
         }
     }
     LaunchedEffect(isOffline) {
-        if (isOffline && method.requiresCustomer) method = CheckoutPaymentMethod.CASH
+        if (isOffline && method.requiresCustomer) method = allowedMethods.firstOrNull { !it.requiresCustomer } ?: method
     }
 
     val paidCents = payments.sumOf { it.amountCents }
@@ -62,14 +70,22 @@ fun CheckoutDialogV2(
             (paymentCustomerId != selectedCustomer?.id ||
                 payment.amountCents > payment.checkoutMethod().availableCents(selectedCustomer, isOffline))
     }
-    val canConfirm = !isSubmitting && payments.isNotEmpty() && paidCents == total.cents && !invalidCustomerPayment
-    val canPayExactCash = !isSubmitting && payments.isEmpty() && total.cents >= 0L
+    val allowedCombination = payments.all { it.checkoutMethod() in allowedMethods } &&
+        (allowMixedPayments || payments.map { it.method }.distinct().size <= 1)
+    val canConfirm = !isSubmitting && payments.isNotEmpty() && paidCents == total.cents && !invalidCustomerPayment && allowedCombination
+    val canPayExactCash = !isSubmitting && CheckoutPaymentMethod.CASH in allowedMethods && payments.isEmpty() && total.cents >= 0L
     val windowSize = LocalWindowInfo.current.containerDpSize
     val width = if (windowSize.width > 0.dp) (windowSize.width - 32.dp).coerceIn(1.dp, 960.dp) else 960.dp
     val height = if (windowSize.height > 0.dp) (windowSize.height - 32.dp).coerceIn(1.dp, 640.dp) else 640.dp
     val wide = width >= 850.dp
 
-    val confirm: () -> Unit = { if (canConfirm) onConfirmCheckout(payments) }
+    fun submit(payments: List<SalePaymentRequest>) {
+        val pin = approvalPin.ifBlank { null }
+        approvalPin = ""
+        if (onConfirmWithApproval != null) onConfirmWithApproval(payments, pin)
+        else onConfirmCheckout(payments)
+    }
+    val confirm: () -> Unit = { if (canConfirm) submit(payments) }
     val dismiss: () -> Unit = { if (!isSubmitting) onDismiss() }
 
     Dialog(dismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -115,12 +131,12 @@ fun CheckoutDialogV2(
                         availableCents = available,
                         methodAlreadyAdded = methodAlreadyAdded,
                         customer = selectedCustomer,
-                        enabled = !isSubmitting,
+                        enabled = !isSubmitting && method in allowedMethods,
                         onRequestSelectCustomer = onRequestSelectCustomer,
                         onAddPayment = { payment ->
                             val outstanding = total.cents - payments.sumOf { it.amountCents }
                             val alreadyApplied = method.requiresCustomer && payments.any { it.method == payment.method }
-                            if (payment.amountCents <= outstanding && !alreadyApplied) {
+                            if (payment.amountCents <= outstanding && !alreadyApplied && (allowMixedPayments || payments.all { it.method == payment.method })) {
                                 payments = payments + payment
                                 inputs = emptyMap()
                             }
@@ -135,7 +151,7 @@ fun CheckoutDialogV2(
                 }
 
                 if (remainingCents > 0L) {
-                    CheckoutMethodPicker(method, { method = it }, isOffline, !isSubmitting)
+                    CheckoutMethodPicker(method, { method = it }, isOffline, !isSubmitting, allowedMethods)
                 }
 
                 if (remainingCents == 0L && payments.isNotEmpty()) {
@@ -155,7 +171,9 @@ fun CheckoutDialogV2(
                     }
                 }
 
-                val feedback = errorMessage ?: if (invalidCustomerPayment) {
+                val feedback = errorMessage ?: if (!allowedCombination || allowedMethods.isEmpty()) {
+                    "Tu rol no permite las formas de pago seleccionadas."
+                } else if (invalidCustomerPayment) {
                     "El saldo disponible cambió. Retira el pago con crédito o monedero y vuelve a capturarlo."
                 } else null
                 if (feedback != null) {
@@ -164,13 +182,22 @@ fun CheckoutDialogV2(
                     }
                 }
 
+                if (allowCashLimitApproval && !isOffline && (payments.any { it.method == "CASH" } || payments.isEmpty())) {
+                    OutlinedTextField(
+                        approvalPin, { approvalPin = it.filter { digit -> digit in '0'..'9' }.take(6) },
+                        label = { Text("PIN de autorización si se supera el límite de efectivo") },
+                        singleLine = true, enabled = !isSubmitting, visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 HorizontalDivider()
                 CheckoutFooter(
                     canPayExactCash = canPayExactCash,
                     canConfirm = canConfirm,
                     isSubmitting = isSubmitting,
                     onPayExactCash = {
-                        if (canPayExactCash) onConfirmCheckout(
+                        if (canPayExactCash) submit(
                             listOf(SalePaymentRequest("CASH", total.cents, total.cents))
                         )
                     },

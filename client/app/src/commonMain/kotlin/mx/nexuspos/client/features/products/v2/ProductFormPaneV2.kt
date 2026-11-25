@@ -14,6 +14,7 @@ import mx.nexuspos.client.features.sales.v2.dialogs.checkoutAmountText
 import mx.nexuspos.client.features.sales.v2.dialogs.parseCheckoutCents
 import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.system.CommercialPreferences
 import mx.nexuspos.core.ProductUnit
 import mx.nexuspos.core.Quantity
 import kotlin.math.roundToLong
@@ -39,6 +40,7 @@ internal data class ProductDraft(
 @Composable
 internal fun ProductFormPaneV2(
     product: ProductDto?,
+    loadPreferences: suspend () -> Result<CommercialPreferences>,
     departments: List<DepartmentDto>,
     busy: Boolean,
     serverError: String?,
@@ -55,6 +57,14 @@ internal fun ProductFormPaneV2(
     var price by remember { mutableStateOf(primary?.priceCents?.let(::checkoutAmountText).orEmpty()) }
     var cost by remember { mutableStateOf(product?.costCents?.let(::checkoutAmountText).orEmpty()) }
     var tax by remember { mutableStateOf(product?.taxRate ?: 0.0) }
+    var taxChanged by remember { mutableStateOf(false) }
+    var preferences by remember { mutableStateOf(CommercialPreferences()) }
+    LaunchedEffect(product?.id) {
+        if (product == null) loadPreferences().onSuccess {
+            preferences = it
+            if (!taxChanged) tax = it.defaultVatPercent / 100.0
+        }
+    }
     var tracked by remember { mutableStateOf(product?.usesInventory ?: true) }
     var initial by remember { mutableStateOf("") }
     var minimum by remember { mutableStateOf(stockInput(product?.minStockMillis ?: 0)) }
@@ -130,11 +140,20 @@ internal fun ProductFormPaneV2(
                 NumericProductField(price, { price = it; error = null }, "Precio público", busy, Modifier.weight(1f), currency = true)
                 NumericProductField(cost, { cost = it; error = null }, "Costo", busy, Modifier.weight(1f), currency = true)
             }
+            if (product == null) {
+                parseCheckoutCents(price)?.takeIf { it in 0..(Long.MAX_VALUE - 100) }?.let { amount ->
+                    val suggested = preferences.catalogRounding.apply(amount)
+                    if (suggested != amount) TextButton(
+                        onClick = { price = checkoutAmountText(suggested) },
+                        enabled = !busy
+                    ) { Text("Usar precio redondeado · ${checkoutAmountText(suggested)}") }
+                }
+            }
             Text("IVA", style = MaterialTheme.typography.titleSmall)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (listOf(0.0, 0.16) + listOfNotNull(product?.taxRate)).distinct().sorted().forEach { rate ->
+                (listOf(0.0, 0.08, 0.16) + listOfNotNull(product?.taxRate)).distinct().sorted().forEach { rate ->
                     FilterChip(
-                        selected = tax == rate, onClick = { tax = rate }, enabled = !busy,
+                        selected = tax == rate, onClick = { tax = rate; taxChanged = true }, enabled = !busy,
                         label = { Text(productTaxLabel(rate)) }
                     )
                 }

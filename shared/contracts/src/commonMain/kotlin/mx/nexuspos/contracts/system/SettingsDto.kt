@@ -19,7 +19,8 @@ data class SettingsDto(
     val loyaltyMinRedeemCents: Long = 0L,
     val whatsappCountryCode: String = "52",
     val whatsappBankDetails: String = "",
-    val whatsappCustomFooter: String = "¡Gracias por su preferencia!"
+    val whatsappCustomFooter: String = "¡Gracias por su preferencia!",
+    val commerce: CommercialPreferences = CommercialPreferences()
 )
 
 @Serializable

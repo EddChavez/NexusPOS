@@ -33,7 +33,10 @@ data class CartLine(
     val publicPriceCents: Long? = null,
     val priceTiers: List<PresentationPriceTier> = emptyList(),
     val fixedDiscountCents: Long? = null,
-    val kitComponents: List<KitComponent>? = null
+    val kitComponents: List<KitComponent>? = null,
+    val listPrices: Map<Int, Long> = emptyMap(),
+    val priceListLevel: Int? = null,
+    val manualPriceCents: Long? = null
 )
 
 /**
@@ -61,12 +64,18 @@ data class SalesUiState(
     val discount: Money = Money.ZERO,
     val connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
     val activeSession: CashSessionSummary? = null,
+    val allowShiftHandoff: Boolean = false,
+    val isHandingOffShift: Boolean = false,
+    val cashDrawerLimitEnabled: Boolean = false,
+    val isCashMovementSubmitting: Boolean = false,
+    val cashMovementError: String? = null,
     val activeCashierName: String = "Cajero Principal",
     val activeCashierId: String = "usr-cajero",
     val activeCashierRole: String = "CASHIER",
     val activeCashierPermissions: List<String> = emptyList(),
     val selectedCustomer: CustomerDto? = null,
     val scannerInput: String = "",
+    val barcodeChoices: List<Pair<ProductDto, ProductPresentationDto>> = emptyList(),
     val scannerStatus: ScannerStatus = ScannerStatus.READY,
     val selectedCartLineId: String? = null,
     val isWeighingProduct: Pair<ProductDto, ProductPresentationDto>? = null,

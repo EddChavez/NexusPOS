@@ -8,7 +8,8 @@ data class AuthUiState(
     val currentUser: LoginResponse? = null,
     val pinInput: String = "",
     val isLoading: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val useRootPin: Boolean = false
 )
 
 sealed interface SupervisorAction {
@@ -33,5 +34,6 @@ data class SupervisorAuthState(
     val targetAction: SupervisorAction? = null,
     val pinInput: String = "",
     val isLoading: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val useRootPin: Boolean = false
 )

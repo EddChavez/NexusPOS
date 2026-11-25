@@ -109,7 +109,7 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
                 Text("Ingresa el PIN de un encargado para abrir el historial.")
                 OutlinedTextField(
                     value = pin,
-                    onValueChange = { value -> if (value.length <= 4 && value.all { it in '0'..'9' }) pin = value },
+                    onValueChange = { value -> if (value.length <= 6 && value.all { it in '0'..'9' }) pin = value },
                     label = { Text("PIN de encargado") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     visualTransformation = PasswordVisualTransformation(),
@@ -117,7 +117,7 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
                     enabled = !busy,
                     modifier = Modifier.width(220.dp)
                 )
-                Button(onClick = { search(filters, listOf(null)) }, enabled = pin.length == 4 && !busy) {
+                Button(onClick = { search(filters, listOf(null)) }, enabled = pin.length in setOf(4, 6) && !busy) {
                     Text("Abrir historial")
                 }
             }

@@ -31,15 +31,20 @@ class AuthViewModel(
     // ==========================================
 
     fun onDigit(digit: Char) {
-        if (!digit.isDigit()) return
-        val current = _uiState.value.pinInput
-        if (current.length < 4) {
+        if (digit !in '0'..'9') return
+        val state = _uiState.value
+        if (state.isLoading) return
+        val current = state.pinInput
+        val max = if (state.useRootPin) 6 else 4
+        if (current.length < max) {
             val updated = current + digit
             _uiState.update { it.copy(pinInput = updated, errorMessage = null) }
-            if (updated.length == 4) {
-                submitLogin()
-            }
+            if (updated.length == max) submitLogin()
         }
+    }
+
+    fun toggleRootPin() {
+        _uiState.update { if (it.isLoading) it else it.copy(useRootPin = !it.useRootPin, pinInput = "", errorMessage = null) }
     }
 
     fun onBackspace() {
@@ -55,13 +60,14 @@ class AuthViewModel(
 
     fun submitLogin() {
         val pin = _uiState.value.pinInput
-        if (pin.length < 4 || _uiState.value.isLoading) return
+        if (pin.length !in setOf(4, 6) || _uiState.value.isLoading) return
 
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
         scope.launch {
             val res = apiClient.login(pin)
             res.onSuccess { loginResponse ->
+                apiClient.sessionToken = loginResponse.token
                 _uiState.update {
                     it.copy(
                         isAuthenticated = true,
@@ -85,6 +91,10 @@ class AuthViewModel(
     }
 
     fun lockTerminal() {
+        val token = apiClient.sessionToken
+        val serverUrl = apiClient.baseUrl
+        apiClient.sessionToken = null
+        if (token != null) scope.launch { apiClient.closeDesktopSession(token, serverUrl) }
         _uiState.update {
             it.copy(
                 isAuthenticated = false,
@@ -96,6 +106,7 @@ class AuthViewModel(
     }
 
     fun unlockWithUser(user: LoginResponse) {
+        apiClient.sessionToken = user.token
         _uiState.update {
             it.copy(
                 isAuthenticated = true,
@@ -125,15 +136,20 @@ class AuthViewModel(
     }
 
     fun onSupervisorDigit(digit: Char) {
-        if (!digit.isDigit()) return
-        val current = _supervisorState.value.pinInput
-        if (current.length < 4) {
+        if (digit !in '0'..'9') return
+        val state = _supervisorState.value
+        if (state.isLoading) return
+        val current = state.pinInput
+        val max = if (state.useRootPin) 6 else 4
+        if (current.length < max) {
             val updated = current + digit
             _supervisorState.update { it.copy(pinInput = updated, errorMessage = null) }
-            if (updated.length == 4) {
-                submitSupervisorElevation()
-            }
+            if (updated.length == max) submitSupervisorElevation()
         }
+    }
+
+    fun toggleSupervisorRootPin() {
+        _supervisorState.update { if (it.isLoading) it else it.copy(useRootPin = !it.useRootPin, pinInput = "", errorMessage = null) }
     }
 
     fun onSupervisorBackspace() {
@@ -155,7 +171,7 @@ class AuthViewModel(
         val state = _supervisorState.value
         val pin = state.pinInput
         val target = state.targetAction ?: return
-        if (pin.length < 4 || state.isLoading) return
+        if (pin.length !in setOf(4, 6) || state.isLoading) return
 
         _supervisorState.update { it.copy(isLoading = true, errorMessage = null) }
 

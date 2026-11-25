@@ -34,9 +34,11 @@ fun SupervisorAuthDialog(
     onDigit: (Char) -> Unit,
     onBackspace: () -> Unit,
     onSubmit: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onToggleRootPin: () -> Unit = {}
 ) {
     if (!state.isVisible) return
+    val pinLength = if (state.useRootPin) 6 else 4
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -152,13 +154,17 @@ fun SupervisorAuthDialog(
                     }
                 }
 
+                TextButton(onToggleRootPin, enabled = !state.isLoading) {
+                    Text(if (state.useRootPin) "Usar PIN de 4 dígitos" else "Usar PIN raíz")
+                }
+
                 // PIN display dots
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(vertical = 4.dp)
                 ) {
-                    repeat(4) { index ->
+                    repeat(pinLength) { index ->
                         val isFilled = index < state.pinInput.length
                         Box(
                             modifier = Modifier
@@ -259,7 +265,7 @@ fun SupervisorAuthDialog(
 
                         Button(
                             onClick = onSubmit,
-                            enabled = !state.isLoading && state.pinInput.length == 4,
+                            enabled = !state.isLoading && state.pinInput.length == pinLength,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFFD97706),
                                 contentColor = Color.White

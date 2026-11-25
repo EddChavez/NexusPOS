@@ -3,15 +3,18 @@ package mx.nexuspos.server.modules.identity
 import mx.nexuspos.contracts.identity.*
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.NotFoundException
+import mx.nexuspos.server.platform.ForbiddenException
+import mx.nexuspos.server.modules.setup.revokeUserSessions
+import mx.nexuspos.server.modules.permissions.*
 import mx.nexuspos.server.platform.Security
 import mx.nexuspos.server.platform.UnauthorizedException
 import mx.nexuspos.server.platform.ValidationException
 import java.util.UUID
 
-class IdentityService(private val db: DatabaseFactory) {
+class IdentityService(private val db: DatabaseFactory, seedDefaults: Boolean = true) {
 
     init {
-        seedInitialUsers()
+        if (seedDefaults) seedInitialUsers()
     }
 
     private fun seedInitialUsers() {
@@ -50,7 +53,7 @@ class IdentityService(private val db: DatabaseFactory) {
     fun login(request: LoginRequest): LoginResponse {
         return db.inTransaction { conn ->
             val stmt = conn.prepareStatement(
-                "SELECT id, name, pin_hash, role FROM users WHERE is_active = TRUE"
+                "SELECT id, name, pin_hash, role FROM users WHERE is_active = TRUE FOR UPDATE"
             )
             val rs = stmt.executeQuery()
             var matchedUser: Triple<String, String, String>? = null // id, name, role
@@ -73,8 +76,18 @@ class IdentityService(private val db: DatabaseFactory) {
             }
 
             val (id, name, role) = matchedUser
-            val permissions = getPermissionsForRole(role)
+            val permissions = (getPermissionsForRole(role) + permissionsForRole(conn, role)).distinct()
             val token = Security.generateSecureToken()
+            conn.prepareStatement("DELETE FROM desktop_sessions WHERE expires_at <= ?").use {
+                it.setLong(1, System.currentTimeMillis())
+                it.executeUpdate()
+            }
+            conn.prepareStatement("INSERT INTO desktop_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)").use {
+                it.setString(1, Security.hashToken(token))
+                it.setString(2, id)
+                it.setLong(3, System.currentTimeMillis() + 12 * 60 * 60_000L)
+                it.executeUpdate()
+            }
 
             LoginResponse(
                 token = token,
@@ -83,6 +96,51 @@ class IdentityService(private val db: DatabaseFactory) {
                 role = role,
                 permissions = permissions
             )
+        }
+    }
+
+    fun authenticate(token: String?): UserDto {
+        if (token.isNullOrBlank() || token.length != 73) throw UnauthorizedException("Inicia sesión en esta terminal.")
+        return db.inTransaction { connection ->
+            connection.prepareStatement(
+                """
+                SELECT u.id, u.name, u.role, u.is_active, u.is_root
+                FROM desktop_sessions s JOIN users u ON u.id = s.user_id
+                WHERE s.token_hash = ? AND s.expires_at > ? AND u.is_active
+                """.trimIndent()
+            ).use {
+                it.setString(1, Security.hashToken(token))
+                it.setLong(2, System.currentTimeMillis())
+                it.executeQuery().use { row ->
+                    if (!row.next()) throw UnauthorizedException("La sesión terminó. Ingresa tu PIN.")
+                    UserDto(row.getString("id"), row.getString("name"), row.getString("role"), true, row.getBoolean("is_root"))
+                }
+            }
+        }
+    }
+
+    fun logout(token: String?) {
+        if (token.isNullOrBlank()) return
+        db.inTransaction { connection ->
+            connection.prepareStatement("DELETE FROM desktop_sessions WHERE token_hash = ?").use {
+                it.setString(1, Security.hashToken(token))
+                it.executeUpdate()
+            }
+        }
+    }
+
+    internal fun authorizePermissionPin(pin: String, permission: String): String? {
+        if (!pin.matches(Regex("[0-9]{4}([0-9]{2})?"))) return null
+        return db.inTransaction { connection ->
+            connection.prepareStatement("SELECT id, pin_hash, role FROM users WHERE is_active").use {
+                it.executeQuery().use { rows ->
+                    while (rows.next()) {
+                        if (permission in permissionsForRole(connection, rows.getString("role")) &&
+                            Security.verifyPin(pin, rows.getString("pin_hash"))) return@inTransaction rows.getString("id")
+                    }
+                    null
+                }
+            }
         }
     }
 
@@ -198,20 +256,21 @@ class IdentityService(private val db: DatabaseFactory) {
                 "customers.credit.view", "customers.credit.configure", "customers.credit.charge", "customers.credit.payment", "customers.credit.reverse",
                 "customers.statement.view", "customers.statement.print", "customers.reports.view"
             )
-            else -> listOf(
+            "CASHIER" -> listOf(
                 "SELL", "CREDIT", "OPEN_CLOSE_SESSION",
                 "customers.view", "customers.credit.view", "customers.credit.charge", "customers.credit.payment",
                 "customers.statement.view", "customers.statement.print"
             )
+            else -> emptyList()
         }
     }
 
     fun getAllUsers(includeInactive: Boolean = true): List<UserDto> {
         return db.inTransaction { conn ->
             val sql = if (includeInactive) {
-                "SELECT id, name, role, is_active FROM users ORDER BY is_active DESC, role ASC, name ASC"
+                "SELECT id, name, role, is_active, is_root, email, phone FROM users ORDER BY is_active DESC, role ASC, name ASC"
             } else {
-                "SELECT id, name, role, is_active FROM users WHERE is_active = TRUE ORDER BY role ASC, name ASC"
+                "SELECT id, name, role, is_active, is_root, email, phone FROM users WHERE is_active = TRUE ORDER BY role ASC, name ASC"
             }
             val stmt = conn.prepareStatement(sql)
             val rs = stmt.executeQuery()
@@ -222,7 +281,10 @@ class IdentityService(private val db: DatabaseFactory) {
                         id = rs.getString("id"),
                         name = rs.getString("name"),
                         role = rs.getString("role"),
-                        isActive = rs.getBoolean("is_active")
+                        isActive = rs.getBoolean("is_active"),
+                        isRoot = rs.getBoolean("is_root"),
+                        email = rs.getString("email"),
+                        phone = rs.getString("phone")
                     )
                 )
             }
@@ -232,42 +294,50 @@ class IdentityService(private val db: DatabaseFactory) {
         }
     }
 
-    fun getUserById(id: String): UserDto {
-        return db.inTransaction { conn ->
-            val stmt = conn.prepareStatement("SELECT id, name, role, is_active FROM users WHERE id = ?")
-            stmt.setString(1, id)
-            val rs = stmt.executeQuery()
-            if (!rs.next()) {
-                rs.close()
-                stmt.close()
-                throw NotFoundException("Usuario no encontrado")
+    fun getUserById(id: String): UserDto = db.inTransaction { readUser(it, id) }
+
+    private fun readUser(connection: java.sql.Connection, id: String): UserDto =
+        connection.prepareStatement("SELECT name, role, is_active, is_root, email, phone FROM users WHERE id = ?").use {
+            it.setString(1, id)
+            it.executeQuery().use { row ->
+                if (!row.next()) throw NotFoundException("Usuario no encontrado")
+                UserDto(id, row.getString(1), row.getString(2), row.getBoolean(3), row.getBoolean(4), row.getString(5), row.getString(6))
             }
-            val user = UserDto(
-                id = rs.getString("id"),
-                name = rs.getString("name"),
-                role = rs.getString("role"),
-                isActive = rs.getBoolean("is_active")
-            )
-            rs.close()
-            stmt.close()
-            user
+        }
+
+    private fun validateUserFields(name: String, email: String, phone: String) {
+        if (name.trim().length !in 1..128 || email.trim().length > 254 || phone.trim().length > 40) {
+            throw ValidationException("Verifica nombre, correo y teléfono.")
         }
     }
 
-    fun createUser(req: CreateUserRequest): UserDto {
-        if (req.name.isBlank()) {
-            throw ValidationException("El nombre del usuario no puede estar vacío")
+    private fun verifyAssignment(connection: java.sql.Connection, role: String, actor: UserDto?, changing: Boolean = true) {
+        if (!roleExists(connection, role)) throw ValidationException("El rol seleccionado no existe.")
+        if (actor == null || !changing) return
+        val available = permissionsForRole(connection, actor.role)
+        if ("users.assign_role" !in available || !available.containsAll(permissionsForRole(connection, role))) {
+            throw ForbiddenException("No puedes asignar ese rol.")
         }
+    }
+
+    private fun verifyManagedUser(connection: java.sql.Connection, actor: UserDto?, id: String, role: String, isRoot: Boolean) {
+        if (actor == null || actor.id == id) return
+        if (isRoot || !permissionsForRole(connection, actor.role).containsAll(permissionsForRole(connection, role))) {
+            throw ForbiddenException("No puedes administrar esa cuenta.")
+        }
+    }
+
+    fun createUser(req: CreateUserRequest, actor: UserDto? = null): UserDto {
+        validateUserFields(req.name, req.email, req.phone)
         val roleUpper = req.role.uppercase().trim()
-        if (roleUpper !in listOf("CASHIER", "SUPERVISOR", "ADMIN")) {
-            throw ValidationException("Rol de usuario inválido: ${req.role}. Debe ser CASHIER, SUPERVISOR o ADMIN")
-        }
         val pin = req.pin.trim()
         if (!pin.matches(Regex("^\\d{4}$"))) {
             throw ValidationException("El PIN debe consistir exactamente de 4 dígitos numéricos")
         }
 
         return db.inTransaction { conn ->
+            lockRoles(conn)
+            verifyAssignment(conn, roleUpper, actor)
             // Validar unicidad del PIN entre usuarios activos
             val checkStmt = conn.prepareStatement("SELECT id, pin_hash FROM users WHERE is_active = TRUE")
             val checkRs = checkStmt.executeQuery()
@@ -285,12 +355,14 @@ class IdentityService(private val db: DatabaseFactory) {
             val userId = "usr-" + UUID.randomUUID().toString().take(8)
             val pinHash = Security.hashPin(pin)
             val insertStmt = conn.prepareStatement(
-                "INSERT INTO users (id, name, pin_hash, role, is_active) VALUES (?, ?, ?, ?, TRUE)"
+                "INSERT INTO users (id, name, pin_hash, role, is_active, email, phone) VALUES (?, ?, ?, ?, TRUE, ?, ?)"
             )
             insertStmt.setString(1, userId)
             insertStmt.setString(2, req.name.trim())
             insertStmt.setString(3, pinHash)
             insertStmt.setString(4, roleUpper)
+            insertStmt.setString(5, req.email.trim())
+            insertStmt.setString(6, req.phone.trim())
             insertStmt.executeUpdate()
             insertStmt.close()
 
@@ -298,22 +370,19 @@ class IdentityService(private val db: DatabaseFactory) {
                 id = userId,
                 name = req.name.trim(),
                 role = roleUpper,
-                isActive = true
+                isActive = true,
+                email = req.email.trim(),
+                phone = req.phone.trim()
             )
         }
     }
 
-    fun updateUser(id: String, req: UpdateUserRequest): UserDto {
-        if (req.name.isBlank()) {
-            throw ValidationException("El nombre del usuario no puede estar vacío")
-        }
+    fun updateUser(id: String, req: UpdateUserRequest, actor: UserDto? = null): UserDto {
+        validateUserFields(req.name, req.email.orEmpty(), req.phone.orEmpty())
         val roleUpper = req.role.uppercase().trim()
-        if (roleUpper !in listOf("CASHIER", "SUPERVISOR", "ADMIN")) {
-            throw ValidationException("Rol de usuario inválido: ${req.role}")
-        }
-
         return db.inTransaction { conn ->
-            val userStmt = conn.prepareStatement("SELECT id, role, is_active FROM users WHERE id = ?")
+            lockRoles(conn)
+            val userStmt = conn.prepareStatement("SELECT id, role, is_active, is_root FROM users WHERE id = ? FOR UPDATE")
             userStmt.setString(1, id)
             val userRs = userStmt.executeQuery()
             if (!userRs.next()) {
@@ -323,8 +392,15 @@ class IdentityService(private val db: DatabaseFactory) {
             }
             val currentRole = userRs.getString("role")
             val isActive = userRs.getBoolean("is_active")
+            val isRoot = userRs.getBoolean("is_root")
             userRs.close()
             userStmt.close()
+
+            verifyAssignment(conn, roleUpper, actor, changing = currentRole != roleUpper)
+            verifyManagedUser(conn, actor, id, currentRole, isRoot)
+            if (isRoot && (roleUpper != "ADMIN" || !req.pin.isNullOrBlank())) {
+                throw ForbiddenException("El administrador raíz cambia su PIN mediante recuperación del servidor.")
+            }
 
             // Si se intenta cambiar el rol de ADMIN a otro, verificar que no sea el único ADMIN activo
             if (currentRole == "ADMIN" && roleUpper != "ADMIN" && isActive) {
@@ -376,18 +452,21 @@ class IdentityService(private val db: DatabaseFactory) {
                 updateStmt.close()
             }
 
-            UserDto(
-                id = id,
-                name = req.name.trim(),
-                role = roleUpper,
-                isActive = isActive
-            )
+            conn.prepareStatement("UPDATE users SET email = COALESCE(?, email), phone = COALESCE(?, phone) WHERE id = ?").use {
+                it.setString(1, req.email?.trim())
+                it.setString(2, req.phone?.trim())
+                it.setString(3, id)
+                it.executeUpdate()
+            }
+            if (currentRole != roleUpper || !newPin.isNullOrBlank()) revokeUserSessions(conn, id)
+            if (actor != null) writeAudit(conn, "users.update", actor.id, id)
+            readUser(conn, id)
         }
     }
 
-    fun deactivateUser(id: String): UserDto {
+    fun deactivateUser(id: String, actor: UserDto? = null): UserDto {
         return db.inTransaction { conn ->
-            val userStmt = conn.prepareStatement("SELECT id, name, role, is_active FROM users WHERE id = ?")
+            val userStmt = conn.prepareStatement("SELECT id, name, role, is_active, is_root FROM users WHERE id = ? FOR UPDATE")
             userStmt.setString(1, id)
             val userRs = userStmt.executeQuery()
             if (!userRs.next()) {
@@ -398,9 +477,12 @@ class IdentityService(private val db: DatabaseFactory) {
             val name = userRs.getString("name")
             val role = userRs.getString("role")
             val isActive = userRs.getBoolean("is_active")
+            val isRoot = userRs.getBoolean("is_root")
             userRs.close()
             userStmt.close()
 
+            if (isRoot) throw ForbiddenException("No se puede desactivar al administrador raíz.")
+            verifyManagedUser(conn, actor, id, role, isRoot)
             if (!isActive) {
                 return@inTransaction UserDto(id = id, name = name, role = role, isActive = false)
             }
@@ -423,11 +505,13 @@ class IdentityService(private val db: DatabaseFactory) {
             updateStmt.executeUpdate()
             updateStmt.close()
 
-            UserDto(id = id, name = name, role = role, isActive = false)
+            revokeUserSessions(conn, id)
+            if (actor != null) writeAudit(conn, "users.deactivate", actor.id, id)
+            readUser(conn, id)
         }
     }
 
-    fun reactivateUser(id: String): UserDto {
+    fun reactivateUser(id: String, actor: UserDto? = null): UserDto {
         return db.inTransaction { conn ->
             val userStmt = conn.prepareStatement("SELECT id, name, role, pin_hash, is_active FROM users WHERE id = ?")
             userStmt.setString(1, id)
@@ -443,16 +527,16 @@ class IdentityService(private val db: DatabaseFactory) {
             userRs.close()
             userStmt.close()
 
-            if (isActive) {
-                return@inTransaction UserDto(id = id, name = name, role = role, isActive = true)
-            }
+            verifyManagedUser(conn, actor, id, role, isRoot = false)
+            if (isActive) return@inTransaction readUser(conn, id)
 
             val updateStmt = conn.prepareStatement("UPDATE users SET is_active = TRUE WHERE id = ?")
             updateStmt.setString(1, id)
             updateStmt.executeUpdate()
             updateStmt.close()
 
-            UserDto(id = id, name = name, role = role, isActive = true)
+            if (actor != null) writeAudit(conn, "users.reactivate", actor.id, id)
+            readUser(conn, id)
         }
     }
 }

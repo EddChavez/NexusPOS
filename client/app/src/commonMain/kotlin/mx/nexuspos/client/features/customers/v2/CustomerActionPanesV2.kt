@@ -21,6 +21,7 @@ internal fun CustomerPaymentPaneV2(
     customer: CustomerDto,
     full: Boolean,
     cashSessionReady: Boolean,
+    allowedMethods: Set<String> = setOf("CASH", "CARD", "TRANSFER"),
     busy: Boolean,
     error: String?,
     onBack: () -> Unit,
@@ -29,7 +30,7 @@ internal fun CustomerPaymentPaneV2(
     val debt = customer.currentBalanceCents
     var input by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
-    var method by remember { mutableStateOf("CASH") }
+    var method by remember(allowedMethods) { mutableStateOf(allowedMethods.firstOrNull().orEmpty()) }
     val amount = if (full) debt else parseCheckoutCents(input)
     val valid = amount != null && amount in 1L..debt
     val drawerMessage = if (!cashSessionReady) "Abre un turno de caja para registrar el abono." else null
@@ -82,7 +83,7 @@ internal fun CustomerPaymentPaneV2(
         }
         Text("Método de pago", style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("CASH" to "Efectivo", "CARD" to "Tarjeta", "TRANSFER" to "Transferencia").forEach { (code, label) ->
+            listOf("CASH" to "Efectivo", "CARD" to "Tarjeta", "TRANSFER" to "Transferencia").filter { it.first in allowedMethods }.forEach { (code, label) ->
                 FilterChip(
                     selected = method == code,
                     onClick = { method = code },
