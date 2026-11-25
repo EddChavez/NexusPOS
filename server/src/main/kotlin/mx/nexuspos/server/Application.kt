@@ -22,6 +22,7 @@ import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.CashCutDetailRequest
 import mx.nexuspos.contracts.cash.CashCutHistoryRequest
+import mx.nexuspos.contracts.cash.ClosedShiftSalesRequest
 import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
@@ -507,6 +508,21 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 requireSupervisor(req.pin, "CASH_CUT_HISTORY")
                 val id = call.parameters["id"] ?: throw ValidationException("Indica el corte.")
                 call.respond(cashCutHistory.detail(id))
+            }
+
+            post("/cash-sessions/history/{id}/sales") {
+                val req = call.receive<ClosedShiftSalesRequest>()
+                requireSupervisor(req.pin, "CLOSED_SHIFT_SALES")
+                val id = call.parameters["id"] ?: throw ValidationException("Indica el turno cerrado.")
+                call.respond(salesService.getClosedShiftSales(id, req.folio, req.beforeFolio))
+            }
+
+            post("/cash-sessions/history/{id}/sales/{saleId}") {
+                val req = call.receive<CashCutDetailRequest>()
+                requireSupervisor(req.pin, "CLOSED_SHIFT_SALES")
+                val id = call.parameters["id"] ?: throw ValidationException("Indica el turno cerrado.")
+                val saleId = call.parameters["saleId"] ?: throw ValidationException("Indica la venta.")
+                call.respond(salesService.getClosedShiftSale(id, saleId))
             }
 
             get("/cash-sessions/current") {

@@ -53,6 +53,7 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
     var page by remember { mutableStateOf<CashCutHistoryPage?>(null) }
     var trail by remember { mutableStateOf(listOf<CashCutCursor?>(null)) }
     var detail by remember { mutableStateOf<CashCutHistoryDetail?>(null) }
+    var showSales by remember { mutableStateOf(false) }
     var pin by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -60,6 +61,7 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
     fun lockHistory() {
         page = null
         detail = null
+        showSales = false
         pin = ""
         filters = defaults
         applied = defaults
@@ -117,10 +119,21 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
                     Text("Abrir historial")
                 }
             }
-            detail != null -> CashCutDetail(checkNotNull(detail), onBack = {
-                detail = null
-                error = null
-            })
+            showSales && detail != null -> ClosedShiftSalesPanel(
+                cut = checkNotNull(detail).cut,
+                api = api,
+                pin = pin,
+                onBackToCut = { showSales = false },
+                onAccessDenied = { showError(it, "Se cerró el acceso al historial.") }
+            )
+            detail != null -> CashCutDetail(
+                checkNotNull(detail),
+                onBack = {
+                    detail = null
+                    error = null
+                },
+                onOpenSales = { showSales = true }
+            )
             else -> {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Cortes cerrados", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -201,7 +214,7 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
 }
 
 @Composable
-private fun CashCutDetail(detail: CashCutHistoryDetail, onBack: () -> Unit) {
+private fun CashCutDetail(detail: CashCutHistoryDetail, onBack: () -> Unit, onOpenSales: () -> Unit) {
     val cut = detail.cut
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
@@ -214,6 +227,7 @@ private fun CashCutDetail(detail: CashCutHistoryDetail, onBack: () -> Unit) {
             Text("${cut.registerName} · Cajero de apertura: ${cut.cashierName}")
             Text("Apertura ${formatShiftHistoryTimestamp(cut.openedAt, true)}")
             Text("Cierre ${formatShiftHistoryTimestamp(cut.closedAt, true)}")
+            FilledTonalButton(onOpenSales, modifier = Modifier.padding(top = 8.dp)) { Text("Ver ventas del turno") }
         }
         item {
             OutlinedCard(Modifier.fillMaxWidth()) {

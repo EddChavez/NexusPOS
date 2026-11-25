@@ -526,7 +526,7 @@ Retorna el historial de movimientos de crédito (`CHARGE`, `PAYMENT`, `REVERSAL`
 ### H. Ventas, Historial del Turno y Cancelaciones (`/api/v1/sales`)
 
 #### `GET /api/v1/sales`
-Consulta el historial de tickets de venta con filtros avanzados para el módulo de ventas del turno y auditoría.
+Consulta tickets de turnos abiertos. Si `sessionId` corresponde a un turno cerrado, devuelve `403 Forbidden`. Las consultas generales o por folio solo muestran turnos abiertos.
 - **Query Params:**
   - `sessionId`: Filtra las ventas correspondientes a una sesión de caja determinada.
   - `folio`: Búsqueda por número de folio exacto.
@@ -577,8 +577,14 @@ Consulta el historial de tickets de venta con filtros avanzados para el módulo 
   ```
 
 #### `GET /api/v1/sales/{id}`
-Obtiene el ticket y partidas completas de una venta individual por su identificador único.
+Obtiene el ticket y las partidas de una venta de turno abierto. Esta ruta y `GET /api/v1/sales/{id}/refunds` devuelven `403 Forbidden` para ventas de turnos cerrados.
 - **Respuesta 200 OK:** Objeto `SaleResponse`.
+
+#### `POST /api/v1/cash-sessions/history/{id}/sales`
+Lista las ventas del turno cerrado. Requiere `pin` de un encargado activo en el cuerpo. Acepta `folio` para una búsqueda exacta y `beforeFolio` para cargar la página siguiente. Devuelve hasta 30 ventas y `nextBeforeFolio` cuando quedan resultados.
+
+#### `POST /api/v1/cash-sessions/history/{id}/sales/{saleId}`
+Consulta artículos, cobros y devoluciones de una venta del turno indicado con el mismo PIN. Incluye motivo y fecha de cancelación cuando se guardaron. Devuelve `404 Not Found` si la venta no corresponde al turno.
 
 #### `POST /api/v1/sales`
 Ejecuta la transacción atómica de cobro de una venta con soporte para pagos únicos o **cobro dividido / multi-pago (Split Payment)**.
@@ -629,11 +635,11 @@ Ejecuta la transacción atómica de cobro de una venta con soporte para pagos ú
 - **Respuesta 201 Created:** Objeto `SaleResponse` con `payments` desglosados y número de folio consecutivo único.
 
 #### `POST /api/v1/sales/{id}/cancel`
-Cancela atómicamente una venta realizada, revirtiendo todas sus operaciones asociadas en una sola transacción:
+Cancela una venta de un turno abierto y revierte sus operaciones en una sola transacción. Una venta de un turno cerrado devuelve `409 Conflict`. Para devolver mercancía de otro turno se requiere un turno activo y el PIN de un encargado.
 1. Revierte el inventario: reingresa las cantidades al stock de productos y registra movimientos en Kardex tipo `REFUND`.
 2. Revierte crédito fiado: si la venta fue a crédito, descuenta la deuda del balance del cliente y registra movimiento de crédito tipo `REVERSAL`.
 3. Revierte efectivo de caja: si la venta tuvo cobros en efectivo, descuenta el importe de `expected_cash_cents` de la sesión de caja para que el arqueo de caja [F6] cuadre al centavo.
-4. Actualiza el estado de la venta a `"CANCELLED"`.
+4. Actualiza el estado de la venta a `"CANCELLED"` y guarda el motivo y la fecha.
 - **Cuerpo de Solicitud:**
   ```json
   {

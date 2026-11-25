@@ -16,6 +16,9 @@ import mx.nexuspos.contracts.cash.CashCutHistoryPage
 import mx.nexuspos.contracts.cash.CashCutHistoryRequest
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.CloseSessionRequest
+import mx.nexuspos.contracts.cash.ClosedShiftSaleDetail
+import mx.nexuspos.contracts.cash.ClosedShiftSalesPage
+import mx.nexuspos.contracts.cash.ClosedShiftSalesRequest
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
@@ -532,6 +535,12 @@ open class ApiClient(
 
     open suspend fun getClosedCashCut(id: String, pin: String): Result<CashCutHistoryDetail> =
         cashHistoryCall(id.encodeURLPathPart(), CashCutDetailRequest(pin))
+
+    open suspend fun getClosedShiftSales(id: String, request: ClosedShiftSalesRequest): Result<ClosedShiftSalesPage> =
+        cashHistoryCall("${id.encodeURLPathPart()}/sales", request)
+
+    open suspend fun getClosedShiftSale(id: String, saleId: String, pin: String): Result<ClosedShiftSaleDetail> =
+        cashHistoryCall("${id.encodeURLPathPart()}/sales/${saleId.encodeURLPathPart()}", CashCutDetailRequest(pin))
 
     private suspend inline fun <reified Request, reified Response> cashHistoryCall(
         path: String, request: Request

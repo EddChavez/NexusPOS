@@ -5,6 +5,7 @@ import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.NotFoundException
 import mx.nexuspos.server.platform.SessionClosedException
 import mx.nexuspos.server.platform.ValidationException
+import java.sql.Connection
 import java.util.UUID
 
 class CashSessionService(private val db: DatabaseFactory) {
@@ -77,7 +78,7 @@ class CashSessionService(private val db: DatabaseFactory) {
 
     fun recordMovement(sessionId: String, request: CashMovementRequest) {
         db.inTransaction { conn ->
-            val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ?")
+            val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ? FOR UPDATE")
             sessStmt.setString(1, sessionId)
             val rs = sessStmt.executeQuery()
             if (!rs.next()) {
@@ -109,9 +110,12 @@ class CashSessionService(private val db: DatabaseFactory) {
         }
     }
 
-    fun getSessionSummary(sessionId: String): CashSessionSummary {
-        return db.inTransaction { conn ->
-            val stmt = conn.prepareStatement(
+    fun getSessionSummary(sessionId: String): CashSessionSummary =
+        db.inTransaction { conn -> getSessionSummary(conn, sessionId) }
+
+    private fun getSessionSummary(conn: Connection, sessionId: String): CashSessionSummary =
+        with(conn) {
+            val stmt = prepareStatement(
                 """
                 SELECT s.id, s.register_id, r.name as reg_name, s.user_id, u.name as user_name,
                        s.initial_fund_cents, s.opened_at, s.closed_at, s.status, s.notes,
@@ -144,7 +148,7 @@ class CashSessionService(private val db: DatabaseFactory) {
             stmt.close()
 
             // 1. Sum sales in cash (payments of method CASH minus change)
-            val salesStmt = conn.prepareStatement(
+            val salesStmt = prepareStatement(
                 """
                 SELECT COALESCE(SUM(sp.amount_cents), 0) as cash_total
                 FROM sale_payments sp
@@ -160,7 +164,7 @@ class CashSessionService(private val db: DatabaseFactory) {
             salesStmt.close()
 
             // 2. Sum credit payments in cash
-            val creditStmt = conn.prepareStatement(
+            val creditStmt = prepareStatement(
                 """
                 SELECT COALESCE(SUM(amount_cents), 0) as credit_cash
                 FROM credit_movements
@@ -175,7 +179,7 @@ class CashSessionService(private val db: DatabaseFactory) {
             creditStmt.close()
 
             // 3. Sum cash movements (IN and OUT)
-            val movStmt = conn.prepareStatement(
+            val movStmt = prepareStatement(
                 """
                 SELECT type, COALESCE(SUM(amount_cents), 0) as total
                 FROM cash_movements
@@ -197,7 +201,7 @@ class CashSessionService(private val db: DatabaseFactory) {
             movStmt.close()
 
             // 4. Sum refunds in cash for this cash session
-            val refStmt = conn.prepareStatement(
+            val refStmt = prepareStatement(
                 """
                 SELECT COALESCE(SUM(total_cents), 0) as total_refunds
                 FROM sale_refunds
@@ -217,7 +221,7 @@ class CashSessionService(private val db: DatabaseFactory) {
 
             // 5. Query denominations
             val denomList = mutableListOf<CashDenominationCountDto>()
-            val denomQuery = conn.prepareStatement(
+            val denomQuery = prepareStatement(
                 """
                 SELECT denomination_cents, is_coin, pieces, total_cents
                 FROM cash_session_denominations
@@ -261,19 +265,24 @@ class CashSessionService(private val db: DatabaseFactory) {
                 denominations = denomList
             )
         }
-    }
 
-    fun closeSession(sessionId: String, request: CloseSessionRequest): CashSessionSummary {
-        val summary = getSessionSummary(sessionId)
-        if (summary.status == "CLOSED") {
-            throw SessionClosedException("La sesión '$sessionId' ya está cerrada")
-        }
-
-        val expected = summary.expectedCashCents
-        val difference = request.countedCashCents - expected
-        val now = System.currentTimeMillis()
-
+    fun closeSession(sessionId: String, request: CloseSessionRequest): CashSessionSummary =
         db.inTransaction { conn ->
+            conn.prepareStatement("SELECT id FROM cash_sessions WHERE id = ? FOR UPDATE").use {
+                it.setString(1, sessionId)
+                it.executeQuery().use { row ->
+                    if (!row.next()) throw NotFoundException("Sesión de caja no encontrada")
+                }
+            }
+            val summary = getSessionSummary(conn, sessionId)
+            if (summary.status == "CLOSED") {
+                throw SessionClosedException("La sesión '$sessionId' ya está cerrada")
+            }
+
+            val expected = summary.expectedCashCents
+            val difference = request.countedCashCents - expected
+            val now = System.currentTimeMillis()
+
             val stmt = conn.prepareStatement(
                 """
                 UPDATE cash_sessions
@@ -312,16 +321,15 @@ class CashSessionService(private val db: DatabaseFactory) {
                 denomInsert.executeBatch()
                 denomInsert.close()
             }
-        }
 
-        return summary.copy(
-            closedAt = now,
-            countedCashCents = request.countedCashCents,
-            differenceCents = difference,
-            status = "CLOSED",
-            denominations = request.denominations
-        )
-    }
+            summary.copy(
+                closedAt = now,
+                countedCashCents = request.countedCashCents,
+                differenceCents = difference,
+                status = "CLOSED",
+                denominations = request.denominations
+            )
+        }
 
     fun getCurrentOpenSession(registerId: String): CashSessionSummary? {
         return db.inTransaction { conn ->
@@ -331,7 +339,7 @@ class CashSessionService(private val db: DatabaseFactory) {
             val sessionId = if (rs.next()) rs.getString("id") else null
             rs.close()
             stmt.close()
-            sessionId?.let { getSessionSummary(it) }
+            sessionId?.let { getSessionSummary(conn, it) }
         }
     }
 }

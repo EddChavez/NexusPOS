@@ -2,6 +2,10 @@ package mx.nexuspos.server.modules.sales
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import mx.nexuspos.contracts.cash.ClosedShiftSaleDetail
+import mx.nexuspos.contracts.cash.ClosedShiftSaleRow
+import mx.nexuspos.contracts.cash.ClosedShiftSalesPage
+import mx.nexuspos.contracts.cash.HistoricalSaleCancellation
 import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.catalog.resolvePresentationPrice
 import mx.nexuspos.contracts.loyalty.SaleLoyaltyRewardDto
@@ -55,7 +59,7 @@ class SalesService(
             }
 
             // 2. Validate Session is OPEN
-            val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ?")
+            val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ? FOR UPDATE")
             sessStmt.setString(1, request.cashSessionId)
             val sessRs = sessStmt.executeQuery()
             if (!sessRs.next()) {
@@ -634,8 +638,86 @@ class SalesService(
         }
     }
 
-    fun getSaleById(id: String): SaleResponse =
-        db.inTransaction { conn -> getSaleById(conn, id) }
+    fun getSaleById(id: String): SaleResponse = db.inTransaction { conn ->
+        requireOpenSaleRead(conn, id)
+        getSaleById(conn, id)
+    }
+
+    fun getClosedShiftSales(sessionId: String, folio: Long?, beforeFolio: Long?): ClosedShiftSalesPage {
+        if ((folio != null && folio <= 0) || (beforeFolio != null && beforeFolio <= 0)) {
+            throw ValidationException("Indica un folio positivo.")
+        }
+        return db.inTransaction { conn ->
+            requireClosedShift(conn, sessionId)
+            val sql = buildString {
+                append(
+                    """
+                    SELECT s.id, s.folio, COALESCE(u.name, s.user_id), s.status, s.total_cents, s.created_at
+                    FROM sales s LEFT JOIN users u ON u.id = s.user_id
+                    WHERE s.cash_session_id = ?
+                    """.trimIndent()
+                )
+                if (folio != null) append(" AND s.folio = ?")
+                if (beforeFolio != null) append(" AND s.folio < ?")
+                append(" ORDER BY s.folio DESC LIMIT ?")
+            }
+            val size = 30
+            val results = conn.prepareStatement(sql).use { query ->
+                var column = 1
+                query.setString(column++, sessionId)
+                if (folio != null) query.setLong(column++, folio)
+                if (beforeFolio != null) query.setLong(column++, beforeFolio)
+                query.setInt(column, size + 1)
+                query.executeQuery().use { rows ->
+                    buildList {
+                        while (rows.next()) {
+                            add(ClosedShiftSaleRow(rows.getString(1), rows.getLong(2), rows.getString(3),
+                                rows.getString(4), rows.getLong(5), rows.getLong(6)))
+                        }
+                    }
+                }
+            }
+            val page = results.take(size)
+            ClosedShiftSalesPage(page, if (results.size > size) page.last().folio else null)
+        }
+    }
+
+    fun getClosedShiftSale(sessionId: String, id: String): ClosedShiftSaleDetail = db.inTransaction { conn ->
+        requireClosedShift(conn, sessionId)
+        val cancellation = conn.prepareStatement(
+            "SELECT cancellation_reason, cancelled_at FROM sales WHERE id = ? AND cash_session_id = ? FOR UPDATE"
+        ).use { query ->
+            query.setString(1, id)
+            query.setString(2, sessionId)
+            query.executeQuery().use { row ->
+                if (!row.next()) throw NotFoundException("No se encontró la venta en este turno.")
+                val cancelledAt = row.getLong("cancelled_at")
+                if (row.wasNull()) null else HistoricalSaleCancellation(row.getString("cancellation_reason").orEmpty(), cancelledAt)
+            }
+        }
+        ClosedShiftSaleDetail(getSaleById(conn, id), cancellation)
+    }
+
+    private fun requireClosedShift(conn: Connection, sessionId: String) {
+        conn.prepareStatement("SELECT id FROM cash_sessions WHERE id = ? AND status = 'CLOSED'").use {
+            it.setString(1, sessionId)
+            it.executeQuery().use { row ->
+                if (!row.next()) throw NotFoundException("No se encontró el turno cerrado.")
+            }
+        }
+    }
+
+    private fun requireOpenSaleRead(conn: Connection, id: String) {
+        conn.prepareStatement(
+            "SELECT cs.status FROM sales s JOIN cash_sessions cs ON cs.id = s.cash_session_id WHERE s.id = ?"
+        ).use {
+            it.setString(1, id)
+            it.executeQuery().use { row ->
+                if (!row.next()) throw NotFoundException("Venta '$id' no encontrada")
+                if (row.getString(1) != "OPEN") throw ForbiddenException("Consulta la venta cerrada desde el historial de cortes con PIN de encargado.")
+            }
+        }
+    }
 
     private fun getSaleById(conn: Connection, id: String): SaleResponse {
         val stmt = conn.prepareStatement(
@@ -759,6 +841,14 @@ class SalesService(
                 lock.executeQuery().use { if (!it.next()) throw NotFoundException("Venta '$saleId' no encontrada") }
             }
             val sale = getSaleById(conn, saleId)
+            conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ? FOR UPDATE").use {
+                it.setString(1, sale.cashSessionId)
+                it.executeQuery().use { row ->
+                    if (!row.next() || row.getString(1) != "OPEN") {
+                        throw SessionClosedException("La venta pertenece a un turno cerrado. Para devolver mercancía, registra una devolución en un turno abierto.")
+                    }
+                }
+            }
             if (sale.status != "COMPLETED") {
                 throw ValidationException("Solo se pueden cancelar ventas con estado COMPLETED")
             }
@@ -851,10 +941,12 @@ class SalesService(
             }
 
             // 4. Update Sale Status
-            val updateSaleStmt = conn.prepareStatement("UPDATE sales SET status = 'CANCELLED' WHERE id = ?")
-            updateSaleStmt.setString(1, saleId)
-            updateSaleStmt.executeUpdate()
-            updateSaleStmt.close()
+            conn.prepareStatement("UPDATE sales SET status = 'CANCELLED', cancellation_reason = ?, cancelled_at = ? WHERE id = ?").use {
+                it.setString(1, request.reason.trim())
+                it.setLong(2, now)
+                it.setString(3, saleId)
+                it.executeUpdate()
+            }
 
             sale.copy(status = "CANCELLED")
         }
@@ -869,6 +961,16 @@ class SalesService(
         limit: Int = 100
     ): List<SaleResponse> {
         return db.inTransaction { conn ->
+            if (!sessionId.isNullOrBlank()) {
+                conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ?").use {
+                    it.setString(1, sessionId)
+                    it.executeQuery().use { row ->
+                        if (row.next() && row.getString(1) != "OPEN") {
+                            throw ForbiddenException("Consulta el turno cerrado desde el historial de cortes con PIN de encargado.")
+                        }
+                    }
+                }
+            }
             val sql = StringBuilder(
                 """
                 SELECT s.id, s.folio, s.cash_session_id, s.user_id, u.name as cashier_name,
@@ -877,7 +979,8 @@ class SalesService(
                 FROM sales s
                 JOIN users u ON s.user_id = u.id
                 LEFT JOIN customers c ON s.customer_id = c.id
-                WHERE 1=1
+                JOIN cash_sessions cs ON cs.id = s.cash_session_id
+                WHERE cs.status = 'OPEN'
                 """.trimIndent()
             )
 
@@ -1149,6 +1252,7 @@ class SalesService(
 
     fun getRefundsBySaleId(saleId: String): List<SaleRefundResponse> {
         return db.inTransaction { conn ->
+            requireOpenSaleRead(conn, saleId)
             getRefundsBySaleIdInternal(conn, saleId)
         }
     }
@@ -1167,6 +1271,7 @@ class SalesService(
                 throw NotFoundException("Venta '$saleId' no encontrada")
             }
             val saleFolio = saleRs.getLong("folio")
+            val originalSessionId = saleRs.getString("cash_session_id")
             val saleCustomerId = saleRs.getString("customer_id")
             val currentSaleStatus = saleRs.getString("status")
             saleRs.close()
@@ -1183,7 +1288,7 @@ class SalesService(
             }
 
             // 2. Validate Active Cash Session
-            val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ?")
+            val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ? FOR UPDATE")
             sessStmt.setString(1, request.cashSessionId)
             val sessRs = sessStmt.executeQuery()
             if (!sessRs.next()) {
@@ -1209,7 +1314,7 @@ class SalesService(
             userStmt.close()
 
             var authorizedByUserId: String? = null
-            if (cashierRole == "CASHIER" || !request.supervisorPin.isNullOrBlank()) {
+            if (originalSessionId != request.cashSessionId || cashierRole == "CASHIER" || !request.supervisorPin.isNullOrBlank()) {
                 val pin = request.supervisorPin
                 if (pin.isNullOrBlank()) {
                     throw ValidationException("Las devoluciones de mercancía requieren autorización de supervisor.")

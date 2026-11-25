@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import mx.nexuspos.contracts.cash.HistoricalSaleCancellation
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.Quantity
@@ -37,8 +38,9 @@ internal fun ShiftSaleStatus(status: String) {
 internal fun ShiftHistorySaleDetail(
     sale: SaleResponse,
     actionsEnabled: Boolean,
-    onAction: (ShiftHistoryAction) -> Unit,
-    modifier: Modifier = Modifier
+    onAction: ((ShiftHistoryAction) -> Unit)?,
+    modifier: Modifier = Modifier,
+    cancellation: HistoricalSaleCancellation? = null
 ) {
     OutlinedCard(modifier, colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         LazyColumn(
@@ -59,6 +61,18 @@ internal fun ShiftHistorySaleDetail(
                     }
                     SecondaryText("${formatShiftHistoryTimestamp(sale.createdAt, includeDate = true)} · Cajero ${sale.cashierName}")
                     sale.customerName?.let { SecondaryText("Cliente · $it") }
+                }
+            }
+
+            if (onAction == null && sale.status == "CANCELLED") {
+                item { HistorySection("Cancelación") }
+                item {
+                    ListItem(
+                        headlineContent = { Text(cancellation?.reason?.takeIf { it.isNotBlank() } ?: "Motivo sin registro") },
+                        supportingContent = cancellation?.let {
+                            { SecondaryText(formatShiftHistoryTimestamp(it.cancelledAt, includeDate = true)) }
+                        }
+                    )
                 }
             }
 
@@ -86,6 +100,12 @@ internal fun ShiftHistorySaleDetail(
                             SecondaryText("${formatShiftHistoryTimestamp(refund.createdAt, includeDate = true)} · ${paymentLabel(refund.refundMethod)}")
                             SecondaryText("Motivo · ${refund.reason}")
                             if (refund.notes.isNotBlank()) SecondaryText(refund.notes)
+                            if (onAction == null) {
+                                SecondaryText("Cajero · ${refund.cashierName}")
+                                if (refund.cashSessionId != sale.cashSessionId) {
+                                    SecondaryText("Registrada en otro turno · ${refund.cashSessionId}")
+                                }
+                            }
                         }
                     )
                 }
@@ -94,7 +114,12 @@ internal fun ShiftHistorySaleDetail(
             if (sale.payments.isNotEmpty()) {
                 item { HistorySection("Pagos") }
                 items(sale.payments, key = { "payment-${it.id}" }) { payment ->
-                    HistoryDetailRow(paymentLabel(payment.method), Money(payment.amountCents).format())
+                    val reference = payment.reference.takeIf { it.isNotBlank() && onAction == null }
+                    HistoryDetailRow(
+                        paymentLabel(payment.method),
+                        Money(payment.amountCents).format(),
+                        supporting = reference?.let { { SecondaryText("Referencia · $it") } }
+                    )
                 }
             }
 
@@ -108,8 +133,10 @@ internal fun ShiftHistorySaleDetail(
                 }
             }
         }
-        HorizontalDivider()
-        HistorySaleActions(sale, actionsEnabled, onAction)
+        if (onAction != null) {
+            HorizontalDivider()
+            HistorySaleActions(sale, actionsEnabled, onAction)
+        }
     }
 }
 
