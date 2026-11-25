@@ -3,6 +3,7 @@ package mx.nexuspos.server.modules.sales
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.sales.ParkSaleRequest
+import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.sales.ParkedSaleItemDto
 import mx.nexuspos.contracts.sales.ParkedSaleResponse
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
@@ -156,7 +157,7 @@ class ParkedSalesService(private val db: DatabaseFactory) {
             selectStmt.close()
 
             val pricedItems = conn.prepareStatement(
-                "SELECT price_cents, price_tiers_json FROM product_presentations WHERE id = ? AND is_active = TRUE"
+                "SELECT price_cents, price_tiers_json, product_id FROM product_presentations WHERE id = ? AND is_active = TRUE"
             ).use { statement ->
                 parsedItems.map { item ->
                     val presentationId = item.presentationId ?: return@map item
@@ -164,7 +165,18 @@ class ParkedSalesService(private val db: DatabaseFactory) {
                     statement.executeQuery().use { result ->
                         if (!result.next()) item else item.copy(
                             publicPriceCents = result.getLong("price_cents"),
-                            priceTiers = json.decodeFromString(result.getString("price_tiers_json"))
+                            priceTiers = json.decodeFromString(result.getString("price_tiers_json")),
+                            kitComponents = conn.prepareStatement("""
+                                SELECT component_product_id, quantity_millis FROM product_kit_components
+                                WHERE kit_product_id = ? ORDER BY component_product_id
+                            """.trimIndent()).use { query ->
+                                query.setString(1, result.getString("product_id"))
+                                query.executeQuery().use { rows ->
+                                    buildList {
+                                        while (rows.next()) add(KitComponent(rows.getString(1), rows.getLong(2)))
+                                    }
+                                }
+                            }
                         )
                     }
                 }

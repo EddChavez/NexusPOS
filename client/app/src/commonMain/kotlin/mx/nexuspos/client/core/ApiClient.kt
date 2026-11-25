@@ -23,6 +23,7 @@ import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
 import mx.nexuspos.contracts.catalog.UpdateProductRequest
 import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
+import mx.nexuspos.contracts.catalog.UpdateProductKitRequest
 import mx.nexuspos.contracts.credit.CreateCustomerRequest
 import mx.nexuspos.contracts.credit.CreditMovementDto
 import mx.nexuspos.contracts.credit.CustomerDto
@@ -171,6 +172,19 @@ open class ApiClient(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun updateProductKit(productId: String, request: UpdateProductKitRequest): Result<ProductDto> = try {
+        val response = http.put("$baseUrl/api/v1/products/$productId/kit") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+        if (response.status.isSuccess()) Result.success(response.body())
+        else Result.failure(Exception(parseError(response).message))
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Result.failure(error)
     }
 
     suspend fun updatePresentationPrices(

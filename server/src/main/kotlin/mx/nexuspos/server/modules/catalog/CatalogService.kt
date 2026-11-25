@@ -2,6 +2,7 @@ package mx.nexuspos.server.modules.catalog
 
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
+import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
 import mx.nexuspos.contracts.catalog.CatalogImportResponse
 import mx.nexuspos.contracts.catalog.CatalogImportRowDto
@@ -270,7 +271,8 @@ class CatalogService(private val db: DatabaseFactory) {
                 SELECT p.id, p.sku, p.name, p.department_id, d.name as dept_name,
                        p.base_unit, p.cost_cents, p.tax_rate, p.uses_inventory,
                        COALESCE(sb.quantity_millis, 0) as stock_millis,
-                       p.min_stock_millis, p.max_stock_millis, p.is_perishable, p.shelf_life_alert_days, p.is_active, p.updated_at
+                       p.min_stock_millis, p.max_stock_millis, p.is_perishable, p.shelf_life_alert_days, p.is_active, p.updated_at,
+                       EXISTS(SELECT 1 FROM product_kit_components k WHERE k.kit_product_id = p.id) AS is_kit
                 FROM products p
                 LEFT JOIN departments d ON p.department_id = d.id
                 LEFT JOIN stock_balances sb ON p.id = sb.product_id
@@ -307,8 +309,10 @@ class CatalogService(private val db: DatabaseFactory) {
             val rs = stmt.executeQuery()
 
             val products = mutableListOf<ProductDto>()
+            val kitIds = mutableSetOf<String>()
             while (rs.next()) {
                 val prodId = rs.getString("id")
+                if (rs.getBoolean("is_kit")) kitIds.add(prodId)
                 products.add(
                     ProductDto(
                         id = prodId,
@@ -360,7 +364,10 @@ class CatalogService(private val db: DatabaseFactory) {
                         )
                     }
                     presRs.close()
-                    prod.copy(presentations = presList)
+                    prod.copy(
+                        presentations = presList,
+                        kitComponents = if (prod.id in kitIds) readKitComponents(conn, prod.id) else emptyList()
+                    )
                 }
                 presStmt.close()
                 fullProducts
@@ -518,6 +525,10 @@ class CatalogService(private val db: DatabaseFactory) {
                 throw ValidationException("El producto debe tener al menos una presentación")
             }
 
+            if (existing.kitComponents.isNotEmpty()) {
+                validateKitParent(request.baseUnit, request.usesInventory, request.presentations.map { it.factorMillis })
+            }
+
             val finalSku = request.sku.trim().uppercase().ifBlank { existing.sku }
 
             // Check SKU uniqueness if changed
@@ -652,6 +663,75 @@ class CatalogService(private val db: DatabaseFactory) {
         fetchProductById(conn, productId)
     }
 
+    fun updateProductKit(productId: String, components: List<KitComponent>): ProductDto = db.inTransaction { conn ->
+        val componentIds = components.map { it.productId }
+        if (productId in componentIds || componentIds.distinct().size != components.size ||
+            components.any { it.quantityMillis <= 0L }
+        ) throw ValidationException("Elige componentes distintos del kit con cantidades positivas.")
+
+        (componentIds + productId).sorted().forEach { lockProduct(conn, it) }
+        val product = fetchProductById(conn, productId)
+        if (components.isNotEmpty()) {
+            validateKitParent(product.baseUnit, product.usesInventory, product.presentations.map { it.factorMillis })
+            conn.prepareStatement("SELECT 1 FROM product_kit_components WHERE component_product_id = ?").use {
+                it.setString(1, productId)
+                it.executeQuery().use { result ->
+                    if (result.next()) throw ValidationException("Este producto ya es componente de otro kit.")
+                }
+            }
+            for (entry in components) {
+                val component = fetchProductById(conn, entry.productId)
+                if (!component.isActive || !component.usesInventory || component.kitComponents.isNotEmpty()) {
+                    throw ValidationException("'${component.name}' debe ser un producto activo con inventario.")
+                }
+                if (ProductUnit.fromCode(component.baseUnit) == ProductUnit.PIECE && entry.quantityMillis.rem(1000L) != 0L) {
+                    throw ValidationException("La cantidad de '${component.name}' debe ser un número entero de piezas.")
+                }
+            }
+        }
+
+        conn.prepareStatement("DELETE FROM product_kit_components WHERE kit_product_id = ?").use {
+            it.setString(1, productId)
+            it.executeUpdate()
+        }
+        conn.prepareStatement(
+            "INSERT INTO product_kit_components (kit_product_id, component_product_id, quantity_millis) VALUES (?, ?, ?)"
+        ).use { statement ->
+            for (component in components) {
+                statement.setString(1, productId)
+                statement.setString(2, component.productId)
+                statement.setLong(3, component.quantityMillis)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+        conn.prepareStatement("UPDATE products SET updated_at = ? WHERE id = ?").use {
+            it.setLong(1, System.currentTimeMillis())
+            it.setString(2, productId)
+            it.executeUpdate()
+        }
+        fetchProductById(conn, productId)
+    }
+
+    private fun validateKitParent(baseUnit: String, usesInventory: Boolean, factors: List<Long>) {
+        if (ProductUnit.fromCode(baseUnit) != ProductUnit.PIECE || usesInventory ||
+            factors.isEmpty() || factors.any { it <= 0L || it % 1000 != 0L }
+        ) throw ValidationException("El kit debe venderse por pieza, sin inventario propio y en presentaciones enteras.")
+    }
+
+    private fun readKitComponents(conn: java.sql.Connection, productId: String): List<KitComponent> =
+        conn.prepareStatement("""
+            SELECT component_product_id, quantity_millis FROM product_kit_components
+            WHERE kit_product_id = ? ORDER BY component_product_id
+        """.trimIndent()).use {
+            it.setString(1, productId)
+            it.executeQuery().use { rows ->
+                buildList {
+                    while (rows.next()) add(KitComponent(rows.getString(1), rows.getLong(2)))
+                }
+            }
+        }
+
     private fun lockProduct(conn: java.sql.Connection, productId: String) {
         conn.prepareStatement("SELECT id FROM products WHERE id = ? FOR UPDATE").use {
             it.setString(1, productId)
@@ -763,7 +843,7 @@ class CatalogService(private val db: DatabaseFactory) {
         presRs.close()
         presStmt.close()
 
-        return prod.copy(presentations = presList)
+        return prod.copy(presentations = presList, kitComponents = readKitComponents(conn, prod.id))
     }
 
     fun exportCatalogCsv(): String {

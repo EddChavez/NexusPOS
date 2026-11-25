@@ -16,6 +16,8 @@ import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.CreatePresentationRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
+import mx.nexuspos.contracts.catalog.KitComponent
+import mx.nexuspos.contracts.catalog.UpdateProductKitRequest
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
 import mx.nexuspos.contracts.credit.CreditMovementDto
@@ -25,6 +27,9 @@ import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.LoginResponse
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
+import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
+import mx.nexuspos.contracts.sales.RefundLineItemRequest
+import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleLineItemRequest
 import mx.nexuspos.contracts.sales.SalePaymentRequest
 import mx.nexuspos.contracts.sales.SaleResponse
@@ -290,6 +295,111 @@ class ServerComprehensiveTest {
         assertEquals(HttpStatusCode.OK, savePrices(emptyList()).status)
         val snapshot = client.get("/api/v1/products/${product.id}").body<ProductDto>()
         assertTrue(snapshot.presentations.single { it.id == pack.id }.priceTiers.isEmpty())
+    }
+
+    @Test
+    fun kitStockAndRefundsUseTheOriginalComponents() = testApplication {
+        application { nexusModule(createTestDb()) }
+        val client = createClient {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        assertEquals(HttpStatusCode.OK, client.put("/api/v1/system/settings") {
+            contentType(ContentType.Application.Json)
+            setBody(SettingsDto(allowNegativeStock = false))
+        }.status)
+
+        suspend fun create(code: String, unit: String, hasStock: Boolean, stock: Long): ProductDto =
+            client.post("/api/v1/products") {
+                contentType(ContentType.Application.Json)
+                setBody(CreateProductRequest(
+                    sku = code, name = code, baseUnit = unit, usesInventory = hasStock,
+                    initialStockMillis = stock,
+                    taxRate = if (hasStock) 0.0 else 0.16,
+                    presentations = listOf(CreatePresentationRequest(barcode = code, name = code, priceCents = 100))
+                ))
+            }.body()
+        val piece = create("KIT-PIEZA", "PZA", true, 10000)
+        val weight = create("KIT-GRANEL", "KG", true, 4000)
+        val kit = create("KIT-PRUEBA", "PZA", false, 0)
+
+        suspend fun saveRecipe(components: List<KitComponent>) = client.put("/api/v1/products/${kit.id}/kit") {
+            contentType(ContentType.Application.Json)
+            setBody(UpdateProductKitRequest(components))
+        }
+        val original = listOf(KitComponent(piece.id, 2000), KitComponent(weight.id, 250))
+        assertEquals(HttpStatusCode.BadRequest, saveRecipe(listOf(KitComponent(kit.id, 1000))).status)
+        assertEquals(HttpStatusCode.BadRequest, saveRecipe(listOf(KitComponent(piece.id, 1500))).status)
+        assertEquals(HttpStatusCode.OK, saveRecipe(original).status)
+        assertEquals(original.toSet(),
+            client.get("/api/v1/products?barcode=KIT-PRUEBA").body<List<ProductDto>>().single().kitComponents.toSet())
+
+        val session = client.post("/api/v1/cash-sessions") {
+            contentType(ContentType.Application.Json)
+            setBody(OpenSessionRequest(registerId = "caja-1", userId = "usr-admin", initialFundCents = 10000))
+        }.body<CashSessionSummary>()
+
+        fun line(product: ProductDto, quantity: Long, recipe: List<KitComponent>? = null, discount: Long = 0) =
+            SaleLineItemRequest(
+                productId = product.id, presentationId = product.presentations.single().id,
+                description = product.name, quantityMillis = quantity, expectedUnitPriceCents = 100,
+                expectedTotalCents = quantity / 10 - discount, expectedKitComponents = recipe,
+                discountCents = discount
+            )
+        suspend fun sell(vararg lines: SaleLineItemRequest): io.ktor.client.statement.HttpResponse {
+            val total = lines.sumOf { it.expectedTotalCents }
+            return client.post("/api/v1/sales") {
+                contentType(ContentType.Application.Json)
+                setBody(CreateSaleRequest(
+                    idempotencyKey = UUID.randomUUID().toString(), cashSessionId = session.sessionId,
+                    cashierUserId = "usr-admin", lines = lines.toList(),
+                    payments = listOf(SalePaymentRequest("CASH", total, total)), expectedTotalCents = total
+                ))
+            }
+        }
+        suspend fun stock(product: ProductDto) =
+            client.get("/api/v1/products/${product.id}").body<ProductDto>().currentStockMillis
+
+        assertEquals(HttpStatusCode.BadRequest, sell(line(kit, 1500, original)).status)
+        assertEquals(HttpStatusCode.UnprocessableEntity,
+            sell(line(kit, 3000, original), line(piece, 5000)).status)
+        assertEquals(10000L, stock(piece))
+        assertEquals(4000L, stock(weight))
+
+        val sale = sell(line(kit, 3000, original, discount = 1)).body<SaleResponse>()
+        assertTrue(sale.lines.single().isKit)
+        assertEquals(299L, sale.totalCents)
+        assertEquals(4000L, stock(piece))
+        assertEquals(3250L, stock(weight))
+        assertEquals(0L, stock(kit))
+
+        val changed = listOf(KitComponent(piece.id, 1000), KitComponent(weight.id, 500))
+        assertEquals(HttpStatusCode.OK, saveRecipe(changed).status)
+        assertEquals(HttpStatusCode.Conflict, sell(line(kit, 1000, original)).status)
+
+        suspend fun refund(quantity: Long, returnStock: Boolean) =
+            client.post("/api/v1/sales/${sale.id}/refund") {
+                contentType(ContentType.Application.Json)
+                setBody(CreateSaleRefundRequest(
+                    cashSessionId = session.sessionId, cashierUserId = "usr-admin", reason = "OTRO",
+                    lines = listOf(RefundLineItemRequest(sale.lines.single().id, quantity, returnStock))
+                ))
+            }
+        assertEquals(HttpStatusCode.BadRequest, refund(500, true).status)
+        val refunds = listOf(true, false, true).map { refund(1000, it).body<SaleRefundResponse>() }
+        assertEquals(listOf(100L, 99L, 100L), refunds.map { it.totalCents })
+        assertEquals(sale.taxCents, refunds.sumOf { it.taxCents })
+        assertEquals(8000L, stock(piece))
+        assertEquals(3750L, stock(weight))
+
+        val second = sell(line(kit, 1000, changed)).body<SaleResponse>()
+        assertEquals(HttpStatusCode.OK, saveRecipe(emptyList()).status)
+        assertEquals(HttpStatusCode.OK, client.post("/api/v1/sales/${second.id}/cancel") {
+            contentType(ContentType.Application.Json)
+            setBody(CancelSaleRequest(reason = "Prueba de cancelación"))
+        }.status)
+        assertEquals(8000L, stock(piece))
+        assertEquals(3750L, stock(weight))
+        assertEquals(0L, stock(kit))
     }
 
     @Test

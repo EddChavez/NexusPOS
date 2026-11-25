@@ -256,8 +256,11 @@ private fun CheckedProduct(product: ProductDto, query: String) {
 
             HorizontalDivider()
             Text(
-                if (product.usesInventory) "Existencia registrada · ${Quantity(product.currentStockMillis).format(unit)}"
-                else "Producto sin control de inventario",
+                when {
+                    product.kitComponents.isNotEmpty() -> "Kit de ${product.kitComponents.size} componentes · existencia por componente"
+                    product.usesInventory -> "Existencia registrada · ${Quantity(product.currentStockMillis).format(unit)}"
+                    else -> "Producto sin control de inventario"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = colors.onSurfaceVariant
             )

@@ -3,6 +3,7 @@ package mx.nexuspos.client.features.sales
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
+import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
 import mx.nexuspos.contracts.credit.CustomerDto
@@ -31,7 +32,8 @@ data class CartLine(
     val imageUrl: String? = null,
     val publicPriceCents: Long? = null,
     val priceTiers: List<PresentationPriceTier> = emptyList(),
-    val fixedDiscountCents: Long? = null
+    val fixedDiscountCents: Long? = null,
+    val kitComponents: List<KitComponent>? = null
 )
 
 /**

@@ -2,6 +2,7 @@ package mx.nexuspos.server.modules.sales
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.catalog.resolvePresentationPrice
 import mx.nexuspos.contracts.loyalty.SaleLoyaltyRewardDto
 import mx.nexuspos.contracts.sales.*
@@ -87,13 +88,15 @@ class SalesService(
                 val totalCents: Long,
                 val discountCents: Long,
                 val discountPercent: Double,
-                val factorMillis: Long,
-                val usesInventory: Boolean
+                val kitStock: List<KitComponent>,
+                val stock: List<KitComponent>
             )
 
             val validatedLines = mutableListOf<ValidatedLine>()
 
             for (line in request.lines) {
+                if (line.quantityMillis <= 0L) throw ValidationException("La cantidad de venta debe ser positiva.")
+                var isKit = false
                 var currentPriceCents = line.expectedUnitPriceCents
                 var taxRate = line.taxRate
                 var factorMillis = 1000L
@@ -103,10 +106,11 @@ class SalesService(
                 if (!line.presentationId.isNullOrBlank()) {
                     val presStmt = conn.prepareStatement(
                         """
-                        SELECT pp.price_cents, pp.price_tiers_json, pp.factor_millis, pp.product_id, p.tax_rate, p.uses_inventory, p.name as prod_name
+                        SELECT pp.price_cents, pp.price_tiers_json, pp.factor_millis, pp.product_id, p.tax_rate, p.uses_inventory,
+                            EXISTS(SELECT 1 FROM product_kit_components k WHERE k.kit_product_id = p.id) AS is_kit
                         FROM product_presentations pp
                         JOIN products p ON pp.product_id = p.id
-                        WHERE pp.id = ?
+                        WHERE pp.id = ? AND pp.is_active = TRUE AND p.is_active = TRUE
                         """.trimIndent()
                     )
                     presStmt.setString(1, line.presentationId)
@@ -121,6 +125,7 @@ class SalesService(
                         resolvedProdId = presRs.getString("product_id")
                         taxRate = presRs.getDouble("tax_rate")
                         usesInventory = presRs.getBoolean("uses_inventory")
+                        isKit = presRs.getBoolean("is_kit")
                     } else {
                         presRs.close()
                         presStmt.close()
@@ -129,12 +134,17 @@ class SalesService(
                     presRs.close()
                     presStmt.close()
                 } else if (!line.productId.isNullOrBlank()) {
-                    val pStmt = conn.prepareStatement("SELECT tax_rate, uses_inventory FROM products WHERE id = ?")
+                    val pStmt = conn.prepareStatement("""
+                        SELECT tax_rate, uses_inventory,
+                               EXISTS(SELECT 1 FROM product_kit_components k WHERE k.kit_product_id = p.id) AS is_kit
+                        FROM products p WHERE id = ?
+                    """.trimIndent())
                     pStmt.setString(1, line.productId)
                     val pRs = pStmt.executeQuery()
                     if (pRs.next()) {
                         taxRate = pRs.getDouble("tax_rate")
                         usesInventory = pRs.getBoolean("uses_inventory")
+                        isKit = pRs.getBoolean("is_kit")
                     }
                     pRs.close()
                     pStmt.close()
@@ -184,6 +194,26 @@ class SalesService(
                     }
                 }
 
+                val definition = if (isKit) loadKitStock(conn, checkNotNull(resolvedProdId)) else emptyList()
+                if ((isKit && definition.isEmpty()) ||
+                    line.expectedKitComponents?.sortedBy { it.productId }?.let { it != definition } == true
+                ) throw PriceChangedException("La composición de '${line.description}' cambió. Consulta el catálogo antes de cobrar.")
+                if (isKit && (line.presentationId.isNullOrBlank() || line.quantityMillis % 1000 != 0L ||
+                        factorMillis <= 0 || factorMillis % 1000 != 0L)
+                ) throw ValidationException("Los kits requieren una presentación y una cantidad entera.")
+                val components = definition.map { component ->
+                    component.copy(quantityMillis = multiplyStock(component.quantityMillis, factorMillis / 1000L))
+                }
+                val stock = when {
+                    isKit -> components.map { component ->
+                        component.copy(quantityMillis = multiplyStock(component.quantityMillis, line.quantityMillis / 1000L))
+                    }
+                    usesInventory && resolvedProdId != null -> listOf(
+                        KitComponent(resolvedProdId, multiplyStock(line.quantityMillis, factorMillis) / 1000L)
+                    )
+                    else -> emptyList()
+                }
+
                 validatedLines.add(
                     ValidatedLine(
                         productId = resolvedProdId,
@@ -196,8 +226,8 @@ class SalesService(
                         totalCents = lineTotal.cents,
                         discountCents = lineDisc.cents,
                         discountPercent = line.discountPercent,
-                        factorMillis = factorMillis,
-                        usesInventory = usesInventory
+                        kitStock = components,
+                        stock = stock
                     )
                 )
             }
@@ -209,22 +239,20 @@ class SalesService(
                 )
             }
 
-            // 5. Stock Validation and Deductions
-            for (vl in validatedLines) {
-                if (vl.usesInventory && vl.productId != null) {
-                    val stockStmt = conn.prepareStatement(
-                        "SELECT quantity_millis FROM stock_balances WHERE product_id = ? FOR UPDATE"
-                    )
-                    stockStmt.setString(1, vl.productId)
-                    val stockRs = stockStmt.executeQuery()
-                    val currentStockMillis = if (stockRs.next()) stockRs.getLong("quantity_millis") else 0L
-                    stockRs.close()
-                    stockStmt.close()
-
-                    val deductBaseMillis = (vl.quantityMillis * vl.factorMillis) / 1000L
-                    if (!settings.allowNegativeStock && currentStockMillis < deductBaseMillis) {
+            val saleStock = summarizeStock(validatedLines.flatMap { it.stock })
+            conn.prepareStatement("SELECT quantity_millis FROM stock_balances WHERE product_id = ? FOR UPDATE").use { statement ->
+                for ((productId, required) in saleStock) {
+                    statement.setString(1, productId)
+                    val available = statement.executeQuery().use { rows ->
+                        if (rows.next()) rows.getLong(1) else throw ValidationException("El producto $productId no tiene inventario.")
+                    }
+                    if (!settings.allowNegativeStock && available < required) {
+                        val name = conn.prepareStatement("SELECT name FROM products WHERE id = ?").use { names ->
+                            names.setString(1, productId)
+                            names.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else productId }
+                        }
                         throw InsufficientStockException(
-                            "Stock insuficiente para '${vl.description}'. Disponible: ${currentStockMillis / 1000.0}, Requerido: ${deductBaseMillis / 1000.0}"
+                            "Stock insuficiente para '$name'. Disponible: ${available / 1000.0}, Requerido: ${required / 1000.0}"
                         )
                     }
                 }
@@ -421,17 +449,10 @@ class SalesService(
             // 9. Record Lines & Deduct Stock
             val insertLineStmt = conn.prepareStatement(
                 """
-                INSERT INTO sale_lines (id, sale_id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, discount_cents, discount_percent)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sale_lines (id, sale_id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, discount_cents, discount_percent, kit_stock_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent()
             )
-            val updateStockStmt = conn.prepareStatement(
-                "UPDATE stock_balances SET quantity_millis = quantity_millis - ?, updated_at = ? WHERE product_id = ?"
-            )
-            val insertMovStmt = conn.prepareStatement(
-                "INSERT INTO stock_movements (id, product_id, type, quantity_millis, reason, reference, user_id, created_at) VALUES (?, ?, 'SALE', ?, ?, ?, ?, ?)"
-            )
-
             val lineResponses = mutableListOf<SaleLineItemResponse>()
             for (vl in validatedLines) {
                 val lineId = "sline-" + UUID.randomUUID().toString().take(8)
@@ -447,6 +468,7 @@ class SalesService(
                 insertLineStmt.setLong(10, vl.totalCents)
                 insertLineStmt.setLong(11, vl.discountCents)
                 insertLineStmt.setDouble(12, vl.discountPercent)
+                insertLineStmt.setString(13, vl.kitStock.takeIf { it.isNotEmpty() }?.let { json.encodeToString(it) })
                 insertLineStmt.executeUpdate()
 
                 lineResponses.add(
@@ -461,31 +483,14 @@ class SalesService(
                         taxCents = vl.taxCents,
                         totalCents = vl.totalCents,
                         discountCents = vl.discountCents,
-                        discountPercent = vl.discountPercent
+                        discountPercent = vl.discountPercent,
+                        isKit = vl.kitStock.isNotEmpty()
                     )
                 )
 
-                if (vl.usesInventory && vl.productId != null) {
-                    val deductBaseMillis = (vl.quantityMillis * vl.factorMillis) / 1000L
-                    updateStockStmt.setLong(1, deductBaseMillis)
-                    updateStockStmt.setLong(2, now)
-                    updateStockStmt.setString(3, vl.productId)
-                    updateStockStmt.executeUpdate()
-
-                    val movId = "smov-" + UUID.randomUUID().toString().take(8)
-                    insertMovStmt.setString(1, movId)
-                    insertMovStmt.setString(2, vl.productId)
-                    insertMovStmt.setLong(3, -deductBaseMillis)
-                    insertMovStmt.setString(4, "Venta folio #$nextFolio")
-                    insertMovStmt.setString(5, saleId)
-                    insertMovStmt.setString(6, request.cashierUserId)
-                    insertMovStmt.setLong(7, now)
-                    insertMovStmt.executeUpdate()
-                }
             }
             insertLineStmt.close()
-            updateStockStmt.close()
-            insertMovStmt.close()
+            applyStockMovement(conn, saleStock, "SALE", "Venta folio #$nextFolio", saleId, request.cashierUserId, now)
 
             // 10. Record Payments
             val insertPaymentStmt = conn.prepareStatement(
@@ -629,125 +634,131 @@ class SalesService(
         }
     }
 
-    fun getSaleById(id: String): SaleResponse {
-        return db.inTransaction { conn ->
-            val stmt = conn.prepareStatement(
-                """
-                SELECT s.id, s.folio, s.cash_session_id, s.user_id, u.name as cashier_name,
-                       s.customer_id, c.name as customer_name, c.credit_limit_cents, c.current_balance_cents,
-                       s.status, s.subtotal_cents, s.tax_cents, s.total_cents, s.discount_cents, s.created_at
-                FROM sales s
-                JOIN users u ON s.user_id = u.id
-                LEFT JOIN customers c ON s.customer_id = c.id
-                WHERE s.id = ?
-                """.trimIndent()
-            )
-            stmt.setString(1, id)
-            val rs = stmt.executeQuery()
-            if (!rs.next()) {
-                rs.close()
-                stmt.close()
-                throw NotFoundException("Venta '$id' no encontrada")
-            }
+    fun getSaleById(id: String): SaleResponse =
+        db.inTransaction { conn -> getSaleById(conn, id) }
 
-            val saleId = rs.getString("id")
-            val folio = rs.getLong("folio")
-            val sessionId = rs.getString("cash_session_id")
-            val cashierName = rs.getString("cashier_name")
-            val customerName = rs.getString("customer_name")
-            val limit = rs.getLong("credit_limit_cents")
-            val balance = rs.getLong("current_balance_cents")
-            val remCredit = if (customerName != null) (limit - balance).coerceAtLeast(0L) else null
-            val status = rs.getString("status")
-            val subtotal = rs.getLong("subtotal_cents")
-            val tax = rs.getLong("tax_cents")
-            val total = rs.getLong("total_cents")
-            val discountCents = rs.getLong("discount_cents")
-            val createdAt = rs.getLong("created_at")
+    private fun getSaleById(conn: Connection, id: String): SaleResponse {
+        val stmt = conn.prepareStatement(
+            """
+            SELECT s.id, s.folio, s.cash_session_id, s.user_id, u.name as cashier_name,
+                   s.customer_id, c.name as customer_name, c.credit_limit_cents, c.current_balance_cents,
+                   s.status, s.subtotal_cents, s.tax_cents, s.total_cents, s.discount_cents, s.created_at
+            FROM sales s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN customers c ON s.customer_id = c.id
+            WHERE s.id = ?
+            """.trimIndent()
+        )
+        stmt.setString(1, id)
+        val rs = stmt.executeQuery()
+        if (!rs.next()) {
             rs.close()
             stmt.close()
+            throw NotFoundException("Venta '$id' no encontrada")
+        }
 
-            // Fetch Lines
-            val lineStmt = conn.prepareStatement(
-                """
-                SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
-                       sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent,
-                       COALESCE((SELECT SUM(srl.quantity_millis) FROM sale_refund_lines srl WHERE srl.sale_line_id = sl.id), 0) as refunded_quantity_millis
-                FROM sale_lines sl
-                WHERE sl.sale_id = ?
-                """.trimIndent()
-            )
-            lineStmt.setString(1, saleId)
-            val lineRs = lineStmt.executeQuery()
-            val lines = mutableListOf<SaleLineItemResponse>()
-            while (lineRs.next()) {
-                lines.add(
-                    SaleLineItemResponse(
-                        id = lineRs.getString("id"),
-                        productId = lineRs.getString("product_id"),
-                        presentationId = lineRs.getString("presentation_id"),
-                        description = lineRs.getString("description"),
-                        quantityMillis = lineRs.getLong("quantity_millis"),
-                        unitPriceCents = lineRs.getLong("unit_price_cents"),
-                        taxRate = lineRs.getDouble("tax_rate"),
-                        taxCents = lineRs.getLong("tax_cents"),
-                        totalCents = lineRs.getLong("total_cents"),
-                        discountCents = lineRs.getLong("discount_cents"),
-                        discountPercent = lineRs.getDouble("discount_percent"),
-                        refundedQuantityMillis = lineRs.getLong("refunded_quantity_millis")
-                    )
+        val saleId = rs.getString("id")
+        val folio = rs.getLong("folio")
+        val sessionId = rs.getString("cash_session_id")
+        val cashierName = rs.getString("cashier_name")
+        val customerName = rs.getString("customer_name")
+        val limit = rs.getLong("credit_limit_cents")
+        val balance = rs.getLong("current_balance_cents")
+        val remCredit = if (customerName != null) (limit - balance).coerceAtLeast(0L) else null
+        val status = rs.getString("status")
+        val subtotal = rs.getLong("subtotal_cents")
+        val tax = rs.getLong("tax_cents")
+        val total = rs.getLong("total_cents")
+        val discountCents = rs.getLong("discount_cents")
+        val createdAt = rs.getLong("created_at")
+        rs.close()
+        stmt.close()
+
+        // Fetch Lines
+        val lineStmt = conn.prepareStatement(
+            """
+            SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
+                   sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent, sl.kit_stock_json,
+                   COALESCE((SELECT SUM(srl.quantity_millis) FROM sale_refund_lines srl WHERE srl.sale_line_id = sl.id), 0) as refunded_quantity_millis
+            FROM sale_lines sl
+            WHERE sl.sale_id = ?
+            """.trimIndent()
+        )
+        lineStmt.setString(1, saleId)
+        val lineRs = lineStmt.executeQuery()
+        val lines = mutableListOf<SaleLineItemResponse>()
+        while (lineRs.next()) {
+            lines.add(
+                SaleLineItemResponse(
+                    id = lineRs.getString("id"),
+                    productId = lineRs.getString("product_id"),
+                    presentationId = lineRs.getString("presentation_id"),
+                    description = lineRs.getString("description"),
+                    quantityMillis = lineRs.getLong("quantity_millis"),
+                    unitPriceCents = lineRs.getLong("unit_price_cents"),
+                    taxRate = lineRs.getDouble("tax_rate"),
+                    taxCents = lineRs.getLong("tax_cents"),
+                    totalCents = lineRs.getLong("total_cents"),
+                    discountCents = lineRs.getLong("discount_cents"),
+                    discountPercent = lineRs.getDouble("discount_percent"),
+                    refundedQuantityMillis = lineRs.getLong("refunded_quantity_millis"),
+                    isKit = lineRs.getString("kit_stock_json") != null
                 )
-            }
-            lineRs.close()
-            lineStmt.close()
-
-            // Fetch Payments
-            val payStmt = conn.prepareStatement(
-                "SELECT id, method, amount_cents, received_cents, change_cents, reference FROM sale_payments WHERE sale_id = ?"
-            )
-            payStmt.setString(1, saleId)
-            val payRs = payStmt.executeQuery()
-            val payments = mutableListOf<SalePaymentResponse>()
-            while (payRs.next()) {
-                payments.add(
-                    SalePaymentResponse(
-                        id = payRs.getString("id"),
-                        method = payRs.getString("method"),
-                        amountCents = payRs.getLong("amount_cents"),
-                        receivedCents = payRs.getLong("received_cents"),
-                        changeCents = payRs.getLong("change_cents"),
-                        reference = payRs.getString("reference")
-                    )
-                )
-            }
-            payRs.close()
-            payStmt.close()
-
-            val refunds = getRefundsBySaleIdInternal(conn, saleId)
-
-            SaleResponse(
-                id = saleId,
-                folio = folio,
-                cashSessionId = sessionId,
-                cashierName = cashierName,
-                customerName = customerName,
-                customerRemainingCreditCents = remCredit,
-                status = status,
-                subtotalCents = subtotal,
-                taxCents = tax,
-                totalCents = total,
-                discountCents = discountCents,
-                lines = lines,
-                payments = payments,
-                createdAt = createdAt,
-                refunds = refunds
             )
         }
+        lineRs.close()
+        lineStmt.close()
+
+        // Fetch Payments
+        val payStmt = conn.prepareStatement(
+            "SELECT id, method, amount_cents, received_cents, change_cents, reference FROM sale_payments WHERE sale_id = ?"
+        )
+        payStmt.setString(1, saleId)
+        val payRs = payStmt.executeQuery()
+        val payments = mutableListOf<SalePaymentResponse>()
+        while (payRs.next()) {
+            payments.add(
+                SalePaymentResponse(
+                    id = payRs.getString("id"),
+                    method = payRs.getString("method"),
+                    amountCents = payRs.getLong("amount_cents"),
+                    receivedCents = payRs.getLong("received_cents"),
+                    changeCents = payRs.getLong("change_cents"),
+                    reference = payRs.getString("reference")
+                )
+            )
+        }
+        payRs.close()
+        payStmt.close()
+
+        val refunds = getRefundsBySaleIdInternal(conn, saleId)
+
+        return SaleResponse(
+            id = saleId,
+            folio = folio,
+            cashSessionId = sessionId,
+            cashierName = cashierName,
+            customerName = customerName,
+            customerRemainingCreditCents = remCredit,
+            status = status,
+            subtotalCents = subtotal,
+            taxCents = tax,
+            totalCents = total,
+            discountCents = discountCents,
+            lines = lines,
+            payments = payments,
+            createdAt = createdAt,
+            refunds = refunds
+        )
     }
 
     fun cancelSale(saleId: String, request: CancelSaleRequest): SaleResponse {
         return db.inTransaction { conn ->
-            val sale = getSaleById(saleId)
+            conn.prepareStatement("SELECT id FROM sales WHERE id = ? FOR UPDATE").use { lock ->
+                lock.setString(1, saleId)
+                lock.executeQuery().use { if (!it.next()) throw NotFoundException("Venta '$saleId' no encontrada") }
+            }
+            val sale = getSaleById(conn, saleId)
             if (sale.status != "COMPLETED") {
                 throw ValidationException("Solo se pueden cancelar ventas con estado COMPLETED")
             }
@@ -765,32 +776,22 @@ class SalesService(
 
             val now = System.currentTimeMillis()
 
-            // 1. Revert stock
-            for (line in sale.lines) {
-                if (line.productId != null) {
-                    val updateStock = conn.prepareStatement(
-                        "UPDATE stock_balances SET quantity_millis = quantity_millis + ?, updated_at = ? WHERE product_id = ?"
-                    )
-                    updateStock.setLong(1, line.quantityMillis)
-                    updateStock.setLong(2, now)
-                    updateStock.setString(3, line.productId)
-                    updateStock.executeUpdate()
-                    updateStock.close()
-
-                    val movStmt = conn.prepareStatement(
-                        "INSERT INTO stock_movements (id, product_id, type, quantity_millis, reason, reference, user_id, created_at) VALUES (?, ?, 'REFUND', ?, ?, ?, ?, ?)"
-                    )
-                    movStmt.setString(1, "rmov-" + UUID.randomUUID().toString().take(8))
-                    movStmt.setString(2, line.productId)
-                    movStmt.setLong(3, line.quantityMillis)
-                    movStmt.setString(4, "Cancelación venta folio #${sale.folio}: ${request.reason}")
-                    movStmt.setString(5, saleId)
-                    movStmt.setString(6, request.authorizedByUserId ?: "admin")
-                    movStmt.setLong(7, now)
-                    movStmt.executeUpdate()
-                    movStmt.close()
+            val restoredStock = conn.prepareStatement("""
+                SELECT product_id, -SUM(quantity_millis) AS restored
+                FROM stock_movements WHERE type = 'SALE' AND reference = ?
+                GROUP BY product_id ORDER BY product_id
+            """.trimIndent()).use { statement ->
+                statement.setString(1, saleId)
+                statement.executeQuery().use { rows ->
+                    buildMap {
+                        while (rows.next()) put(rows.getString("product_id"), rows.getLong("restored"))
+                    }
                 }
             }
+            applyStockMovement(
+                conn, restoredStock, "REFUND", "Cancelación venta folio #${sale.folio}: ${request.reason}",
+                saleId, request.authorizedByUserId ?: "admin", now
+            )
 
             // 2. Revert credit if applicable
             val creditPayment = sale.payments.firstOrNull { it.method == "CREDIT" }
@@ -961,7 +962,7 @@ class SalesService(
                 val lineStmt = conn.prepareStatement(
                     """
                     SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
-                           sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent,
+                           sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.discount_cents, sl.discount_percent, sl.kit_stock_json,
                            COALESCE((SELECT SUM(srl.quantity_millis) FROM sale_refund_lines srl WHERE srl.sale_line_id = sl.id), 0) as refunded_quantity_millis
                     FROM sale_lines sl
                     WHERE sl.sale_id = ?
@@ -984,7 +985,8 @@ class SalesService(
                             totalCents = lineRs.getLong("total_cents"),
                             discountCents = lineRs.getLong("discount_cents"),
                             discountPercent = lineRs.getDouble("discount_percent"),
-                            refundedQuantityMillis = lineRs.getLong("refunded_quantity_millis")
+                            refundedQuantityMillis = lineRs.getLong("refunded_quantity_millis"),
+                            isKit = lineRs.getString("kit_stock_json") != null
                         )
                     )
                 }
@@ -1244,7 +1246,7 @@ class SalesService(
                 val taxCents: Long,
                 val totalCents: Long,
                 val reenterStock: Boolean,
-                val usesInventory: Boolean
+                val stock: List<KitComponent>
             )
 
             val validatedLines = mutableListOf<ValidatedRefundLine>()
@@ -1252,6 +1254,9 @@ class SalesService(
             var refundTaxCents = 0L
             var refundTotalCents = 0L
 
+            if (request.lines.distinctBy { it.saleLineId }.size != request.lines.size) {
+                throw ValidationException("Cada partida puede aparecer una sola vez en la devolución.")
+            }
             for (reqLine in request.lines) {
                 if (reqLine.quantityMillis <= 0L) {
                     throw ValidationException("La cantidad a devolver debe ser mayor a 0")
@@ -1261,7 +1266,7 @@ class SalesService(
                 val lineStmt = conn.prepareStatement(
                     """
                     SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
-                           sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents,
+                           sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.kit_stock_json,
                            p.uses_inventory
                     FROM sale_lines sl
                     LEFT JOIN products p ON sl.product_id = p.id
@@ -1280,11 +1285,13 @@ class SalesService(
                 val origQtyMillis = lineRs.getLong("quantity_millis")
                 val origTotalCents = lineRs.getLong("total_cents")
                 val origUnitPriceCents = lineRs.getLong("unit_price_cents")
+                val origTaxCents = lineRs.getLong("tax_cents")
                 val taxRate = lineRs.getDouble("tax_rate")
                 val prodId = lineRs.getString("product_id")
                 val presId = lineRs.getString("presentation_id")
                 val desc = lineRs.getString("description")
                 val usesInventory = lineRs.getBoolean("uses_inventory")
+                val kitStock = lineRs.getString("kit_stock_json")?.let { json.decodeFromString<List<KitComponent>>(it) }
                 lineRs.close()
                 lineStmt.close()
 
@@ -1306,11 +1313,29 @@ class SalesService(
                     )
                 }
 
-                // Proportional refund calculation:
-                val lineRefundCents = ((origTotalCents.toDouble() * reqLine.quantityMillis) / origQtyMillis).roundToLong()
-                val lineTaxCents = if (taxRate > 0.0) {
-                    ((lineRefundCents.toDouble() * taxRate) / (1.0 + taxRate)).roundToLong()
-                } else 0L
+                if (kitStock != null && reqLine.quantityMillis % 1000 != 0L) {
+                    throw ValidationException("Los kits se devuelven en cantidades enteras.")
+                }
+                val lineRefundCents = if (kitStock != null) {
+                    proratedKitRefundCents(origTotalCents, origQtyMillis, alreadyRefunded, reqLine.quantityMillis)
+                } else ((origTotalCents.toDouble() * reqLine.quantityMillis) / origQtyMillis).roundToLong()
+                val stock = when {
+                    !reqLine.reenterStock -> emptyList()
+                    kitStock != null -> kitStock.map {
+                        it.copy(quantityMillis = multiplyStock(it.quantityMillis, reqLine.quantityMillis / 1000L))
+                    }
+                    usesInventory && prodId != null -> {
+                        val factor = presId?.let { presentationFactor(conn, it) } ?: 1000L
+                        listOf(KitComponent(prodId, multiplyStock(reqLine.quantityMillis, factor) / 1000L))
+                    }
+                    else -> emptyList()
+                }
+                val lineTaxCents = when {
+                    kitStock != null ->
+                        proratedKitRefundCents(origTaxCents, origQtyMillis, alreadyRefunded, reqLine.quantityMillis)
+                    taxRate > 0.0 -> ((lineRefundCents.toDouble() * taxRate) / (1.0 + taxRate)).roundToLong()
+                    else -> 0L
+                }
                 val lineSubtotalCents = lineRefundCents - lineTaxCents
 
                 refundSubtotalCents += lineSubtotalCents
@@ -1329,7 +1354,7 @@ class SalesService(
                         taxCents = lineTaxCents,
                         totalCents = lineRefundCents,
                         reenterStock = reqLine.reenterStock,
-                        usesInventory = usesInventory
+                        stock = stock
                     )
                 )
             }
@@ -1400,44 +1425,6 @@ class SalesService(
                 insertLineStmt.setLong(13, now)
                 insertLineStmt.executeUpdate()
 
-                // Stock adjustment
-                if (vl.reenterStock && vl.usesInventory && vl.productId != null) {
-                    var factorMillis = 1000L
-                    if (!vl.presentationId.isNullOrBlank()) {
-                        val presStmt = conn.prepareStatement("SELECT factor_millis FROM product_presentations WHERE id = ?")
-                        presStmt.setString(1, vl.presentationId)
-                        val presRs = presStmt.executeQuery()
-                        if (presRs.next()) {
-                            factorMillis = presRs.getLong("factor_millis")
-                        }
-                        presRs.close()
-                        presStmt.close()
-                    }
-                    val addBaseMillis = (vl.quantityMillis * factorMillis) / 1000L
-
-                    val updateStockStmt = conn.prepareStatement(
-                        "UPDATE stock_balances SET quantity_millis = quantity_millis + ?, updated_at = ? WHERE product_id = ?"
-                    )
-                    updateStockStmt.setLong(1, addBaseMillis)
-                    updateStockStmt.setLong(2, now)
-                    updateStockStmt.setString(3, vl.productId)
-                    updateStockStmt.executeUpdate()
-                    updateStockStmt.close()
-
-                    val movStmt = conn.prepareStatement(
-                        "INSERT INTO stock_movements (id, product_id, type, quantity_millis, reason, reference, user_id, created_at) VALUES (?, ?, 'REFUND', ?, ?, ?, ?, ?)"
-                    )
-                    movStmt.setString(1, "rmov-" + UUID.randomUUID().toString().take(8))
-                    movStmt.setString(2, vl.productId)
-                    movStmt.setLong(3, addBaseMillis)
-                    movStmt.setString(4, "Devolución ticket folio #$saleFolio (Nota #$nextRefundFolio): ${request.reason}")
-                    movStmt.setString(5, refundId)
-                    movStmt.setString(6, request.cashierUserId)
-                    movStmt.setLong(7, now)
-                    movStmt.executeUpdate()
-                    movStmt.close()
-                }
-
                 refundLinesResponse.add(
                     SaleRefundLineResponse(
                         id = rLineId,
@@ -1455,6 +1442,12 @@ class SalesService(
                 )
             }
             insertLineStmt.close()
+
+            applyStockMovement(
+                conn, summarizeStock(validatedLines.flatMap { it.stock }), "REFUND",
+                "Devolución ticket folio #$saleFolio (Nota #$nextRefundFolio): ${request.reason}",
+                refundId, request.cashierUserId, now
+            )
 
             // 8. Financial adjustments: Cash Session vs Customer Credit
             if (request.refundMethod.uppercase() == "CREDIT") {
@@ -1648,4 +1641,83 @@ class SalesService(
             )
         }
     }
+    private fun loadKitStock(conn: Connection, productId: String): List<KitComponent> =
+        conn.prepareStatement("""
+            SELECT k.component_product_id, k.quantity_millis, p.name, p.base_unit, p.is_active, p.uses_inventory
+            FROM product_kit_components k JOIN products p ON p.id = k.component_product_id
+            WHERE k.kit_product_id = ? ORDER BY k.component_product_id
+        """.trimIndent()).use { statement ->
+            statement.setString(1, productId)
+            statement.executeQuery().use { rows ->
+                buildList {
+                    while (rows.next()) {
+                        val quantity = rows.getLong("quantity_millis")
+                        if (!rows.getBoolean("is_active") || !rows.getBoolean("uses_inventory") ||
+                            (rows.getString("base_unit") == "PZA" && quantity % 1000 != 0L)
+                        ) throw ValidationException("El componente '${rows.getString("name")}' requiere revisión en el catálogo.")
+                        add(KitComponent(rows.getString("component_product_id"), quantity))
+                    }
+                }
+            }
+        }
+
+    private fun presentationFactor(conn: Connection, presentationId: String): Long? =
+        conn.prepareStatement("SELECT factor_millis FROM product_presentations WHERE id = ?").use { statement ->
+            statement.setString(1, presentationId)
+            statement.executeQuery().use { rows -> if (rows.next()) rows.getLong(1) else null }
+        }
+
+    private fun multiplyStock(quantity: Long, multiplier: Long): Long =
+        try {
+            Math.multiplyExact(quantity, multiplier)
+        } catch (_: ArithmeticException) {
+            throw ValidationException("La cantidad de inventario excede el rango permitido.")
+        }
+
+    private fun summarizeStock(components: List<KitComponent>): Map<String, Long> = try {
+        components.groupingBy { it.productId }
+            .fold(0L) { subtotal, item -> Math.addExact(subtotal, item.quantityMillis) }
+            .toSortedMap()
+    } catch (_: ArithmeticException) {
+        throw ValidationException("La cantidad de inventario excede el rango permitido.")
+    }
+
+    private fun applyStockMovement(
+        conn: Connection,
+        stock: Map<String, Long>,
+        type: String,
+        reason: String,
+        reference: String,
+        userId: String,
+        timestamp: Long
+    ) {
+        if (stock.isEmpty()) return
+        conn.prepareStatement(
+            "UPDATE stock_balances SET quantity_millis = quantity_millis + ?, updated_at = ? WHERE product_id = ?"
+        ).use { balance ->
+            conn.prepareStatement("""
+                INSERT INTO stock_movements (id, product_id, type, quantity_millis, reason, reference, user_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()).use { movement ->
+                for ((productId, quantity) in stock) {
+                    if (quantity == 0L) continue
+                    val delta = if (type == "SALE") -quantity else quantity
+                    balance.setLong(1, delta)
+                    balance.setLong(2, timestamp)
+                    balance.setString(3, productId)
+                    if (balance.executeUpdate() != 1) throw ValidationException("El producto $productId no tiene saldo de inventario.")
+                    movement.setString(1, "mov-${UUID.randomUUID()}")
+                    movement.setString(2, productId)
+                    movement.setString(3, type)
+                    movement.setLong(4, delta)
+                    movement.setString(5, reason.take(256))
+                    movement.setString(6, reference)
+                    movement.setString(7, userId)
+                    movement.setLong(8, timestamp)
+                    movement.executeUpdate()
+                }
+            }
+        }
+    }
+
 }

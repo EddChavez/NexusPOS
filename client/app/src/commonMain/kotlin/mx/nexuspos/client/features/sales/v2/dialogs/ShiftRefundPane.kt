@@ -15,6 +15,7 @@ import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.RefundLineItemRequest
 import mx.nexuspos.contracts.sales.SaleLineItemResponse
 import mx.nexuspos.contracts.sales.SaleResponse
+import mx.nexuspos.contracts.sales.proratedKitRefundCents
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.Quantity
 import kotlin.math.roundToLong
@@ -50,9 +51,12 @@ internal fun ShiftRefundPane(
     val lines = sale.lines.filter { it.returnableQuantityMillis > 0 }
     val chosen = lines.mapNotNull { line ->
         val quantity = parseSalesQuantity(quantities[line.id].orEmpty())?.millis ?: return@mapNotNull null
-        if (quantity > line.returnableQuantityMillis) return@mapNotNull null
+        if (quantity > line.returnableQuantityMillis || (line.isKit && quantity % 1000 != 0L)) return@mapNotNull null
         val request = RefundLineItemRequest(line.id, quantity, stockChoices[line.id] ?: true)
-        request to ((line.totalCents.toDouble() * quantity) / line.quantityMillis).roundToLong()
+        val refundCents = if (line.isKit) {
+            proratedKitRefundCents(line.totalCents, line.quantityMillis, line.refundedQuantityMillis, quantity)
+        } else ((line.totalCents.toDouble() * quantity) / line.quantityMillis).roundToLong()
+        request to refundCents
     }
     val total = Money(chosen.sumOf { it.second }).format()
     val hasInvalidQuantity = lines.any { line ->
@@ -173,7 +177,7 @@ internal fun ShiftRefundPane(
 private fun isValidRefundQuantity(input: String, line: SaleLineItemResponse): Boolean {
     if (input.isBlank()) return true
     val quantity = parseSalesQuantity(input) ?: return false
-    return quantity.millis <= line.returnableQuantityMillis
+    return quantity.millis <= line.returnableQuantityMillis && (!line.isKit || quantity.millis % 1000 == 0L)
 }
 
 @Composable
@@ -200,7 +204,7 @@ private fun RefundQuantityCard(
                 OutlinedTextField(
                     value = input,
                     onValueChange = { value -> if (value.all { it in '0'..'9' || it == '.' || it == ',' }) onInput(value) },
-                    label = { Text("Cantidad a devolver") },
+                    label = { Text(if (line.isKit) "Kits enteros a devolver" else "Cantidad a devolver") },
                     singleLine = true,
                     enabled = enabled,
                     isError = !isValidRefundQuantity(input, line),

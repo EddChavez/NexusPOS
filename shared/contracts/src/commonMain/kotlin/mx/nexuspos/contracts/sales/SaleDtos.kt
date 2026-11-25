@@ -1,6 +1,8 @@
 package mx.nexuspos.contracts.sales
 
 import kotlinx.serialization.Serializable
+import mx.nexuspos.contracts.catalog.KitComponent
+import kotlin.math.roundToLong
 import mx.nexuspos.contracts.loyalty.SaleLoyaltyRewardDto
 
 @Serializable
@@ -13,7 +15,8 @@ data class SaleLineItemRequest(
     val expectedTotalCents: Long,
     val taxRate: Double = 0.0,
     val discountCents: Long = 0L,
-    val discountPercent: Double = 0.0
+    val discountPercent: Double = 0.0,
+    val expectedKitComponents: List<KitComponent>? = null
 )
 
 @Serializable
@@ -51,10 +54,17 @@ data class SaleLineItemResponse(
     val totalCents: Long,
     val discountCents: Long = 0L,
     val discountPercent: Double = 0.0,
-    val refundedQuantityMillis: Long = 0L
+    val refundedQuantityMillis: Long = 0L,
+    val isKit: Boolean = false
 ) {
     val returnableQuantityMillis: Long
         get() = (quantityMillis - refundedQuantityMillis).coerceAtLeast(0L)
+}
+
+fun proratedKitRefundCents(totalCents: Long, soldMillis: Long, refundedMillis: Long, requestedMillis: Long): Long {
+    fun amountFor(quantity: Long): Long =
+        if (quantity == soldMillis) totalCents else (totalCents.toDouble() * quantity / soldMillis).roundToLong()
+    return amountFor(refundedMillis + requestedMillis) - amountFor(refundedMillis)
 }
 
 @Serializable

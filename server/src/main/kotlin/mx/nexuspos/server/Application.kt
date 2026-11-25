@@ -25,6 +25,7 @@ import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
 import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
+import mx.nexuspos.contracts.catalog.UpdateProductKitRequest
 import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
@@ -355,6 +356,14 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                     ?: throw ValidationException("ID de presentación requerido")
                 val request = call.receive<UpdatePresentationPricesRequest>()
                 val updated = catalogService.updatePresentationPrices(id, presentationId, request.tiers)
+                broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
+                call.respond(updated)
+            }
+
+            put("/products/{id}/kit") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
+                val request = call.receive<UpdateProductKitRequest>()
+                val updated = catalogService.updateProductKit(id, request.components)
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
                 call.respond(updated)
             }

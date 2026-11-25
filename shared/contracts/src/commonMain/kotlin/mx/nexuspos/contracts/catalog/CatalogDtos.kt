@@ -47,6 +47,12 @@ fun resolvePresentationPrice(
     ?.unitPriceCents?.coerceAtMost(publicPriceCents) ?: publicPriceCents
 
 @Serializable
+data class KitComponent(val productId: String, val quantityMillis: Long)
+
+@Serializable
+data class UpdateProductKitRequest(val components: List<KitComponent>)
+
+@Serializable
 data class ProductDto(
     val id: String,
     val sku: String,
@@ -64,7 +70,8 @@ data class ProductDto(
     val shelfLifeAlertDays: Int = 7,
     val isActive: Boolean = true,
     val presentations: List<ProductPresentationDto> = emptyList(),
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    val kitComponents: List<KitComponent> = emptyList()
 )
 
 @Serializable

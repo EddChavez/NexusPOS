@@ -837,7 +837,7 @@ fun main() = application {
                                 AppModule.PRODUCTS -> {
                                     ProductsScreen(
                                         viewModel = productsViewModel,
-                                        onPricesChanged = viewModel::preloadCatalogCache,
+                                        onCatalogChanged = viewModel::preloadCatalogCache,
                                         onBackToSales = { activeModule = AppModule.SALES },
                                         onPrintShelfLabel = { prod, copies ->
                                             CoroutineScope(Dispatchers.IO).launch {

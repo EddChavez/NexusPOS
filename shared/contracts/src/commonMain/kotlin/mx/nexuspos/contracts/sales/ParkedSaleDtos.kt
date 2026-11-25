@@ -2,6 +2,7 @@ package mx.nexuspos.contracts.sales
 
 import kotlinx.serialization.Serializable
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
+import mx.nexuspos.contracts.catalog.KitComponent
 
 @Serializable
 data class ParkedSaleItemDto(
@@ -20,7 +21,8 @@ data class ParkedSaleItemDto(
     val discountPercent: Double = 0.0,
     val fixedDiscountCents: Long? = null,
     val publicPriceCents: Long? = null,
-    val priceTiers: List<PresentationPriceTier> = emptyList()
+    val priceTiers: List<PresentationPriceTier> = emptyList(),
+    val kitComponents: List<KitComponent>? = null
 )
 
 @Serializable

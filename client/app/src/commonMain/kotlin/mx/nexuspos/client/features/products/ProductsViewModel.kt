@@ -18,6 +18,8 @@ import mx.nexuspos.contracts.catalog.CreatePresentationRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.catalog.KitComponent
+import mx.nexuspos.contracts.catalog.UpdateProductKitRequest
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
 import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
@@ -93,21 +95,34 @@ class ProductsViewModel(
         loadProducts()
     }
 
+    suspend fun loadKitComponent(id: String): Result<ProductDto> = apiClient.getProduct(id)
+
+    suspend fun searchKitComponents(query: String): Result<List<ProductDto>> =
+        apiClient.searchProducts(query = query).map { products ->
+            products.filter { it.isActive && it.usesInventory && it.kitComponents.isEmpty() }
+        }
+
+    suspend fun saveKit(productId: String, components: List<KitComponent>): Result<ProductDto> =
+        apiClient.updateProductKit(productId, UpdateProductKitRequest(components))
+            .onSuccess { updateSelectedProduct(it, "Composición actualizada para ${it.name}.") }
+
     suspend fun savePresentationPrices(
         productId: String,
         presentationId: String,
         tiers: List<PresentationPriceTier>
     ): Result<ProductDto> =
         apiClient.updatePresentationPrices(productId, presentationId, UpdatePresentationPricesRequest(tiers))
-            .onSuccess { product ->
-                _uiState.update { state ->
-                    state.copy(
-                        products = state.products.map { if (it.id == product.id) product else it },
-                        selectedProduct = if (state.selectedProduct?.id == product.id) product else state.selectedProduct,
-                        successMessage = "Tarifas guardadas para ${product.name}."
-                    )
-                }
-            }
+            .onSuccess { updateSelectedProduct(it, "Tarifas guardadas para ${it.name}.") }
+
+    private fun updateSelectedProduct(product: ProductDto, message: String) {
+        _uiState.update { state ->
+            state.copy(
+                products = state.products.map { if (it.id == product.id) product else it },
+                selectedProduct = if (state.selectedProduct?.id == product.id) product else state.selectedProduct,
+                successMessage = message
+            )
+        }
+    }
 
     fun selectProduct(product: ProductDto?) {
         _uiState.update { it.copy(selectedProduct = product) }

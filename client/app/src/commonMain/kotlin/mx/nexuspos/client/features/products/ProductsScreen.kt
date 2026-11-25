@@ -26,15 +26,32 @@ import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.core.Money
+import mx.nexuspos.core.ProductUnit
 
 @Composable
 fun ProductsScreen(
     viewModel: ProductsViewModel,
     onBackToSales: () -> Unit = {},
     onPrintShelfLabel: ((ProductDto, Int) -> Unit)? = null,
-    onPricesChanged: () -> Unit = {}
+    onCatalogChanged: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    var kitTarget by remember { mutableStateOf<ProductDto?>(null) }
+    kitTarget?.let { product ->
+        KitEditorDialogV2(
+            product = product,
+            onLoadComponent = viewModel::loadKitComponent,
+            onSearch = viewModel::searchKitComponents,
+            onSave = { components ->
+                viewModel.saveKit(product.id, components).onSuccess {
+                    onCatalogChanged()
+                    kitTarget = null
+                }
+            },
+            onDismiss = { kitTarget = null }
+        )
+    }
 
     var pricingTarget by remember { mutableStateOf<ProductDto?>(null) }
     pricingTarget?.let { product ->
@@ -44,7 +61,7 @@ fun ProductsScreen(
                 viewModel.savePresentationPrices(product.id, presentation, tiers)
                     .onSuccess {
                         pricingTarget = it
-                        onPricesChanged()
+                        onCatalogChanged()
                     }
             },
             onDismiss = { pricingTarget = null }
@@ -153,8 +170,28 @@ fun ProductsScreen(
         )
 
         state.selectedProduct?.takeIf { it.presentations.isNotEmpty() }?.let { product ->
-            FilledTonalButton(onClick = { pricingTarget = product }, enabled = !state.isLoading) {
-                Text("Precios por cantidad · ${product.name}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    product.name,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                FilledTonalButton(onClick = { pricingTarget = product }, enabled = !state.isLoading) {
+                    Text("Precios por cantidad", maxLines = 1)
+                }
+                if (product.kitComponents.isNotEmpty() ||
+                    (!product.usesInventory && ProductUnit.fromCode(product.baseUnit) == ProductUnit.PIECE)
+                ) {
+                    OutlinedButton(onClick = { kitTarget = product }, enabled = !state.isLoading) {
+                        Text(if (product.kitComponents.isEmpty()) "Configurar kit" else "Editar kit")
+                    }
+                }
             }
         }
 
@@ -556,9 +593,14 @@ private fun ProductsTablePanel(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (product.presentations.size > 1) {
+                                    val detail = when {
+                                        product.kitComponents.isNotEmpty() -> "Kit · ${product.kitComponents.size} componentes"
+                                        product.presentations.size > 1 -> "+${product.presentations.size - 1} presentación(es)"
+                                        else -> null
+                                    }
+                                    if (detail != null) {
                                         Text(
-                                            text = "+${product.presentations.size - 1} presentación(es)",
+                                            text = detail,
                                             fontSize = 10.sp,
                                             color = NexusTheme.colors.textSecondary
                                         )

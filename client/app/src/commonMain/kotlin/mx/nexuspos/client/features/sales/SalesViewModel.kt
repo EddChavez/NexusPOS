@@ -384,7 +384,7 @@ class SalesViewModel(
                 state.cartLines.mapIndexed { idx, line ->
                     if (idx == existingIndex) {
                         val newQty = line.quantity + qty
-                        line.copy(publicPriceCents = pres.priceCents, priceTiers = pres.priceTiers)
+                        line.copy(publicPriceCents = pres.priceCents, priceTiers = pres.priceTiers, kitComponents = prod.kitComponents)
                             .pricedAt(newQty, fixedDiscount = line.fixedDiscount())
                     } else line
                 }
@@ -404,7 +404,8 @@ class SalesViewModel(
                     currentStockMillis = if (prod.usesInventory) prod.currentStockMillis else null,
                     isWeighed = unit == ProductUnit.KILOGRAM,
                     publicPriceCents = pres.priceCents,
-                    priceTiers = pres.priceTiers
+                    priceTiers = pres.priceTiers,
+                    kitComponents = prod.kitComponents
                 )
             }
             recalculateTotals(state.copy(cartLines = updatedLines))
@@ -429,6 +430,12 @@ class SalesViewModel(
 
     fun updateCartLineQuantity(lineId: String, newQuantity: Quantity) {
         if (newQuantity.millis <= 0L) return
+        if (newQuantity.millis % 1000 != 0L &&
+            _uiState.value.cartLines.any { it.id == lineId && !it.kitComponents.isNullOrEmpty() }
+        ) {
+            setErrorMessage("Los kits se venden en cantidades enteras.")
+            return
+        }
         _uiState.update { state ->
             var stockWarning: String? = null
             val updatedLines = state.cartLines.map { line ->
@@ -751,7 +758,8 @@ class SalesViewModel(
                 isWeighed = line.isWeighed,
                 discountCents = line.discountCents,
                 discountPercent = line.discountPercent,
-                fixedDiscountCents = line.fixedDiscount()
+                fixedDiscountCents = line.fixedDiscount(),
+                kitComponents = line.kitComponents
             )
         }
 
@@ -815,7 +823,8 @@ class SalesViewModel(
                         discountPercent = item.discountPercent,
                         publicPriceCents = item.publicPriceCents,
                         priceTiers = item.priceTiers,
-                        fixedDiscountCents = item.fixedDiscountCents
+                        fixedDiscountCents = item.fixedDiscountCents,
+                        kitComponents = item.kitComponents
                     ).let { line -> if (line.publicPriceCents == null) line else line.pricedAt(line.quantity) }
                 }
 
@@ -1370,6 +1379,8 @@ class SalesViewModel(
         val server = activeSessionServer
         val validationError = when {
             payments.isEmpty() -> "Debe especificar al menos una forma de pago."
+            state.cartLines.any { !it.kitComponents.isNullOrEmpty() && it.quantity.millis % 1000 != 0L } ->
+                "Los kits se venden en cantidades enteras."
             isOffline && payments.any { it.method == "CREDIT" || it.method == "LOYALTY" } ->
                 "En Modo Contingencia (sin servidor LAN) solo se permiten pagos en Efectivo o Tarjeta."
             state.activeSession?.status != "OPEN" || server != apiClient.baseUrl -> if (isOffline) {
@@ -1399,7 +1410,8 @@ class SalesViewModel(
                     expectedTotalCents = line.total.cents,
                     taxRate = line.taxRate,
                     discountCents = line.fixedDiscount(),
-                    discountPercent = line.discountPercent
+                    discountPercent = line.discountPercent,
+                    expectedKitComponents = line.kitComponents
                 )
             }
 
@@ -1456,7 +1468,8 @@ class SalesViewModel(
                             taxCents = ((l.expectedTotalCents * l.taxRate) / (1 + l.taxRate)).toLong(),
                             totalCents = l.expectedTotalCents,
                             discountCents = state.cartLines[idx].discountCents,
-                            discountPercent = l.discountPercent
+                            discountPercent = l.discountPercent,
+                            isKit = !l.expectedKitComponents.isNullOrEmpty()
                         )
                     },
                     payments = payments.mapIndexed { idx, p ->
