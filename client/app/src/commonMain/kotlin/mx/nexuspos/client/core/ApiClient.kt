@@ -38,6 +38,8 @@ import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.catalog.PairPromotionSchedule
+import mx.nexuspos.contracts.catalog.UpdatePresentationPromotionRequest
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
 import mx.nexuspos.contracts.catalog.UpdateProductRequest
 import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
@@ -179,6 +181,14 @@ open class ApiClient(
             setBody(UpdatePresentationListPrice(cents))
         }
     }
+
+    suspend fun updatePresentationPromotion(product: String, presentation: String, schedule: PairPromotionSchedule?): Result<ProductDto> =
+        setupCall {
+            http.put("$baseUrl/api/v1/products/${product.encodeURLPathPart()}/presentations/${presentation.encodeURLPathPart()}/promotion") {
+                contentType(ContentType.Application.Json)
+                setBody(UpdatePresentationPromotionRequest(schedule))
+            }
+        }
 
     suspend fun listRoles(): Result<List<RoleDto>> = setupCall { http.get("$baseUrl/api/v1/roles") }
 
@@ -927,7 +937,7 @@ open class ApiClient(
                 Result.success(res.body())
             } else {
                 val err = parseError(res)
-                Result.failure(SaleSubmissionRejected(err.message, res.status.value))
+                Result.failure(SaleSubmissionRejected(err.message, res.status.value, err.code))
             }
         } catch (e: CancellationException) {
             throw e
@@ -1355,7 +1365,7 @@ open class ApiClient(
     }
 }
 
-internal class SaleSubmissionRejected(message: String, val status: Int) : Exception(message)
+internal class SaleSubmissionRejected(message: String, val status: Int, val code: String? = null) : Exception(message)
 
 internal class SaleSubmissionUncertain(cause: Throwable) : Exception(cause.message, cause)
 

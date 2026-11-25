@@ -19,11 +19,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 import mx.nexuspos.client.features.sales.v2.components.parseSalesQuantity
 import mx.nexuspos.client.features.sales.v2.components.symbol
 import mx.nexuspos.client.features.sales.v2.dialogs.checkoutAmountText
 import mx.nexuspos.client.features.sales.v2.dialogs.parseCheckoutCents
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
+import mx.nexuspos.contracts.catalog.PairPromotionSchedule
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.CatalogPriceList
 import mx.nexuspos.core.Money
@@ -41,7 +43,8 @@ internal fun PresentationPricingDialogV2(
         Result.failure(IllegalStateException("Las listas de precio se editan en Productos V2."))
     },
     onSave: suspend (String, List<PresentationPriceTier>) -> Result<ProductDto>,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSavePromotion: (suspend (String, PairPromotionSchedule?) -> Result<ProductDto>)? = null
 ) {
     var presentationId by remember(product.id) { mutableStateOf(product.presentations.first().id) }
     val presentation = product.presentations.firstOrNull { it.id == presentationId } ?: product.presentations.first()
@@ -198,6 +201,23 @@ internal fun PresentationPricingDialogV2(
                             }
                         }
                     }
+                    if (unit == ProductUnit.PIECE && onSavePromotion != null) {
+                        HorizontalDivider()
+                        PromotionEditor(presentation.id, presentation.promotion?.schedule, saving) { schedule ->
+                            saving = true
+                            error = null
+                            saved = false
+                            scope.launch {
+                                try {
+                                    onSavePromotion(presentation.id, schedule).onFailure {
+                                        error = it.message ?: "No se pudo guardar la promoción."
+                                    }
+                                } finally {
+                                    saving = false
+                                }
+                            }
+                        }
+                    }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 if (saved) Text("Tarifas guardadas.", color = MaterialTheme.colorScheme.primary)
@@ -209,5 +229,39 @@ internal fun PresentationPricingDialogV2(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PromotionEditor(
+    presentationId: String, current: PairPromotionSchedule?, busy: Boolean, onSave: (PairPromotionSchedule?) -> Unit
+) {
+    var twoForOne by remember(presentationId, current) { mutableStateOf(current == null || current.secondUnitPercent == 100) }
+    var percent by remember(presentationId, current) { mutableStateOf(current?.secondUnitPercent?.takeIf { it < 100 }?.toString().orEmpty()) }
+    var from by remember(presentationId, current) { mutableStateOf(current?.fromDate.orEmpty()) }
+    var through by remember(presentationId, current) { mutableStateOf(current?.throughDate.orEmpty()) }
+    val secondUnit = if (twoForOne) 100 else percent.toIntOrNull()?.takeIf { it in 1..99 }
+    val validDates = from.length == 10 && through.length == 10 &&
+        runCatching { LocalDate.parse(from) <= LocalDate.parse(through) }.getOrDefault(false)
+    val draft = secondUnit?.takeIf { validDates }?.let { PairPromotionSchedule(it, from, through) }
+    Text("Promoción por pares", style = MaterialTheme.typography.titleMedium)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(twoForOne, { twoForOne = true }, label = { Text("2×1") }, enabled = !busy)
+        FilterChip(!twoForOne, { twoForOne = false }, label = { Text("Segunda unidad") }, enabled = !busy)
+    }
+    if (!twoForOne) {
+        OutlinedTextField(percent, { percent = it.take(2) }, label = { Text("Descuento en la segunda unidad (%)") },
+            enabled = !busy, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(from, { from = it.take(10) }, label = { Text("Desde · AAAA-MM-DD") },
+            singleLine = true, enabled = !busy, modifier = Modifier.weight(1f))
+        OutlinedTextField(through, { through = it.take(10) }, label = { Text("Hasta · AAAA-MM-DD") },
+            singleLine = true, enabled = !busy, modifier = Modifier.weight(1f))
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (current != null) TextButton(onClick = { onSave(null) }, enabled = !busy) { Text("Quitar promoción") }
+        Button(onClick = { draft?.let(onSave) }, enabled = !busy && draft != null && draft != current) { Text("Guardar promoción") }
     }
 }

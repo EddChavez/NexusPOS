@@ -65,6 +65,12 @@ fun ProductsScreenV2(
                     onCatalogChanged()
                 }
             },
+            onSavePromotion = { presentationId, schedule ->
+                viewModel.savePromotion(target.id, presentationId, schedule).onSuccess {
+                    pricingTarget = it
+                    onCatalogChanged()
+                }
+            },
             onDismiss = { pricingTarget = null }
         )
     }

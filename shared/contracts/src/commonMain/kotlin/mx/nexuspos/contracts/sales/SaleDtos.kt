@@ -18,7 +18,8 @@ data class SaleLineItemRequest(
     val discountPercent: Double = 0.0,
     val expectedKitComponents: List<KitComponent>? = null,
     val priceListLevel: Int? = null,
-    val manualPriceCents: Long? = null
+    val manualPriceCents: Long? = null,
+    val expectedPromotionDiscountCents: Long = 0
 )
 
 @Serializable

@@ -84,7 +84,7 @@ internal fun permissionFor(path: String, method: HttpMethod): String? {
             method == HttpMethod.Delete -> "products.deactivate"
             leaf == "reactivate" -> "products.reactivate"
             leaf == "kit" -> "products.kit.edit"
-            leaf == "prices" -> "products.tiers.edit"
+            leaf == "prices" || leaf == "promotion" -> "products.tiers.edit"
             parts.getOrNull(4) == "list-prices" -> "products.price.$leaf"
             parts.size == 1 -> "products.create"
             else -> "products.edit"

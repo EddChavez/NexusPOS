@@ -8,6 +8,8 @@ import mx.nexuspos.contracts.cash.ClosedShiftSalesPage
 import mx.nexuspos.contracts.cash.HistoricalSaleCancellation
 import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.catalog.resolvePresentationPrice
+import mx.nexuspos.contracts.catalog.PresentationPromotion
+import mx.nexuspos.contracts.catalog.presentationPromotionDiscount
 import mx.nexuspos.contracts.loyalty.SaleLoyaltyRewardDto
 import mx.nexuspos.contracts.sales.*
 import mx.nexuspos.core.Money
@@ -115,6 +117,7 @@ class SalesService(
             )
 
             val validatedLines = mutableListOf<ValidatedLine>()
+            val promotionCheckedAt = System.currentTimeMillis()
 
             for (line in request.lines) {
                 if (line.quantityMillis <= 0L) throw ValidationException("La cantidad de venta debe ser positiva.")
@@ -124,6 +127,8 @@ class SalesService(
                 var factorMillis = 1000L
                 var usesInventory = false
                 var resolvedProdId = line.productId
+                var promotion: PresentationPromotion? = null
+                var publicPriceCents = 0L
 
                 if (line.priceListLevel != null && line.presentationId.isNullOrBlank()) {
                     throw ValidationException("Selecciona una presentación para aplicar la lista de precios.")
@@ -131,7 +136,8 @@ class SalesService(
                 if (!line.presentationId.isNullOrBlank()) {
                     val presStmt = conn.prepareStatement(
                         """
-                        SELECT pp.price_cents, pp.price_tiers_json, pp.price_list_prices, pp.factor_millis, pp.product_id, p.tax_rate, p.uses_inventory,
+                        SELECT pp.price_cents, pp.price_tiers_json, pp.price_list_prices, pp.promotion_json,
+                            pp.factor_millis, pp.product_id, p.tax_rate, p.uses_inventory, p.base_unit,
                             EXISTS(SELECT 1 FROM product_kit_components k WHERE k.kit_product_id = p.id) AS is_kit
                         FROM product_presentations pp
                         JOIN products p ON pp.product_id = p.id
@@ -142,6 +148,10 @@ class SalesService(
                     val presRs = presStmt.executeQuery()
                     if (presRs.next()) {
                         val selectedList = line.priceListLevel
+                        publicPriceCents = presRs.getLong("price_cents")
+                        if (presRs.getString("base_unit") == "PZA" && selectedList == null && line.manualPriceCents == null &&
+                            line.discountCents == 0L && line.discountPercent == 0.0
+                        ) promotion = presRs.getString("promotion_json")?.let { json.decodeFromString<PresentationPromotion>(it) }
                         currentPriceCents = if (selectedList != null) {
                             val enabled = conn.prepareStatement("SELECT enabled FROM price_lists WHERE level_id = ? FOR UPDATE").use {
                                 it.setInt(1, selectedList)
@@ -151,7 +161,7 @@ class SalesService(
                             prices[selectedList]?.takeIf { enabled }
                                 ?: throw PriceChangedException("La lista de precios ya no está disponible para '${line.description}'.")
                         } else resolvePresentationPrice(
-                            presRs.getLong("price_cents"),
+                            publicPriceCents,
                             json.decodeFromString(presRs.getString("price_tiers_json")),
                             line.quantityMillis
                         )
@@ -199,11 +209,17 @@ class SalesService(
                     )
                 }
 
+                val promoDiscount = presentationPromotionDiscount(
+                    promotion, promotionCheckedAt, line.quantityMillis, publicPriceCents, currentPriceCents
+                )
+                if (promoDiscount != line.expectedPromotionDiscountCents) {
+                    throw PriceChangedException("La promoción de '${line.description}' cambió. Revisa el nuevo total antes de cobrar.")
+                }
                 val (lineTotal, lineDisc) = PricingRules.calculateLineTotalWithDiscount(
                     Money.fromCents(currentPriceCents),
                     Quantity.fromMillis(line.quantityMillis),
                     line.discountPercent,
-                    line.discountCents
+                    if (promoDiscount > 0) promoDiscount else line.discountCents
                 )
                 val lineTax = PricingRules.extractTaxFromTotal(lineTotal, taxRate)
 

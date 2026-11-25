@@ -56,6 +56,7 @@ import mx.nexuspos.contracts.purchases.ReceivePurchaseRequest
 import mx.nexuspos.contracts.purchases.RecordSupplierPaymentRequest
 import mx.nexuspos.contracts.purchases.RegisterSupplierPayableRequest
 import mx.nexuspos.contracts.purchases.SupplierPaymentMethod
+import mx.nexuspos.contracts.catalog.UpdatePresentationPromotionRequest
 import mx.nexuspos.contracts.purchases.ReturnPurchaseRequest
 import mx.nexuspos.contracts.purchases.SaveSupplierRequest
 import mx.nexuspos.contracts.reports.SalesAnalysisRequest
@@ -512,6 +513,16 @@ fun Application.nexusModule(
                     ?: throw ValidationException("ID de presentación requerido")
                 val request = call.receive<UpdatePresentationPricesRequest>()
                 val updated = catalogService.updatePresentationPrices(id, presentationId, request.tiers)
+                broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
+                call.respond(call.access.projectProduct(updated))
+            }
+
+            put("/products/{id}/presentations/{presentationId}/promotion") {
+                call.requireDesktopAccess(identityService, roles).require("products.tiers.edit")
+                val id = call.parameters["id"] ?: throw ValidationException("Indica el producto.")
+                val presentationId = call.parameters["presentationId"] ?: throw ValidationException("Indica la presentación.")
+                val request = call.receive<UpdatePresentationPromotionRequest>()
+                val updated = catalogService.updatePresentationPromotion(id, presentationId, request.schedule, ZoneId.of(setupService.profile().timeZone))
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
                 call.respond(call.access.projectProduct(updated))
             }

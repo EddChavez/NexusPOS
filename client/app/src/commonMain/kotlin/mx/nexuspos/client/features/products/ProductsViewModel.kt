@@ -24,6 +24,7 @@ import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.catalog.UpdateProductKitRequest
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
+import mx.nexuspos.contracts.catalog.PairPromotionSchedule
 import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
 import mx.nexuspos.contracts.catalog.UpdateProductRequest
@@ -140,6 +141,10 @@ class ProductsViewModel(
         }
         loadProducts()
     }
+
+    suspend fun savePromotion(productId: String, presentationId: String, schedule: PairPromotionSchedule?): Result<ProductDto> =
+        apiClient.updatePresentationPromotion(productId, presentationId, schedule)
+            .onSuccess { updateSelectedProduct(it, "Promoción actualizada.") }
 
     fun selectProduct(product: ProductDto?) {
         _uiState.update { it.copy(selectedProduct = product) }

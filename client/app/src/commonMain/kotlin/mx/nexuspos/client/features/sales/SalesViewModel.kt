@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
+import mx.nexuspos.client.core.SaleSubmissionRejected
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.core.saleOutcomeIsUncertain
 import kotlinx.coroutines.CancellationException
@@ -26,6 +27,7 @@ import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
+import mx.nexuspos.contracts.catalog.presentationPromotionDiscount
 import mx.nexuspos.contracts.catalog.resolvePresentationPrice
 import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.credit.CustomerDto
@@ -402,7 +404,7 @@ class SalesViewModel(
                 state.cartLines.mapIndexed { idx, line ->
                     if (idx == existingIndex) {
                         val newQty = line.quantity + qty
-                        line.copy(publicPriceCents = pres.priceCents, priceTiers = pres.priceTiers, kitComponents = prod.kitComponents)
+                        line.copy(publicPriceCents = pres.priceCents, priceTiers = pres.priceTiers, kitComponents = prod.kitComponents, promotion = pres.promotion)
                             .pricedAt(newQty, fixedDiscount = line.fixedDiscount())
                     } else line
                 }
@@ -424,8 +426,9 @@ class SalesViewModel(
                     publicPriceCents = pres.priceCents,
                     priceTiers = pres.priceTiers,
                     listPrices = pres.listPrices,
-                    kitComponents = prod.kitComponents
-                )
+                    kitComponents = prod.kitComponents,
+                    promotion = pres.promotion
+                ).pricedAt(qty, 0)
             }
             recalculateTotals(state.copy(cartLines = updatedLines))
         }
@@ -483,7 +486,7 @@ class SalesViewModel(
     }
 
     private fun CartLine.fixedDiscount(): Long = fixedDiscountCents ?: (
-        discountCents - PricingRules.calculateLineTotalWithDiscount(unitPrice, quantity, discountPercent).second.cents
+        discountCents - promotionDiscountCents - PricingRules.calculateLineTotalWithDiscount(unitPrice, quantity, discountPercent).second.cents
     ).coerceAtLeast(0)
 
     private fun CartLine.pricedAt(newQuantity: Quantity, fixedDiscount: Long = fixedDiscount()): CartLine {
@@ -491,8 +494,17 @@ class SalesViewModel(
             manualPriceCents ?: priceListLevel?.let { listPrices[it] ?: unitPrice.cents }
                 ?: resolvePresentationPrice(publicPriceCents ?: unitPrice.cents, priceTiers, newQuantity.millis)
         )
-        val (total, discount) = PricingRules.calculateLineTotalWithDiscount(price, newQuantity, discountPercent, fixedDiscount)
-        return copy(quantity = newQuantity, unitPrice = price, total = total, discountCents = discount.cents, fixedDiscountCents = fixedDiscount)
+        val automatic = if (unit == ProductUnit.PIECE && manualPriceCents == null && priceListLevel == null &&
+            discountPercent == 0.0 && fixedDiscount == 0L
+        ) presentationPromotionDiscount(promotion, System.currentTimeMillis(), newQuantity.millis, publicPriceCents ?: price.cents, price.cents)
+        else 0L
+        val (total, discount) = PricingRules.calculateLineTotalWithDiscount(
+            price, newQuantity, discountPercent, if (automatic > 0L) automatic else fixedDiscount
+        )
+        return copy(
+            quantity = newQuantity, unitPrice = price, total = total, discountCents = discount.cents,
+            fixedDiscountCents = fixedDiscount, promotionDiscountCents = automatic
+        )
     }
 
     suspend fun activePriceLists() = apiClient.priceLists().map { lists ->
@@ -789,6 +801,9 @@ class SalesViewModel(
                 discountCents = line.discountCents,
                 discountPercent = line.discountPercent,
                 fixedDiscountCents = line.fixedDiscount(),
+                publicPriceCents = line.publicPriceCents,
+                priceTiers = line.priceTiers,
+                promotion = line.promotion,
                 kitComponents = line.kitComponents,
                 listPrices = line.listPrices,
                 priceListLevel = line.priceListLevel,
@@ -860,7 +875,8 @@ class SalesViewModel(
                         kitComponents = item.kitComponents,
                         listPrices = item.listPrices,
                         priceListLevel = item.priceListLevel,
-                        manualPriceCents = item.manualPriceCents
+                        manualPriceCents = item.manualPriceCents,
+                        promotion = item.promotion
                     ).let { line -> if (line.publicPriceCents == null) line else line.pricedAt(line.quantity) }
                 }
 
@@ -1470,10 +1486,20 @@ class SalesViewModel(
         }
         if (state.isCheckoutInProgress) return
 
+        val refreshed = state.cartLines.map { line ->
+            if (line.promotion == null) line else line.pricedAt(line.quantity)
+        }
+        if (refreshed.zip(state.cartLines).any { (quoted, prior) -> quoted.total != prior.total }) {
+            _uiState.update { recalculateTotals(it.copy(cartLines = refreshed, isShowingCashPayment = false)) }
+            reportCheckoutError("Cambió la promoción de un artículo. Revisa el nuevo total antes de cobrar.")
+            return
+        }
         val isOffline = state.connectionState == ServerConnectionState.NO_SERVER
         val server = activeSessionServer
         val validationError = when {
             payments.isEmpty() -> "Debe especificar al menos una forma de pago."
+            isOffline && state.cartLines.any { it.promotionDiscountCents > 0 } ->
+                "Conéctate al servidor para validar la promoción antes de cobrar."
             state.cartLines.any { !it.kitComponents.isNullOrEmpty() && it.quantity.millis % 1000 != 0L } ->
                 "Los kits se venden en cantidades enteras."
             currentSettings?.commerce?.creditSalesEnabled == false && payments.any { it.method == "CREDIT" } ->
@@ -1512,11 +1538,12 @@ class SalesViewModel(
                     discountPercent = line.discountPercent,
                     expectedKitComponents = line.kitComponents,
                     priceListLevel = line.priceListLevel,
-                    manualPriceCents = line.manualPriceCents
+                    manualPriceCents = line.manualPriceCents,
+                    expectedPromotionDiscountCents = line.promotionDiscountCents
                 )
             }
 
-            val totalDiscountCents = state.cartLines.sumOf { it.discountCents }
+            val totalDiscountCents = state.cartLines.sumOf { it.discountCents - it.promotionDiscountCents }
             val sessionId = checkNotNull(state.activeSession).sessionId
 
             val saleReq = CreateSaleRequest(
@@ -1663,9 +1690,30 @@ class SalesViewModel(
                         runCatching { saleQueue.markFailed(submission.localFolio, error.message.orEmpty(), automaticRetry = false) }
                     }
                     _uiState.update { it.copy(offlinePendingSalesCount = saleQueue.pendingCount()) }
+                    if ((error as? SaleSubmissionRejected)?.code == "PRICE_CHANGED" && server == apiClient.baseUrl) {
+                        refreshCheckoutPrices(state.activeTicketId)
+                    }
                     reportCheckoutError(error.message ?: "No se pudo completar el cobro.")
                 }
             }
+        }
+    }
+
+    private suspend fun refreshCheckoutPrices(ticketId: String) {
+        val server = apiClient.baseUrl
+        val lines = _uiState.value.takeIf { it.activeTicketId == ticketId }?.cartLines.orEmpty()
+        val latest = lines.mapNotNull { it.productId }.distinct().mapNotNull { id -> apiClient.getProduct(id).getOrNull() }
+            .flatMap { it.presentations }.associateBy { it.id }
+        if (apiClient.baseUrl != server) return
+        _uiState.update { current ->
+            if (current.activeTicketId != ticketId) current else recalculateTotals(current.copy(
+                isShowingCashPayment = false,
+                cartLines = current.cartLines.map { line ->
+                    val p = latest[line.presentationId] ?: return@map line
+                    line.copy(publicPriceCents = p.priceCents, priceTiers = p.priceTiers, promotion = p.promotion, listPrices = p.listPrices)
+                        .pricedAt(line.quantity)
+                }
+            ))
         }
     }
 
@@ -1720,18 +1768,7 @@ class SalesViewModel(
         if (targetLineId != null) {
             val updatedLines = state.cartLines.map { line ->
                 if (line.id == targetLineId) {
-                    val (newTotal, totalDisc) = PricingRules.calculateLineTotalWithDiscount(
-                        line.unitPrice,
-                        line.quantity,
-                        discountPercent,
-                        discountCents
-                    )
-                    line.copy(
-                        total = newTotal,
-                        discountCents = totalDisc.cents,
-                        discountPercent = discountPercent,
-                        fixedDiscountCents = discountCents
-                    )
+                    line.copy(discountPercent = discountPercent).pricedAt(line.quantity, discountCents)
                 } else line
             }
             _uiState.update {
@@ -1747,18 +1784,7 @@ class SalesViewModel(
                 return
             }
             val updatedLines = state.cartLines.map { line ->
-                val (newTotal, totalDisc) = PricingRules.calculateLineTotalWithDiscount(
-                    line.unitPrice,
-                    line.quantity,
-                    discountPercent,
-                    discountCents
-                )
-                line.copy(
-                    total = newTotal,
-                    discountCents = totalDisc.cents,
-                    discountPercent = discountPercent,
-                    fixedDiscountCents = discountCents
-                )
+                line.copy(discountPercent = discountPercent).pricedAt(line.quantity, discountCents)
             }
             _uiState.update {
                 recalculateTotals(it.copy(

@@ -2,6 +2,8 @@ package mx.nexuspos.server.modules.catalog
 
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.catalog.PresentationPriceTier
+import mx.nexuspos.contracts.catalog.PresentationPromotion
+import mx.nexuspos.contracts.catalog.PairPromotionSchedule
 import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
 import mx.nexuspos.contracts.catalog.CatalogImportResponse
@@ -18,6 +20,8 @@ import mx.nexuspos.core.ProductUnit
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.NotFoundException
 import mx.nexuspos.server.platform.ValidationException
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 class CatalogService(private val db: DatabaseFactory, seedDefaults: Boolean = true) {
@@ -362,9 +366,9 @@ class CatalogService(private val db: DatabaseFactory, seedDefaults: Boolean = tr
             // Fetch presentations for found products
             if (products.isNotEmpty()) {
                 val presSql = if (includeInactive) {
-                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
+                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices, promotion_json FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
                 } else {
-                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices FROM product_presentations WHERE product_id = ? AND is_active = TRUE ORDER BY factor_millis ASC"
+                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices, promotion_json FROM product_presentations WHERE product_id = ? AND is_active = TRUE ORDER BY factor_millis ASC"
                 }
                 val presStmt = conn.prepareStatement(presSql)
                 val fullProducts = products.map { prod ->
@@ -381,7 +385,8 @@ class CatalogService(private val db: DatabaseFactory, seedDefaults: Boolean = tr
                                 factorMillis = presRs.getLong("factor_millis"),
                                 priceCents = presRs.getLong("price_cents"),
                                 priceTiers = Json.decodeFromString(presRs.getString("price_tiers_json")),
-                                listPrices = Json.decodeFromString(presRs.getString("price_list_prices"))
+                                listPrices = Json.decodeFromString(presRs.getString("price_list_prices")),
+                                promotion = presRs.getString("promotion_json")?.let { Json.decodeFromString<PresentationPromotion>(it) }
                             )
                         )
                     }
@@ -720,6 +725,35 @@ class CatalogService(private val db: DatabaseFactory, seedDefaults: Boolean = tr
         fetchProductById(conn, productId)
     }
 
+    fun updatePresentationPromotion(
+        productId: String, presentationId: String, schedule: PairPromotionSchedule?, zone: ZoneId
+    ): ProductDto = db.inTransaction { conn ->
+        lockProduct(conn, productId)
+        val product = fetchProductById(conn, productId)
+        if (product.presentations.none { it.id == presentationId }) throw NotFoundException("No se encontró la presentación del producto.")
+        val promotion = schedule?.let {
+            if (product.baseUnit != "PZA" || it.secondUnitPercent !in 1..100) {
+                throw ValidationException("La promoción por pares requiere venta por pieza y un descuento de 1 a 100%.")
+            }
+            val from = it.fromDate.takeIf { date -> date.length == 10 }?.let { date -> runCatching { LocalDate.parse(date) }.getOrNull() }
+            val through = it.throughDate.takeIf { date -> date.length == 10 }?.let { date -> runCatching { LocalDate.parse(date) }.getOrNull() }
+            if (from == null || through == null || through < from) throw ValidationException("Captura una vigencia válida en formato AAAA-MM-DD.")
+            PresentationPromotion(it, from.atStartOfDay(zone).toInstant().toEpochMilli(), through.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli())
+        }
+        conn.prepareStatement("UPDATE product_presentations SET promotion_json = ? WHERE id = ? AND product_id = ?").use {
+            it.setString(1, promotion?.let { value -> Json.encodeToString(value) })
+            it.setString(2, presentationId)
+            it.setString(3, productId)
+            it.executeUpdate()
+        }
+        conn.prepareStatement("UPDATE products SET updated_at = ? WHERE id = ?").use {
+            it.setLong(1, System.currentTimeMillis())
+            it.setString(2, productId)
+            it.executeUpdate()
+        }
+        fetchProductById(conn, productId)
+    }
+
     fun updateProductKit(productId: String, components: List<KitComponent>): ProductDto = db.inTransaction { conn ->
         val componentIds = components.map { it.productId }
         if (productId in componentIds || componentIds.distinct().size != components.size ||
@@ -879,7 +913,7 @@ class CatalogService(private val db: DatabaseFactory, seedDefaults: Boolean = tr
         stmt.close()
 
         val presStmt = conn.prepareStatement(
-            "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
+            "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json, price_list_prices, promotion_json FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
         )
         presStmt.setString(1, id)
         val presRs = presStmt.executeQuery()
@@ -894,7 +928,8 @@ class CatalogService(private val db: DatabaseFactory, seedDefaults: Boolean = tr
                     factorMillis = presRs.getLong("factor_millis"),
                     priceCents = presRs.getLong("price_cents"),
                     priceTiers = Json.decodeFromString(presRs.getString("price_tiers_json")),
-                                listPrices = Json.decodeFromString(presRs.getString("price_list_prices"))
+                                listPrices = Json.decodeFromString(presRs.getString("price_list_prices")),
+                                promotion = presRs.getString("promotion_json")?.let { Json.decodeFromString<PresentationPromotion>(it) }
                 )
             )
         }

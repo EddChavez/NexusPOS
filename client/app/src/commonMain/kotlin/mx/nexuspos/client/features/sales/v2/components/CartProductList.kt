@@ -155,6 +155,9 @@ private fun ProductDetails(line: CartLine, isSelected: Boolean, modifier: Modifi
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isSelected) LocalContentColor.current else MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (line.promotionDiscountCents > 0) {
+                Text("Promoción aplicada", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            }
         }
     }
 }

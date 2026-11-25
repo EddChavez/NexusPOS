@@ -27,7 +27,8 @@ data class ProductPresentationDto(
     val factorMillis: Long, // 1000 = 1 base unit, 24000 = caja de 24
     val priceCents: Long,
     val priceTiers: List<PresentationPriceTier> = emptyList(),
-    val listPrices: Map<Int, Long> = emptyMap()
+    val listPrices: Map<Int, Long> = emptyMap(),
+    val promotion: PresentationPromotion? = null
 ) {
     fun priceFor(quantityMillis: Long): Long = resolvePresentationPrice(priceCents, priceTiers, quantityMillis)
 }

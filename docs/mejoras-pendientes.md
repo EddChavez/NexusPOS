@@ -100,14 +100,10 @@ Compras V2 ya registra proveedores, recepciones y devoluciones. Desde una recepc
 - **Esfuerzo:** Medio (1 etapa).
 
 #### 2.3. Motor de Promociones y Combos Dinámicos
-- **Problema:** Falta automatizar ofertas temporales comunes (2x1, 3x2, combos de botana + refresco).
-- **Solución Técnica:**
-  - Módulo de promociones con vigencia de fechas y horas.
-  - Tipos de promoción:
-    - `N x M` (ej. 3x2 en galletas seleccionadas).
-    - Descuento porcentual en la segunda unidad (ej. 50% en la 2da pieza).
-    - Combo / Paquete: Grupo de productos a precio fijo cerrado (ej. Refresco 2L + Papas 170g por $65.00).
-- **Esfuerzo:** Medio (1 etapa).
+
+En **Productos V2 → Precios de presentaciones**, programa un **2×1** o un descuento en la segunda unidad para una presentación que se venda por pieza. La vigencia incluye la fecha final en la zona horaria del negocio. La promoción se aplica por cada par de la misma presentación. Si una tarifa por volumen es más conveniente, se conserva esa tarifa. Las listas de precios y los descuentos manuales tienen su propio cálculo. El cobro promocional requiere conexión con el servidor.
+
+Quedan pendientes los esquemas como 3×2, los combos de productos distintos y las ventanas por hora.
 
 ---
 
