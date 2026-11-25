@@ -227,9 +227,10 @@ internal fun ShiftWhatsAppPane(
     onCopy: (String) -> Result<Unit>,
     onOpen: (String) -> Result<Unit>,
     onOpened: () -> Unit,
-    onError: (String?) -> Unit
+    onError: (String?) -> Unit,
+    initialPhone: String = ""
 ) {
-    var phone by remember { mutableStateOf("") }
+    var phone by remember(message, initialPhone) { mutableStateOf(initialPhone) }
     var copied by remember { mutableStateOf(false) }
     val normalized = WhatsAppMessageFormatter.cleanAndFormatPhoneNumber(phone, countryCode)
     val valid = phone.isBlank() || (phone.all { it in "0123456789+()- .	" } &&

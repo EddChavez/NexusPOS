@@ -630,7 +630,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getCustomerStatement(id: String): Result<CustomerStatementDto> {
+    open suspend fun getCustomerStatement(id: String): Result<CustomerStatementDto> {
         return try {
             val res = http.get("$baseUrl/api/v1/customers/$id/statement")
             if (res.status.isSuccess()) {
@@ -644,7 +644,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun registerCreditPayment(req: RegisterCreditPaymentRequest): Result<CreditMovementDto> {
+    open suspend fun registerCreditPayment(req: RegisterCreditPaymentRequest): Result<CreditMovementDto> {
         return try {
             val res = http.post("$baseUrl/api/v1/customers/${req.customerId}/credit/payments") {
                 contentType(ContentType.Application.Json)

@@ -4,9 +4,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
@@ -17,8 +20,8 @@ import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
 import mx.nexuspos.contracts.credit.UpdateCustomerRequest
 import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
-import mx.nexuspos.contracts.loyalty.LoyaltyMovementDto
 import mx.nexuspos.contracts.system.SettingsDto
+import mx.nexuspos.core.Money
 
 class CustomersViewModel(
     private val apiClient: ApiClient,
@@ -29,6 +32,7 @@ class CustomersViewModel(
 
     var currentSettings: SettingsDto? = null
     private var searchJob: Job? = null
+    private val customerRequests = MutableStateFlow(0L)
 
     init {
         loadCustomers()
@@ -42,7 +46,7 @@ class CustomersViewModel(
     }
 
     fun openStatementWhatsAppDialog(customer: CustomerDto) {
-        val statement = _uiState.value.statement
+        val statement = _uiState.value.statement?.takeIf { it.customer.id == customer.id }
         val text = WhatsAppMessageFormatter.formatCustomerStatement(customer, statement, currentSettings)
         _uiState.update {
             it.copy(
@@ -55,6 +59,7 @@ class CustomersViewModel(
     }
 
     fun openPaymentReceiptWhatsAppDialog(customer: CustomerDto, payment: CreditMovementDto) {
+        if (payment.customerId != customer.id) return
         val text = WhatsAppMessageFormatter.formatCreditPayment(customer, payment, currentSettings)
         _uiState.update {
             it.copy(
@@ -71,33 +76,39 @@ class CustomersViewModel(
     }
 
     fun loadCustomers(query: String? = _uiState.value.searchQuery) {
+        val current = _uiState.value
+        if (current.searchQuery != query.orEmpty()) return
+        val includeInactive = current.includeInactive
+        val request = customerRequests.updateAndGet { it + 1L }
+        _uiState.update { it.copy(isLoading = true) }
         scope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val res = apiClient.searchCustomers(query, _uiState.value.includeInactive)
-            res.onSuccess { list ->
-                _uiState.update { current ->
-                    val selected = current.selectedCustomer?.let { sel -> list.firstOrNull { it.id == sel.id } }
-                        ?: list.firstOrNull()
-                    current.copy(
+            val result = apiClient.searchCustomers(query, includeInactive)
+            ensureActive()
+            _uiState.update { state ->
+                if (customerRequests.value != request || state.searchQuery != query.orEmpty() ||
+                    state.includeInactive != includeInactive
+                ) return@update state
+                result.fold(
+                    onSuccess = { list -> state.copy(
                         customers = list,
-                        selectedCustomer = selected,
+                        selectedCustomer = state.selectedCustomer ?: list.firstOrNull(),
                         isLoading = false
-                    )
-                }
-                _uiState.value.selectedCustomer?.let { sel ->
-                    loadCustomerStatement(sel.id)
-                }
-            }.onFailure { err ->
-                _uiState.update { it.copy(isLoading = false, errorMessage = err.message) }
+                    ) },
+                    onFailure = { state.copy(isLoading = false, errorMessage = it.message ?: "No se pudo cargar la lista de clientes.") }
+                )
             }
+            val state = _uiState.value
+            if (customerRequests.value == request && state.statement == null &&
+                !state.isStatementLoading && state.statementErrorMessage == null
+            ) state.selectedCustomer?.let { loadCustomerStatement(it.id) }
         }
     }
 
     fun onSearchQueryChanged(newQuery: String) {
-        _uiState.update { it.copy(searchQuery = newQuery) }
+        _uiState.update { it.copy(searchQuery = newQuery, isLoading = true) }
         searchJob?.cancel()
         searchJob = scope.launch {
-            delay(250) // Debounce
+            delay(250)
             loadCustomers(newQuery)
         }
     }
@@ -108,26 +119,69 @@ class CustomersViewModel(
     }
 
     fun selectCustomer(customer: CustomerDto?) {
-        _uiState.update { it.copy(selectedCustomer = customer, statement = null) }
-        if (customer != null) {
-            loadCustomerStatement(customer.id)
+        val previous = _uiState.getAndUpdate { state ->
+            if (state.showPaymentDialog || state.isSubmitting || state.selectedCustomer?.id == customer?.id) state
+            else state.copy(
+                selectedCustomer = customer,
+                statement = null,
+                isStatementLoading = customer != null,
+                statementErrorMessage = null,
+                loyaltyMovements = emptyList(),
+                isLoyaltyLoading = false,
+                loyaltyErrorMessage = null,
+                showLoyaltyDialog = false,
+                showAdjustLoyaltyDialog = false,
+                statementRequestId = state.statementRequestId + 1L,
+                loyaltyRequestId = state.loyaltyRequestId + 1L
+            )
+        }
+        if (!previous.showPaymentDialog && !previous.isSubmitting && previous.selectedCustomer?.id != customer?.id) {
+            customer?.let { loadCustomerStatement(it.id) }
         }
     }
 
     fun loadCustomerStatement(customerId: String) {
+        val started = _uiState.updateAndGet { state ->
+            if (state.selectedCustomer?.id == customerId) state.copy(
+                isStatementLoading = true,
+                statementErrorMessage = null,
+                statementRequestId = state.statementRequestId + 1L
+            ) else state
+        }
+        if (started.selectedCustomer?.id != customerId) return
+        val request = started.statementRequestId
         scope.launch {
-            _uiState.update { it.copy(isStatementLoading = true) }
-            val res = apiClient.getCustomerStatement(customerId)
-            res.onSuccess { st ->
-                _uiState.update { it.copy(statement = st, selectedCustomer = st.customer, isStatementLoading = false) }
-            }.onFailure { err ->
-                _uiState.update { it.copy(isStatementLoading = false, errorMessage = err.message) }
+            val result = apiClient.getCustomerStatement(customerId)
+            ensureActive()
+            _uiState.update { state ->
+                if (state.selectedCustomer?.id != customerId || state.statementRequestId != request) return@update state
+                result.fold(
+                    onSuccess = { statement ->
+                        if (statement.customer.id == customerId) state.copy(
+                            statement = statement,
+                            selectedCustomer = statement.customer,
+                            isStatementLoading = false
+                        ) else state.copy(
+                            isStatementLoading = false,
+                            statementErrorMessage = "No se pudo vincular el estado de cuenta con este cliente."
+                        )
+                    },
+                    onFailure = {
+                        val message = it.message ?: "No se pudo consultar el estado de cuenta."
+                        state.copy(isStatementLoading = false, statementErrorMessage = message, errorMessage = message)
+                    }
+                )
             }
         }
     }
 
     fun openCreateDialog() {
-        _uiState.update { it.copy(showFormDialog = true, customerToEdit = null, errorMessage = null) }
+        _uiState.update { state ->
+            if (state.isSubmitting || state.showFormDialog || state.showPaymentDialog ||
+                state.showWhatsAppDialog || state.showAdjustLoyaltyDialog
+            ) state
+            else state.copy(showFormDialog = true, customerToEdit = null, errorMessage = null)
+        }
     }
 
     fun openEditDialog(customer: CustomerDto) {
@@ -135,7 +189,7 @@ class CustomersViewModel(
     }
 
     fun closeFormDialog() {
-        _uiState.update { it.copy(showFormDialog = false, customerToEdit = null) }
+        _uiState.update { if (it.isSubmitting) it else it.copy(showFormDialog = false, customerToEdit = null) }
     }
 
     fun saveCustomer(
@@ -149,9 +203,12 @@ class CustomersViewModel(
         hasCreditLimit: Boolean,
         creditLimitCents: Long
     ) {
-        val editing = _uiState.value.customerToEdit
+        val snapshot = _uiState.getAndUpdate {
+            if (!it.showFormDialog || it.isSubmitting) it else it.copy(isSubmitting = true, errorMessage = null)
+        }
+        if (!snapshot.showFormDialog || snapshot.isSubmitting) return
+        val editing = snapshot.customerToEdit
         scope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
             if (editing == null) {
                 val req = CreateCustomerRequest(
                     name = name,
@@ -200,8 +257,15 @@ class CustomersViewModel(
                             successMessage = "Cliente '${updated.name}' actualizado correctamente"
                         )
                     }
+                    if (_uiState.value.selectedCustomer?.id == updated.id) {
+                        _uiState.update {
+                            it.copy(selectedCustomer = updated, statementRequestId = it.statementRequestId + 1L)
+                        }
+                        loadCustomerStatement(updated.id)
+                    } else {
+                        selectCustomer(updated)
+                    }
                     loadCustomers()
-                    selectCustomer(updated)
                 }.onFailure { err ->
                     _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
                 }
@@ -210,17 +274,23 @@ class CustomersViewModel(
     }
 
     fun deactivateCustomer(customer: CustomerDto) {
+        val previous = _uiState.getAndUpdate {
+            if (it.isSubmitting) it else it.copy(isSubmitting = true, errorMessage = null)
+        }
+        if (previous.isSubmitting) return
         scope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
             val res = apiClient.deactivateCustomer(customer.id)
             res.onSuccess { deactivated ->
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
+                        selectedCustomer = if (it.selectedCustomer?.id == deactivated.id) deactivated else it.selectedCustomer,
+                        statementRequestId = if (it.selectedCustomer?.id == deactivated.id) it.statementRequestId + 1L else it.statementRequestId,
                         successMessage = "Cliente '${deactivated.name}' desactivado"
                     )
                 }
                 loadCustomers()
+                loadCustomerStatement(deactivated.id)
             }.onFailure { err ->
                 _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
             }
@@ -234,7 +304,7 @@ class CustomersViewModel(
     }
 
     fun closePaymentDialog() {
-        _uiState.update { it.copy(showPaymentDialog = false) }
+        _uiState.update { if (it.isSubmitting) it else it.copy(showPaymentDialog = false) }
     }
 
     fun submitPayment(
@@ -244,9 +314,22 @@ class CustomersViewModel(
         paymentMethod: String = "CASH",
         notes: String = ""
     ) {
-        val customer = _uiState.value.selectedCustomer ?: return
+        val attempt = _uiState.getAndUpdate { state ->
+            val debt = state.selectedCustomer?.currentBalanceCents ?: 0L
+            when {
+                state.isSubmitting || !state.showPaymentDialog -> state
+                cashSessionId.isBlank() -> state.copy(errorMessage = "Abre un turno de caja antes de registrar el abono.")
+                amountCents !in 1L..debt || (state.isFullLiquidation && amountCents != debt) ->
+                    state.copy(errorMessage = "El importe no coincide con el saldo pendiente.")
+                else -> state.copy(isSubmitting = true, errorMessage = null)
+            }
+        }
+        val customer = attempt.selectedCustomer ?: return
+        if (attempt.isSubmitting || !attempt.showPaymentDialog || cashSessionId.isBlank() ||
+            amountCents !in 1L..customer.currentBalanceCents ||
+            (attempt.isFullLiquidation && amountCents != customer.currentBalanceCents)
+        ) return
         scope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
             val req = RegisterCreditPaymentRequest(
                 customerId = customer.id,
                 cashSessionId = cashSessionId,
@@ -261,7 +344,9 @@ class CustomersViewModel(
                     it.copy(
                         isSubmitting = false,
                         showPaymentDialog = false,
-                        successMessage = "Abono de $${amountCents / 100.0} registrado exitosamente (${mov.receiptFolio ?: mov.id})"
+                        statementRequestId = it.statementRequestId + 1L,
+                        selectedCustomer = it.selectedCustomer?.copy(currentBalanceCents = mov.balanceAfterCents),
+                        successMessage = "Abono de ${Money(amountCents).format()} registrado. Recibo ${mov.receiptFolio ?: mov.id}."
                     )
                 }
                 loadCustomers()
@@ -273,56 +358,79 @@ class CustomersViewModel(
     }
 
     fun openLoyaltyDialog(customer: CustomerDto) {
-        _uiState.update { it.copy(showLoyaltyDialog = true, selectedCustomer = customer, isLoyaltyLoading = true) }
+        if (_uiState.value.selectedCustomer?.id != customer.id) selectCustomer(customer)
+        if (_uiState.value.selectedCustomer?.id != customer.id) return
+        _uiState.update { it.copy(showLoyaltyDialog = true) }
+        loadLoyaltyMovements(customer.id)
+    }
+
+    fun loadLoyaltyMovements(customerId: String) {
+        val started = _uiState.updateAndGet { state ->
+            if (state.selectedCustomer?.id == customerId) state.copy(
+                isLoyaltyLoading = true,
+                loyaltyErrorMessage = null,
+                loyaltyRequestId = state.loyaltyRequestId + 1L
+            ) else state
+        }
+        if (started.selectedCustomer?.id != customerId) return
+        val request = started.loyaltyRequestId
         scope.launch {
-            val res = apiClient.getCustomerLoyaltyMovements(customer.id)
-            res.onSuccess { movs ->
-                _uiState.update { it.copy(loyaltyMovements = movs, isLoyaltyLoading = false) }
-            }.onFailure { err ->
-                _uiState.update { it.copy(isLoyaltyLoading = false, errorMessage = err.message) }
+            val result = apiClient.getCustomerLoyaltyMovements(customerId)
+            ensureActive()
+            _uiState.update { state ->
+                if (state.selectedCustomer?.id != customerId || state.loyaltyRequestId != request) return@update state
+                result.fold(
+                    onSuccess = { movements -> state.copy(
+                        loyaltyMovements = movements.filter { it.customerId == customerId },
+                        isLoyaltyLoading = false
+                    ) },
+                    onFailure = {
+                        val message = it.message ?: "No se pudieron consultar los movimientos del monedero."
+                        state.copy(isLoyaltyLoading = false, loyaltyErrorMessage = message, errorMessage = message)
+                    }
+                )
             }
         }
     }
 
     fun closeLoyaltyDialog() {
-        _uiState.update { it.copy(showLoyaltyDialog = false) }
+        _uiState.update { if (it.isSubmitting) it else it.copy(showLoyaltyDialog = false) }
     }
 
     fun openAdjustLoyaltyDialog() {
-        _uiState.update { it.copy(showAdjustLoyaltyDialog = true) }
+        _uiState.update {
+            if (it.isSubmitting) it else it.copy(showAdjustLoyaltyDialog = true, errorMessage = null)
+        }
     }
 
     fun closeAdjustLoyaltyDialog() {
-        _uiState.update { it.copy(showAdjustLoyaltyDialog = false) }
+        _uiState.update { if (it.isSubmitting) it else it.copy(showAdjustLoyaltyDialog = false) }
     }
 
     fun adjustLoyaltyBalance(amountCents: Long, reason: String, userId: String = "usr-cajero") {
-        val cust = _uiState.value.selectedCustomer ?: return
+        val attempt = _uiState.getAndUpdate {
+            if (it.isSubmitting || it.selectedCustomer == null || amountCents == 0L) it
+            else it.copy(isSubmitting = true, errorMessage = null)
+        }
+        val customer = attempt.selectedCustomer ?: return
+        if (attempt.isSubmitting || amountCents == 0L) return
         scope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            val req = AdjustLoyaltyBalanceRequest(
-                customerId = cust.id,
-                amountCents = amountCents,
-                reason = reason,
-                userId = userId
-            )
-            val res = apiClient.adjustCustomerLoyalty(cust.id, req)
-            res.onSuccess { updatedCust ->
+            val req = AdjustLoyaltyBalanceRequest(customer.id, amountCents, reason, userId)
+            apiClient.adjustCustomerLoyalty(customer.id, req).onSuccess { updated ->
                 _uiState.update {
                     it.copy(
-                        selectedCustomer = updatedCust,
+                        selectedCustomer = updated,
                         isSubmitting = false,
                         showAdjustLoyaltyDialog = false,
-                        successMessage = "Saldo de monedero actualizado exitosamente (${if (amountCents >= 0) "+$" else "-$"}${"%.2f".format(kotlin.math.abs(amountCents) / 100.0)})"
+                        statementRequestId = it.statementRequestId + 1L,
+                        successMessage = "Ajuste de ${Money(amountCents).format()} registrado en el monedero."
                     )
                 }
                 loadCustomers()
-                val movRes = apiClient.getCustomerLoyaltyMovements(cust.id)
-                movRes.onSuccess { movs ->
-                    _uiState.update { it.copy(loyaltyMovements = movs) }
-                }
+                loadLoyaltyMovements(customer.id)
+                loadCustomerStatement(customer.id)
             }.onFailure { err ->
-                _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
+                _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message ?: "No se pudo ajustar el monedero.") }
             }
         }
     }

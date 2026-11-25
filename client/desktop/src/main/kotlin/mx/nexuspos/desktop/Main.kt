@@ -36,6 +36,7 @@ import mx.nexuspos.client.features.cash.CashCutScreen
 import mx.nexuspos.client.features.cash.CashCutViewModel
 import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
+import mx.nexuspos.client.features.customers.v2.CustomersScreenV2
 import mx.nexuspos.desktop.hardware.WhatsAppDispatcher
 import mx.nexuspos.client.features.inventory.InventoryScreen
 import mx.nexuspos.client.features.inventory.InventoryViewModel
@@ -697,11 +698,17 @@ fun main() = application {
                         } else if (productsViewModel.uiState.value.showFormDialog) {
                             productsViewModel.closeFormDialog()
                             true
+                        } else if (customersViewModel.uiState.value.showAdjustLoyaltyDialog) {
+                            customersViewModel.closeAdjustLoyaltyDialog()
+                            true
                         } else if (customersViewModel.uiState.value.showFormDialog) {
                             customersViewModel.closeFormDialog()
                             true
                         } else if (customersViewModel.uiState.value.showPaymentDialog) {
                             customersViewModel.closePaymentDialog()
+                            true
+                        } else if (customersViewModel.uiState.value.showWhatsAppDialog) {
+                            customersViewModel.closeWhatsAppDialog()
                             true
                         } else if (activeModule != AppModule.SALES) {
                             // Si estamos en otro módulo, Escape regresa a Ventas
@@ -825,14 +832,25 @@ fun main() = application {
                                     )
                                 }
                                 AppModule.CUSTOMERS -> {
-                                    CustomersScreen(
-                                        viewModel = customersViewModel,
-                                        cashSessionId = salesState.activeSession?.sessionId ?: "caja-1",
-                                        cashierUserId = salesState.activeCashierId,
-                                        onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
-                                        onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
-                                        onBackToSales = { activeModule = AppModule.SALES }
-                                    )
+                                    val sessionId = salesState.activeSession?.takeIf { it.status == "OPEN" }?.sessionId
+                                    if (isV2) {
+                                        CustomersScreenV2(
+                                            viewModel = customersViewModel,
+                                            cashSessionId = sessionId,
+                                            cashierUserId = salesState.activeCashierId,
+                                            onOpenWhatsApp = WhatsAppDispatcher::openWhatsApp,
+                                            onCopyText = WhatsAppDispatcher::copyToClipboard
+                                        )
+                                    } else {
+                                        CustomersScreen(
+                                            viewModel = customersViewModel,
+                                            cashSessionId = sessionId.orEmpty(),
+                                            cashierUserId = salesState.activeCashierId,
+                                            onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
+                                            onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
+                                            onBackToSales = { activeModule = AppModule.SALES }
+                                        )
+                                    }
                                 }
                                 AppModule.PRODUCTS -> {
                                     ProductsScreen(
