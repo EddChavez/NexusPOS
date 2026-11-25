@@ -60,6 +60,9 @@ import mx.nexuspos.contracts.inventory.StockMovementDto
 import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
 import mx.nexuspos.contracts.loyalty.LoyaltyMovementDto
 import mx.nexuspos.contracts.loyalty.LoyaltySummaryDto
+import mx.nexuspos.contracts.mobile.MobileAdminRequest
+import mx.nexuspos.contracts.mobile.MobileDevice
+import mx.nexuspos.contracts.mobile.MobilePairingCode
 import mx.nexuspos.contracts.reports.SalesAnalysisReport
 import mx.nexuspos.contracts.reports.SalesAnalysisRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
@@ -556,6 +559,15 @@ open class ApiClient(
 
     open suspend fun getSalesAnalysis(request: SalesAnalysisRequest): Result<SalesAnalysisReport> =
         supervisedReportCall("reports/sales-analysis", request)
+
+    suspend fun issueMobilePairing(pin: String): Result<MobilePairingCode> =
+        supervisedReportCall("mobile-admin/pairing", MobileAdminRequest(pin))
+
+    suspend fun listMobileDevices(pin: String): Result<List<MobileDevice>> =
+        supervisedReportCall("mobile-admin/devices", MobileAdminRequest(pin))
+
+    suspend fun revokeMobileDevice(pin: String, id: String): Result<Boolean> =
+        supervisedReportCall("mobile-admin/devices/${id.encodeURLPathPart()}/revoke", MobileAdminRequest(pin))
 
     private suspend inline fun <reified Request, reified Response> supervisedReportCall(
         path: String, request: Request

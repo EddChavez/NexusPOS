@@ -11,7 +11,15 @@ kotlin {
     }
 }
 dependencies {
-    implementation(project(":shared"))
+    implementation(project(":shared:core"))
+    implementation(project(":shared:contracts"))
+    implementation(libs.compose.material3)
+    implementation(libs.compose.foundation)
+    implementation(libs.kotlinx.serialization.json)
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("com.google.zxing:core:3.5.3")
 
     implementation(libs.androidx.activity.compose)
 

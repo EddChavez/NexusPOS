@@ -39,7 +39,7 @@ data class NetworkUiConfig(
 )
 
 class SettingsViewModel(
-    private val apiClient: ApiClient,
+    internal val apiClient: ApiClient,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) {
     private val _uiState = MutableStateFlow(SettingsUiState())

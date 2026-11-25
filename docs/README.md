@@ -120,6 +120,8 @@ La terminal de venta está diseñada para ser operada a máxima velocidad sin ne
 
 ---
 
+Para instalar la app de supervisión Android, consulta el [piloto de NexusPOS Móvil](deployment/mobile-pilot.md).
+
 ## 5. Verificación de Pruebas
 
 Para ejecutar la suite de pruebas completa en todos los módulos:

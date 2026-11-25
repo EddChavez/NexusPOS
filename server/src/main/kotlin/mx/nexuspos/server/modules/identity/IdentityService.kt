@@ -133,6 +133,9 @@ class IdentityService(private val db: DatabaseFactory) {
     }
 
     fun claimPairingCode(request: PairingClaimRequest): PairingClaimResponse {
+        if (request.deviceType !in setOf("CASHIER_DESKTOP", "SUPERVISOR_MOBILE")) {
+            throw ValidationException("Tipo de dispositivo inválido.")
+        }
         return db.inTransaction { conn ->
             val stmt = conn.prepareStatement(
                 "SELECT expires_at, is_used FROM pairing_codes WHERE code = ?"

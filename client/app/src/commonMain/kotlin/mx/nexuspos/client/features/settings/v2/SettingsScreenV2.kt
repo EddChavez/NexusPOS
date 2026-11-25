@@ -23,7 +23,8 @@ private data class SettingsDestination(val tab: SettingsTab, val label: String, 
 private val storeDestinations = listOf(
     SettingsDestination(SettingsTab.STORE_TICKET, "Tienda y ticket", Icons.Default.Store),
     SettingsDestination(SettingsTab.POLICIES, "Políticas", Icons.Default.Policy),
-    SettingsDestination(SettingsTab.USERS, "Usuarios", Icons.Default.Group)
+    SettingsDestination(SettingsTab.USERS, "Usuarios", Icons.Default.Group),
+    SettingsDestination(SettingsTab.DEVICES, "Dispositivos", Icons.Default.PhoneAndroid)
 )
 private val registerDestinations = listOf(
     SettingsDestination(SettingsTab.PRINTER, "Impresora y cajón", Icons.Default.Print),
@@ -112,6 +113,7 @@ fun SettingsScreenV2(viewModel: SettingsViewModel, onBackToSales: () -> Unit) {
                                         else -> PolicySettingsV2(state, viewModel)
                                     }
                                     SettingsTab.USERS -> UserSettingsV2(state, viewModel)
+                                    SettingsTab.DEVICES -> MobileDevicesSettings(viewModel.apiClient)
                                     SettingsTab.PRINTER -> PrinterSettingsV2(state, viewModel)
                                     SettingsTab.SCALE -> ScaleSettingsV2(state, viewModel)
                                     SettingsTab.NETWORK -> NetworkSettingsV2(state, viewModel)

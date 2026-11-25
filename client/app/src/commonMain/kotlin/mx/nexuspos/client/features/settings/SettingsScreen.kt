@@ -83,7 +83,7 @@ fun SettingsScreen(
                 SettingsTab.PRINTER -> PrinterTab(state = state, viewModel = viewModel)
                 SettingsTab.SCALE -> ScaleTab(state = state, viewModel = viewModel)
                 SettingsTab.NETWORK -> NetworkTab(state = state, viewModel = viewModel)
-                SettingsTab.USERS -> UsersTab(state = state, viewModel = viewModel)
+                SettingsTab.USERS, SettingsTab.DEVICES -> UsersTab(state = state, viewModel = viewModel)
             }
         }
     }
@@ -129,7 +129,7 @@ private fun SettingsTopToolbar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Tab pills
-                SettingsTab.entries.forEach { tab ->
+                SettingsTab.entries.filterNot { it == SettingsTab.DEVICES }.forEach { tab ->
                     val isSelected = tab == selectedTab
                     val (label, icon) = when (tab) {
                         SettingsTab.STORE_TICKET -> "Tienda & Ticket" to Icons.Default.Store
@@ -137,7 +137,7 @@ private fun SettingsTopToolbar(
                         SettingsTab.PRINTER -> "Impresora" to Icons.Default.Print
                         SettingsTab.SCALE -> "Báscula" to Icons.Default.Scale
                         SettingsTab.NETWORK -> "Red / Servidor" to Icons.Default.Wifi
-                        SettingsTab.USERS -> "Usuarios" to Icons.Default.Group
+                        SettingsTab.USERS, SettingsTab.DEVICES -> "Usuarios" to Icons.Default.Group
                     }
                     FilterChip(
                         selected = isSelected,

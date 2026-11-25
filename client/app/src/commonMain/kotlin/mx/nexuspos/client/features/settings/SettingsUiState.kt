@@ -3,7 +3,7 @@ package mx.nexuspos.client.features.settings
 import mx.nexuspos.contracts.identity.UserDto
 import mx.nexuspos.client.features.scale.ScaleUiConfig
 
-enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, SCALE, NETWORK, USERS }
+enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, SCALE, NETWORK, USERS, DEVICES }
 
 data class SettingsUiState(
     val isLoading: Boolean = true,

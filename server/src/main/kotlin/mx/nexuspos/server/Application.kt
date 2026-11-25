@@ -71,6 +71,7 @@ import mx.nexuspos.server.modules.identity.IdentityService
 import mx.nexuspos.server.modules.inventory.InventoryService
 import mx.nexuspos.server.modules.inventory.ProductLotsService
 import mx.nexuspos.server.modules.loyalty.LoyaltyService
+import mx.nexuspos.server.modules.mobile.*
 import mx.nexuspos.server.modules.purchases.PurchaseService
 import mx.nexuspos.server.modules.reports.ReportsService
 import mx.nexuspos.server.modules.reports.SalesAnalysisService
@@ -173,6 +174,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
         exception<AppException> { call, cause ->
             val status = when (cause) {
                 is NotFoundException -> HttpStatusCode.NotFound
+                is MobileRateLimitException -> HttpStatusCode.TooManyRequests
                 is UnauthorizedException -> HttpStatusCode.Unauthorized
                 is ForbiddenException -> HttpStatusCode.Forbidden
                 is PriceChangedException, is IdempotencyMismatchException, is SessionClosedException,
@@ -228,6 +230,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
         }
 
         route("/api/v1") {
+            mobileRoutes(MobileAccess(dbFactory), MobileQueries(dbFactory, catalogService, salesAnalysis))
             // System
             get("/system/info") {
                 call.respond(settingsService.getSystemInfo())

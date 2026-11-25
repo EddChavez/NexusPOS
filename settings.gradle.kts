@@ -1,3 +1,5 @@
+import java.util.Properties
+
 rootProject.name = "NexusPOS"
 
 pluginManagement {
@@ -31,7 +33,14 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-// include(":androidApp") // Reservado para Fase 2 (Supervisión Móvil LAN)
+val androidSdkConfigured = providers.environmentVariable("ANDROID_HOME").isPresent ||
+    providers.environmentVariable("ANDROID_SDK_ROOT").isPresent ||
+    file("local.properties").takeIf { it.isFile }?.let { local ->
+        Properties().apply { local.inputStream().use(::load) }.containsKey("sdk.dir")
+    } == true
+if (providers.gradleProperty("nexus.android").map(String::toBooleanStrict).getOrElse(androidSdkConfigured)) {
+    include(":androidApp")
+}
 include(":shared:core")
 include(":shared:contracts")
 include(":server")

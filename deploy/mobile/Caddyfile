@@ -1,0 +1,12 @@
+{$NEXUS_MOBILE_HOST:nexuspos.tienda.test} {
+    tls internal
+
+    @mobile path /api/v1/mobile/*
+    handle @mobile {
+        reverse_proxy {$NEXUS_BACKEND:127.0.0.1:8080}
+    }
+
+    handle {
+        respond 404
+    }
+}
