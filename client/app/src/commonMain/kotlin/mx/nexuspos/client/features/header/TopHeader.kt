@@ -113,7 +113,7 @@ private fun ModuleNavigationSection(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AppModule.entries.filter { it != AppModule.PURCHASES }.forEach { module ->
+        AppModule.entries.filter { it !in setOf(AppModule.PURCHASES, AppModule.TRANSACTIONS) }.forEach { module ->
             val isSelected = module == activeModule
 
             // Pestaña activa en Azul / Cian (Focus) según especificación oficial

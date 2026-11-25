@@ -3,7 +3,6 @@ package mx.nexuspos.client.features.sales.v2.components
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -26,7 +25,6 @@ fun CheckoutSummaryBar(
     ticketNote: String,
     onOpenNoteDialog: () -> Unit,
     onReprintTicket: () -> Unit,
-    onOpenShiftHistory: () -> Unit,
     onCheckout: () -> Unit,
     modifier: Modifier = Modifier,
     os: HostOs = HostOsDetector.current
@@ -43,13 +41,13 @@ fun CheckoutSummaryBar(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     SummaryText(summary, ticketNote, Modifier.weight(1f))
-                    CheckoutActions(total, onOpenNoteDialog, onReprintTicket, onOpenShiftHistory, onCheckout, os)
+                    CheckoutActions(total, onOpenNoteDialog, onReprintTicket, onCheckout, os)
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     SummaryText(summary, ticketNote)
                     CheckoutActions(
-                        total, onOpenNoteDialog, onReprintTicket, onOpenShiftHistory,
+                        total, onOpenNoteDialog, onReprintTicket,
                         onCheckout, os, Modifier.fillMaxWidth()
                     )
                 }
@@ -81,7 +79,6 @@ private fun CheckoutActions(
     total: Money,
     onOpenNoteDialog: () -> Unit,
     onReprintTicket: () -> Unit,
-    onOpenShiftHistory: () -> Unit,
     onCheckout: () -> Unit,
     os: HostOs,
     modifier: Modifier = Modifier
@@ -96,17 +93,10 @@ private fun CheckoutActions(
             Spacer(Modifier.width(4.dp))
             Text("Nota")
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(onClick = onReprintTicket, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Icon(Icons.Default.Print, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Reimprimir")
-            }
-            TextButton(onClick = onOpenShiftHistory, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Icon(Icons.Default.History, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Historial de turno")
-            }
+        TextButton(onClick = onReprintTicket, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            Icon(Icons.Default.Print, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Reimprimir")
         }
         Button(
             onClick = onCheckout,

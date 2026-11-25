@@ -72,6 +72,7 @@ import mx.nexuspos.client.features.header.TopHeader
 import mx.nexuspos.client.features.header.TopHeaderUiState
 import mx.nexuspos.client.features.sales.SalesScreen
 import mx.nexuspos.client.features.sales.v2.SalesScreenV2
+import mx.nexuspos.client.features.sales.v2.TransactionsScreenV2
 import mx.nexuspos.client.features.sales.v2.components.SalesNavigationRail
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.client.theme.NexusTheme
@@ -126,6 +127,7 @@ fun main() = application {
     val cashCutViewModel = remember { CashCutViewModel(viewModel.apiClient, registerId = appConfig.registerId) }
     val salesState by viewModel.uiState.collectAsState()
     val authState by authViewModel.uiState.collectAsState()
+    val canViewTransactions = authState.isAuthenticated && authState.currentUser?.permissions?.contains("transactions.own") == true
     val canManagePurchases = authState.isAuthenticated && authState.currentUser?.let { "purchases.view" in it.permissions || it.role in setOf("ADMIN", "SUPERVISOR") } == true
     val purchasesViewModel = remember(appConfig.baseUrl, authState.isAuthenticated, authState.currentUser?.userId) {
         PurchasesViewModel(viewModel.apiClient, onInventoryChanged = {
@@ -152,8 +154,10 @@ fun main() = application {
         }
     }
 
-    LaunchedEffect(canManagePurchases) {
-        if (!canManagePurchases && activeModule == AppModule.PURCHASES) activeModule = AppModule.SALES
+    LaunchedEffect(canManagePurchases, canViewTransactions, appConfig.salesUiVersion) {
+        if ((!canManagePurchases && activeModule == AppModule.PURCHASES) ||
+            (activeModule == AppModule.TRANSACTIONS && (!canViewTransactions || appConfig.salesUiVersion != "V2"))
+        ) activeModule = AppModule.SALES
     }
 
     LaunchedEffect(authState.isAuthenticated) {
@@ -540,7 +544,7 @@ fun main() = application {
                         else -> false
                     }
                 } else false
-            } else if (barcodeWedge.onKeyEvent(keyEvent)) {
+            } else if (activeModule == AppModule.SALES && barcodeWedge.onKeyEvent(keyEvent)) {
                 // 3. Incoming barcode scan from USB hardware scanner
                 true
             } else if (keyEvent.type == KeyEventType.KeyDown) {
@@ -639,7 +643,9 @@ fun main() = application {
 
                     Key.H -> {
                         if (activeModule == AppModule.SALES && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
-                            viewModel.openDailySalesAndReturns()
+                            if (appConfig.salesUiVersion == "V2") {
+                                if (canViewTransactions) activeModule = AppModule.TRANSACTIONS
+                            } else viewModel.openDailySalesAndReturns()
                             true
                         } else false
                     }
@@ -853,7 +859,9 @@ fun main() = application {
             } else {
                 val isV2 = appConfig.salesUiVersion == "V2"
                 val selectModule: (AppModule) -> Unit = { selected ->
-                    if (selected == AppModule.PURCHASES && (!isV2 || !canManagePurchases)) {
+                    if ((selected == AppModule.PURCHASES && (!isV2 || !canManagePurchases)) ||
+                        (selected == AppModule.TRANSACTIONS && (!isV2 || !canViewTransactions))
+                    ) {
                         Unit
                     } else if (selected == AppModule.SETTINGS && authState.currentUser?.role == "CASHIER") {
                         authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
@@ -896,6 +904,8 @@ fun main() = application {
                                 onModuleSelected = selectModule,
                                 cashierName = salesState.activeCashierName,
                                 cashierRole = salesState.activeCashierRole,
+                                canViewTransactions = canViewTransactions,
+                                canViewPurchases = canManagePurchases,
                                 onLockTerminal = authViewModel::lockTerminal
                             )
                         }
@@ -906,15 +916,6 @@ fun main() = application {
                                         SalesScreenV2(
                                             viewModel = viewModel,
                                             scaleReading = scaleReading,
-                                            onPrintShiftReceipt = { sale ->
-                                                if (printerConfig.connectionType == PrinterConnectionType.NONE) {
-                                                    Result.failure(IllegalStateException("Configura una impresora para reimprimir el ticket."))
-                                                } else {
-                                                    withContext(Dispatchers.IO) {
-                                                        printerDispatcher.printSaleReceipt(sale, viewModel.currentSettings, printerConfig, isReprint = true)
-                                                    }
-                                                }
-                                            },
                                             onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
                                             onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
                                             onNavigateToModule = selectModule,
@@ -1082,6 +1083,24 @@ fun main() = application {
                                             onPrintReorderTicket = printReorder,
                                             onPrintLotsReport = printLots,
                                             onBackToSales = { activeModule = AppModule.SALES }
+                                        )
+                                    }
+                                }
+                                AppModule.TRANSACTIONS -> {
+                                    if (isV2 && canViewTransactions) {
+                                        TransactionsScreenV2(
+                                            viewModel = viewModel,
+                                            onPrint = { sale ->
+                                                if (printerConfig.connectionType == PrinterConnectionType.NONE) {
+                                                    Result.failure(IllegalStateException("Configura una impresora para reimprimir el ticket."))
+                                                } else {
+                                                    withContext(Dispatchers.IO) {
+                                                        printerDispatcher.printSaleReceipt(sale, viewModel.currentSettings, printerConfig, isReprint = true)
+                                                    }
+                                                }
+                                            },
+                                            onOpenWhatsApp = WhatsAppDispatcher::openWhatsApp,
+                                            onCopyText = WhatsAppDispatcher::copyToClipboard
                                         )
                                     }
                                 }

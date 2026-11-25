@@ -83,6 +83,8 @@ import mx.nexuspos.contracts.sales.ParkedSaleResponse
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
+import mx.nexuspos.contracts.sales.TransactionHistoryPage
+import mx.nexuspos.contracts.sales.TransactionHistoryRequest
 import mx.nexuspos.contracts.purchases.*
 import mx.nexuspos.contracts.system.*
 
@@ -975,6 +977,14 @@ open class ApiClient(
             Result.failure(e)
         }
     }
+
+    suspend fun searchTransactions(request: TransactionHistoryRequest): Result<TransactionHistoryPage> =
+        setupCall {
+            http.post("$baseUrl/api/v1/transactions/search") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+        }
 
     open suspend fun cancelSale(id: String, reason: String, authorizedByUserId: String? = null): Result<SaleResponse> =
         submitCancellation(id, reason, authorizedByUserId, null)

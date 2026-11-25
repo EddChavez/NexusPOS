@@ -27,7 +27,6 @@ import mx.nexuspos.client.features.sales.v2.dialogs.*
 import mx.nexuspos.client.features.sales.v2.shortcuts.*
 import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.catalog.ProductDto
-import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.core.ProductUnit
 import mx.nexuspos.core.Quantity
 
@@ -37,9 +36,6 @@ import mx.nexuspos.core.Quantity
 fun SalesScreenV2(
     viewModel: SalesViewModel = remember { SalesViewModel() },
     scaleReading: ScaleReading = ScaleReading(),
-    onPrintShiftReceipt: suspend (SaleResponse) -> Result<Unit> = {
-        Result.failure(IllegalStateException("La impresión no está disponible en esta terminal."))
-    },
     onOpenWhatsApp: (url: String) -> Result<Unit> = {
         Result.failure(IllegalStateException("WhatsApp no está disponible en esta terminal."))
     },
@@ -96,7 +92,6 @@ fun SalesScreenV2(
                 state.isShowingCommonArticlesDialog ||
                 state.isShowingCashInDialog ||
                 state.isShowingCashOutDialog ||
-                state.isShowingSalesHistory ||
                 state.isShowingCancelTicketDialog ||
                 state.reprintTicketPreview != null ||
                 state.isShowingTicketNoteDialog ||
@@ -147,7 +142,6 @@ fun SalesScreenV2(
                         viewModel.showCashInDialog(false)
                         viewModel.showCashOutDialog(false)
                         viewModel.showSearchCatalogDialog(false)
-                        viewModel.closeSalesHistoryDialog()
                         viewModel.dismissCancelTicketDialog()
                         viewModel.closeReprintPreview()
                         viewModel.showTicketNoteDialog(false)
@@ -216,6 +210,9 @@ fun SalesScreenV2(
                 onModuleSelected = onNavigateToModule,
                 cashierName = state.activeCashierName,
                 cashierRole = state.activeCashierRole,
+                canViewTransactions = "transactions.own" in state.activeCashierPermissions,
+                canViewPurchases = "purchases.view" in state.activeCashierPermissions ||
+                    state.activeCashierRole in setOf("ADMIN", "SUPERVISOR"),
                 onLockTerminal = onLockTerminal
             )
 
@@ -341,7 +338,6 @@ fun SalesScreenV2(
                             ticketNote = state.activeTicketNote,
                             onOpenNoteDialog = { viewModel.showTicketNoteDialog(true) },
                             onReprintTicket = { viewModel.reprintLastTicket() },
-                            onOpenShiftHistory = viewModel::openDailySalesAndReturns,
                             onCheckout = {
                                 if (state.activeSession == null) {
                                     viewModel.showSessionDialog(true)
@@ -544,29 +540,6 @@ fun SalesScreenV2(
             },
             onDismiss = { viewModel.dismissCancelTicketDialog() }
         )
-
-        // 13. REQUISITO 4.7: Historial de Turno y Ventas del Día
-        if (state.isShowingSalesHistory) {
-            ShiftHistoryDialogV2(
-                sales = state.shiftSales,
-                selectedSale = state.selectedShiftSale,
-                isLoading = state.isLoadingShiftSales,
-                searchFolio = state.salesHistorySearchFolio,
-                statusFilter = state.salesHistoryStatusFilter,
-                cashSessionId = state.activeSession?.sessionId,
-                cashierId = state.activeCashierId,
-                requiresSupervisor = state.activeCashierRole == "CASHIER",
-                viewModel = viewModel,
-                onSearchFolioChanged = { viewModel.onSalesSearchFolioChanged(it) },
-                onStatusFilterChanged = { viewModel.onSalesStatusFilterChanged(it) },
-                onSelectSale = { viewModel.selectShiftSale(it) },
-                onReload = { viewModel.loadShiftSales() },
-                onPrint = onPrintShiftReceipt,
-                onOpenWhatsApp = onOpenWhatsApp,
-                onCopyText = onCopyText,
-                onDismiss = { viewModel.closeSalesHistoryDialog() }
-            )
-        }
 
         // 15. Ventas en espera en red (Parked Sales - Requisito 4.2)
         if (state.isShowingParkSaleDialog) {

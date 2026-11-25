@@ -46,7 +46,7 @@ Esta versión implementa una arquitectura visual en 3 columnas ergonómicas, est
 ```
 
 ### Distribución de Espacios:
-1. **Columna Izquierda (72 dp):** `NavigationRail` vertical oficial M3 con iconos de módulos (Ventas, Clientes, Productos, Inventario, Cortes, Configuración) y avatar del cajero activo al pie con botón de bloqueo.
+1. **Columna izquierda.** La barra Material 3 de 64 dp muestra solo iconos, con el nombre de cada acción al pasar el cursor. Los módulos de operación, incluida **Transacciones**, están arriba. **Ajustes** y **Bloquear** quedan al pie, debajo de un separador.
 2. **Columna Central (Flexible, `weight(1f)`):** 
    - Barra superior de pestañas multi-ticket con `FilterChip`, botón de nuevo ticket `FilledTonalIconButton` y badge de ventas en red `AssistChip`.
    - Buscador Omnibox con autocompletado flotante y compatibilidad con escáner láser.
@@ -135,9 +135,12 @@ Esta versión implementa una arquitectura visual en 3 columnas ergonómicas, est
 - El pie de estado (`SystemFooter`) muestra de forma reactiva el chip `[🔄 N offline]` **exclusivamente cuando existen ventas pendientes de sincronizar ($N > 0$)**.
 - Las ventas offline se numeran temporalmente como `OFF-XXXX` y se sincronizan atómicamente al restaurarse la red.
 
-### 4.7. Historial de Turno y Devoluciones Rápidas
-- Acceso directo al historial de ventas de la sesión de caja activa.
-- Permite reimpresión, cancelación autorizada por supervisor o devolución parcial/total de partidas con reingreso automático al inventario.
+### 4.7. Transacciones
+
+- Abre **Transacciones** desde la barra lateral o con `Ctrl+H` / `Cmd+H` desde Ventas V2.
+- La barra de consulta reúne la búsqueda por folio, monto o contenido, el periodo y la caja. La vista abre en **Hoy**. Los filtros de tipo permanecen visibles y muestran ventas, entradas, salidas, fondo de caja y abonos de crédito según los permisos del usuario.
+- Selecciona una venta para consultar su ticket y, según los permisos y el estado del turno, reimprimirlo, compartirlo por WhatsApp, devolver artículos o cancelar la venta.
+- La consulta de operaciones de otros usuarios y de turnos cerrados requiere sus permisos respectivos.
 
 ---
 

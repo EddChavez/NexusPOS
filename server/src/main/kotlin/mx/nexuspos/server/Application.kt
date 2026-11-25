@@ -63,6 +63,8 @@ import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.ParkSaleRequest
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
+import mx.nexuspos.contracts.sales.TransactionHistoryRequest
+import mx.nexuspos.contracts.sales.TransactionType
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.contracts.system.SettingsPreferencesPatch
 import mx.nexuspos.server.modules.cash.CashCutHistoryService
@@ -84,6 +86,7 @@ import mx.nexuspos.server.modules.reports.ReportsService
 import mx.nexuspos.server.modules.reports.SalesAnalysisService
 import mx.nexuspos.server.modules.sales.ParkedSalesService
 import mx.nexuspos.server.modules.sales.SalesService
+import mx.nexuspos.server.modules.sales.TransactionHistoryService
 import mx.nexuspos.server.modules.system.SettingsService
 import mx.nexuspos.server.modules.setup.*
 import mx.nexuspos.server.modules.permissions.*
@@ -94,6 +97,7 @@ import mx.nexuspos.contracts.system.CommercialPreferences
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.*
 import java.util.Collections
+import java.time.ZoneId
 import kotlin.time.Duration.Companion.seconds
 
 fun main(args: Array<String>) {
@@ -142,6 +146,7 @@ fun Application.nexusModule(
     val loyaltyService = LoyaltyService(dbFactory)
     val settingsService = SettingsService(dbFactory)
     val salesService = SalesService(dbFactory, settingsService)
+    val transactions = TransactionHistoryService(dbFactory)
     val parkedSalesService = ParkedSalesService(dbFactory)
     val reportsService = ReportsService(dbFactory)
     val salesAnalysis = SalesAnalysisService(dbFactory)
@@ -821,6 +826,29 @@ fun Application.nexusModule(
             }
 
             // Sales
+            post("/transactions/search") {
+                val actor = call.requireDesktopAccess(identityService, roles)
+                actor.require("transactions.own")
+                val types = buildSet {
+                    add(TransactionType.SALE)
+                    if ("cash.view" in actor.permissions) {
+                        add(TransactionType.OPENING_FUND)
+                        add(TransactionType.CASH_IN)
+                        add(TransactionType.CASH_OUT)
+                    }
+                    if ("customers.statement.view" in actor.permissions || "customers.credit.payment" in actor.permissions) {
+                        add(TransactionType.CREDIT_PAYMENT)
+                    }
+                }
+                call.respond(transactions.search(
+                    call.receive<TransactionHistoryRequest>(),
+                    ZoneId.of(setupService.profile().timeZone),
+                    actor.ownSalesFilter(),
+                    "transactions.closed" in actor.permissions,
+                    types
+                ))
+            }
+
             get("/sales") {
                 val sessionId = call.request.queryParameters["sessionId"]
                 val folio = call.request.queryParameters["folio"]?.toLongOrNull()

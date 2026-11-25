@@ -40,7 +40,8 @@ internal fun ShiftHistorySaleDetail(
     actionsEnabled: Boolean,
     onAction: ((ShiftHistoryAction) -> Unit)?,
     modifier: Modifier = Modifier,
-    cancellation: HistoricalSaleCancellation? = null
+    cancellation: HistoricalSaleCancellation? = null,
+    allowedActions: Set<ShiftHistoryAction> = ShiftHistoryAction.entries.toSet()
 ) {
     OutlinedCard(modifier, colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         LazyColumn(
@@ -133,9 +134,9 @@ internal fun ShiftHistorySaleDetail(
                 }
             }
         }
-        if (onAction != null) {
+        if (onAction != null && allowedActions.isNotEmpty()) {
             HorizontalDivider()
-            HistorySaleActions(sale, actionsEnabled, onAction)
+            HistorySaleActions(sale, actionsEnabled, allowedActions, onAction)
         }
     }
 }
@@ -183,6 +184,7 @@ private fun SecondaryText(text: String) {
 private fun HistorySaleActions(
     sale: SaleResponse,
     enabled: Boolean,
+    allowed: Set<ShiftHistoryAction>,
     onAction: (ShiftHistoryAction) -> Unit
 ) {
     FlowRow(
@@ -190,22 +192,22 @@ private fun HistorySaleActions(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         itemVerticalAlignment = Alignment.CenterVertically
     ) {
-        FilledTonalButton(onClick = { onAction(ShiftHistoryAction.REPRINT) }, enabled = enabled) {
+        if (ShiftHistoryAction.REPRINT in allowed) FilledTonalButton(onClick = { onAction(ShiftHistoryAction.REPRINT) }, enabled = enabled) {
             Icon(Icons.Default.Print, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text("Reimprimir")
         }
-        OutlinedButton(onClick = { onAction(ShiftHistoryAction.WHATSAPP) }, enabled = enabled) {
+        if (ShiftHistoryAction.WHATSAPP in allowed) OutlinedButton(onClick = { onAction(ShiftHistoryAction.WHATSAPP) }, enabled = enabled) {
             Icon(Icons.AutoMirrored.Filled.Chat, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text("WhatsApp")
         }
-        OutlinedButton(
+        if (ShiftHistoryAction.REFUND in allowed) OutlinedButton(
             onClick = { onAction(ShiftHistoryAction.REFUND) },
             enabled = enabled && (sale.status == "COMPLETED" || sale.status == "PARTIALLY_REFUNDED") &&
                 sale.lines.any { it.returnableQuantityMillis > 0 }
         ) { Text("Devolución") }
-        TextButton(
+        if (ShiftHistoryAction.CANCEL in allowed) TextButton(
             onClick = { onAction(ShiftHistoryAction.CANCEL) },
             enabled = enabled && sale.status == "COMPLETED" && sale.refunds.isEmpty(),
             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)

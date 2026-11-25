@@ -9,7 +9,8 @@ enum class AppModule(val keyShortcut: String, val title: String) {
     INVENTORY("F4", "Inventario"),
     SETTINGS("F5", "Configuración"),
     CASH_CUT("F6", "Cortes"),
-    PURCHASES("", "Compras");
+    PURCHASES("", "Compras"),
+    TRANSACTIONS("", "Transacciones");
 
     val displayLabel: String get() = if (keyShortcut.isBlank()) title else "[$keyShortcut] $title"
 }
