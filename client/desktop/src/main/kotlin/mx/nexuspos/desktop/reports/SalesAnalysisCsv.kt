@@ -44,6 +44,7 @@ internal fun salesAnalysisCsv(report: SalesAnalysisReport): String = buildString
         SalesAnalysisGroup.DAY -> "Día"
         SalesAnalysisGroup.PRODUCT -> "Producto"
         SalesAnalysisGroup.DEPARTMENT -> "Departamento"
+        SalesAnalysisGroup.CUSTOMER -> "Cliente"
     }
     fun appendRow(label: String, sku: String?, unit: String?, quantity: Long?, totals: SalesAnalysisTotals) {
         val fields = listOf(

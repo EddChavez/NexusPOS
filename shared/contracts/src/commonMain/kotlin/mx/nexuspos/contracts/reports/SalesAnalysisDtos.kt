@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlin.math.roundToLong
 
 @Serializable
-enum class SalesAnalysisGroup { DAY, PRODUCT, DEPARTMENT }
+enum class SalesAnalysisGroup { DAY, PRODUCT, DEPARTMENT, CUSTOMER }
 
 @Serializable
 data class SalesAnalysisRequest(

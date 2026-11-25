@@ -84,7 +84,7 @@ class SalesAnalysisService(private val db: DatabaseFactory) {
             kind, getLong("posted_at"), getString("product_id"), getString("product_name"), getString("product_sku"),
             getString("product_unit"), getString("department_id"), getString("department_name"),
             quantity, getLong("net_amount"), costEffect,
-            snapshot == null && (kind != "RETURN" || getBoolean("restocked"))
+            snapshot == null && (kind != "RETURN" || getBoolean("restocked")), getString("customer_id"), getString("customer_name")
         )
     }
 
@@ -93,7 +93,8 @@ class SalesAnalysisService(private val db: DatabaseFactory) {
 
     private data class ReportEvent(
         val kind: String, val date: Long, val productId: String?, val product: String, val sku: String?, val unit: String,
-        val departmentId: String?, val department: String?, val quantity: Long, val amount: Long, val cost: Long, val estimated: Boolean
+        val departmentId: String?, val department: String?, val quantity: Long, val amount: Long, val cost: Long, val estimated: Boolean,
+        val customerId: String?, val customerName: String?
     ) {
         fun localDay(zone: ZoneId): String = Instant.ofEpochMilli(date).atZone(zone).toLocalDate().toString()
 
@@ -101,6 +102,7 @@ class SalesAnalysisService(private val db: DatabaseFactory) {
             SalesAnalysisGroup.DAY -> localDay(zone)
             SalesAnalysisGroup.PRODUCT -> "${productId?.let { "product:$it" } ?: "manual:$product"}:$unit"
             SalesAnalysisGroup.DEPARTMENT -> departmentId ?: ""
+            SalesAnalysisGroup.CUSTOMER -> customerId ?: ""
         }
     }
 
@@ -116,6 +118,7 @@ class SalesAnalysisService(private val db: DatabaseFactory) {
                 SalesAnalysisGroup.DAY -> event.localDay(zone)
                 SalesAnalysisGroup.PRODUCT -> event.product
                 SalesAnalysisGroup.DEPARTMENT -> event.department ?: "Sin departamento"
+                SalesAnalysisGroup.CUSTOMER -> event.customerName ?: "Público general"
             }
             if (group == SalesAnalysisGroup.PRODUCT) {
                 sku = event.sku
@@ -189,9 +192,11 @@ class SalesAnalysisService(private val db: DatabaseFactory) {
                    COALESCE(sl.snapshot_base_unit, p.base_unit, 'PZA') AS product_unit,
                    CASE WHEN sl.base_factor_millis IS NOT NULL THEN sl.snapshot_department_id ELSE p.department_id END AS department_id,
                    CASE WHEN sl.base_factor_millis IS NOT NULL THEN sl.snapshot_department_name ELSE d.name END AS department_name,
-                   COALESCE(p.cost_cents, 0) AS catalog_cost
+                   COALESCE(p.cost_cents, 0) AS catalog_cost, s.customer_id, c.name AS customer_name
             FROM events e
             JOIN sale_lines sl ON sl.id = e.line_id
+            JOIN sales s ON s.id = sl.sale_id
+            LEFT JOIN customers c ON c.id = s.customer_id
             LEFT JOIN products p ON p.id = sl.product_id
             LEFT JOIN product_presentations pp ON pp.id = sl.presentation_id
             LEFT JOIN departments d ON d.id = p.department_id

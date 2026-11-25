@@ -205,6 +205,7 @@ private fun SalesAnalysisGroup.displayLabel(): String = when (this) {
     SalesAnalysisGroup.DAY -> "Día"
     SalesAnalysisGroup.PRODUCT -> "Producto"
     SalesAnalysisGroup.DEPARTMENT -> "Departamento"
+        SalesAnalysisGroup.CUSTOMER -> "Cliente"
 }
 
 private fun parseReportDate(value: String): LocalDate? =
