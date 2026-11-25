@@ -23,7 +23,8 @@ data class ReorderSuggestionItemDto(
     val suggestedOrderMillis: Long,
     val costCents: Long,
     val estimatedInvestmentCents: Long,
-    val urgency: ReorderUrgency
+    val urgency: ReorderUrgency,
+    val isPerishable: Boolean = false
 )
 
 @Serializable

@@ -35,6 +35,7 @@ class ProductLotsService(private val db: DatabaseFactory) {
                        COALESCE((SELECT barcode FROM product_presentations WHERE product_id = p.id ORDER BY factor_millis ASC LIMIT 1), 'S/C') as barcode
                 FROM products p
                 WHERE p.id = ? AND p.is_active = TRUE
+                FOR UPDATE
                 """.trimIndent()
             )
             prodStmt.setString(1, req.productId)
@@ -307,6 +308,14 @@ class ProductLotsService(private val db: DatabaseFactory) {
         val today = LocalDate.now()
 
         return db.inTransaction { conn ->
+            conn.prepareStatement(
+                "SELECT id FROM products WHERE id = (SELECT product_id FROM product_lots WHERE id = ?) FOR UPDATE"
+            ).use {
+                it.setString(1, lotId)
+                it.executeQuery().use { row ->
+                    if (!row.next()) throw NotFoundException("Lote con ID '$lotId' no encontrado")
+                }
+            }
             val lotStmt = conn.prepareStatement(
                 """
                 SELECT pl.id, pl.product_id, pl.lot_number, pl.expiration_date, pl.quantity_millis,

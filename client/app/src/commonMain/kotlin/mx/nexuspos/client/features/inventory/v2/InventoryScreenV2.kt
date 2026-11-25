@@ -45,7 +45,8 @@ fun InventoryScreenV2(
     onCopyReorderWhatsApp: (List<ReorderSuggestionItemDto>) -> Unit,
     onPrintReorderTicket: (List<ReorderSuggestionItemDto>) -> Unit,
     onPrintLotsReport: () -> Unit,
-    onStockChanged: () -> Unit
+    onStockChanged: () -> Unit,
+    onReceiveFromReorder: ((List<ReorderSuggestionItemDto>) -> Unit)? = null
 ) {
     val state by viewModel.uiState.collectAsState()
     val movement = state.productForMovement?.takeIf { state.showMovementDialog }
@@ -153,7 +154,7 @@ fun InventoryScreenV2(
                         InventoryTab.REORDER_SUGGESTIONS -> InventoryReorderPanel(
                             state, viewModel::onReorderDepartmentSelected, viewModel::onToggleReorderOnlyOutOfStock,
                             viewModel::updateSuggestedQuantity, viewModel::resetEditedQuantities,
-                            onExportReorderCsv, onCopyReorderWhatsApp, onPrintReorderTicket
+                            onExportReorderCsv, onCopyReorderWhatsApp, onPrintReorderTicket, onReceiveFromReorder
                         )
                     }
                 }
@@ -284,6 +285,7 @@ private fun InventoryLedgerPanel(state: InventoryUiState, onClearFilter: () -> U
                         "LOSS" -> "Merma"
                         "SALE" -> "Venta"
                         "REFUND" -> "Devolución"
+                        "PURCHASE_RETURN" -> "Devolución a proveedor"
                         "ADJUSTMENT" -> "Ajuste"
                         else -> movement.type
                     }

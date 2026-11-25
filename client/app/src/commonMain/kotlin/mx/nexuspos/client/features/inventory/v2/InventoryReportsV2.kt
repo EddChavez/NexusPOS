@@ -101,7 +101,8 @@ internal fun InventoryReorderPanel(
     onReset: () -> Unit,
     onCsv: (List<ReorderSuggestionItemDto>) -> Unit,
     onWhatsApp: (List<ReorderSuggestionItemDto>) -> Unit,
-    onPrint: (List<ReorderSuggestionItemDto>) -> Unit
+    onPrint: (List<ReorderSuggestionItemDto>) -> Unit,
+    onReceive: ((List<ReorderSuggestionItemDto>) -> Unit)?
 ) {
     val items = remember(state.reorderReport, state.editedOrderQuantities) {
         state.reorderReport?.items.orEmpty().map { item ->
@@ -132,6 +133,9 @@ internal fun InventoryReorderPanel(
             InventoryMetric("Inversión estimada", Money(items.sumOf { it.estimatedInvestmentCents }).format())
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (onReceive != null) {
+                Button(onClick = { onReceive(items) }, enabled = ready) { Text("Preparar recepción") }
+            }
             OutlinedButton(onClick = { onCsv(items) }, enabled = ready) { Text("Exportar CSV") }
             OutlinedButton(onClick = { onWhatsApp(items) }, enabled = ready) { Text("Copiar para WhatsApp") }
             OutlinedButton(onClick = { onPrint(items) }, enabled = ready) { Text("Imprimir pedido") }

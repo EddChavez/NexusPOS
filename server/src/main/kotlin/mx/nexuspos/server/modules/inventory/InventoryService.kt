@@ -232,7 +232,7 @@ class InventoryService(private val db: DatabaseFactory) {
             val sql = StringBuilder("""
                 SELECT 
                     p.id, p.sku, p.name, p.department_id, d.name as department_name,
-                    p.base_unit, p.cost_cents, p.min_stock_millis, p.max_stock_millis,
+                    p.base_unit, p.cost_cents, p.min_stock_millis, p.max_stock_millis, p.is_perishable,
                     COALESCE(sb.quantity_millis, 0) as current_stock_millis,
                     COALESCE(
                         (SELECT pp.barcode FROM product_presentations pp WHERE pp.product_id = p.id ORDER BY pp.factor_millis ASC LIMIT 1),
@@ -294,7 +294,8 @@ class InventoryService(private val db: DatabaseFactory) {
                         suggestedOrderMillis = suggestedMillis,
                         costCents = costCents,
                         estimatedInvestmentCents = estimatedCost,
-                        urgency = urgency
+                        urgency = urgency,
+                        isPerishable = rs.getBoolean("is_perishable")
                     )
                 )
             }

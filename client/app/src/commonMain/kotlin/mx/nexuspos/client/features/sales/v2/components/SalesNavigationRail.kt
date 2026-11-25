@@ -89,6 +89,15 @@ fun SalesNavigationRail(
             label = { Text("Inventario", style = MaterialTheme.typography.labelSmall) }
         )
 
+        if (cashierRole in setOf("ADMIN", "SUPERVISOR")) {
+            NavigationRailItem(
+                selected = activeModule == AppModule.PURCHASES,
+                onClick = { onModuleSelected(AppModule.PURCHASES) },
+                icon = { Icon(Icons.Default.LocalShipping, contentDescription = "Compras") },
+                label = { Text("Compras", style = MaterialTheme.typography.labelSmall) }
+            )
+        }
+
         NavigationRailItem(
             selected = activeModule == AppModule.CASH_CUT,
             onClick = { onModuleSelected(AppModule.CASH_CUT) },

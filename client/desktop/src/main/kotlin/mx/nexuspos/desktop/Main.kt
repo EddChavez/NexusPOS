@@ -49,6 +49,8 @@ import mx.nexuspos.desktop.inventory.ReorderExportHelper
 import mx.nexuspos.client.features.products.ProductsScreen
 import mx.nexuspos.client.features.products.ProductsViewModel
 import mx.nexuspos.client.features.products.v2.ProductsScreenV2
+import mx.nexuspos.client.features.purchases.PurchasesScreenV2
+import mx.nexuspos.client.features.purchases.PurchasesViewModel
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.features.settings.NetworkUiConfig
 import mx.nexuspos.client.features.settings.PrinterUiConfig
@@ -100,6 +102,15 @@ fun main() = application {
     val cashCutViewModel = remember { CashCutViewModel(viewModel.apiClient, registerId = appConfig.registerId) }
     val salesState by viewModel.uiState.collectAsState()
     val authState by authViewModel.uiState.collectAsState()
+    val canManagePurchases = authState.isAuthenticated && authState.currentUser?.role in setOf("ADMIN", "SUPERVISOR")
+    val purchasesViewModel = remember(appConfig.baseUrl, authState.isAuthenticated, authState.currentUser?.userId) {
+        PurchasesViewModel(viewModel.apiClient, onInventoryChanged = {
+            inventoryViewModel.refreshAll()
+            productsViewModel.loadProducts()
+            viewModel.preloadCatalogCache()
+        })
+    }
+    DisposableEffect(purchasesViewModel) { onDispose(purchasesViewModel::dispose) }
     val supervisorState by authViewModel.supervisorState.collectAsState()
     val printerRepo = remember { PrinterConfigRepository() }
     val printerDispatcher: PrinterDispatcher = remember { DefaultPrinterDispatcher() }
@@ -115,6 +126,10 @@ fun main() = application {
             delay(15_000)
             viewModel.refreshServerConnection()
         }
+    }
+
+    LaunchedEffect(canManagePurchases) {
+        if (!canManagePurchases && activeModule == AppModule.PURCHASES) activeModule = AppModule.SALES
     }
 
     LaunchedEffect(authState.isAuthenticated) {
@@ -748,6 +763,8 @@ fun main() = application {
                         } else if (customersViewModel.uiState.value.showWhatsAppDialog) {
                             customersViewModel.closeWhatsAppDialog()
                             true
+                        } else if (activeModule == AppModule.PURCHASES && purchasesViewModel.back()) {
+                            true
                         } else if (activeModule != AppModule.SALES) {
                             // Si estamos en otro módulo, Escape regresa a Ventas
                             activeModule = AppModule.SALES
@@ -774,7 +791,9 @@ fun main() = application {
             } else {
                 val isV2 = appConfig.salesUiVersion == "V2"
                 val selectModule: (AppModule) -> Unit = { selected ->
-                    if (selected == AppModule.SETTINGS && authState.currentUser?.role == "CASHIER") {
+                    if (selected == AppModule.PURCHASES && (!isV2 || !canManagePurchases)) {
+                        Unit
+                    } else if (selected == AppModule.SETTINGS && authState.currentUser?.role == "CASHIER") {
                         authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
                     } else {
                         activeModule = selected
@@ -977,7 +996,13 @@ fun main() = application {
                                             onCopyReorderWhatsApp = copyReorder,
                                             onPrintReorderTicket = printReorder,
                                             onPrintLotsReport = printLots,
-                                            onStockChanged = viewModel::preloadCatalogCache
+                                            onStockChanged = viewModel::preloadCatalogCache,
+                                            onReceiveFromReorder = if (canManagePurchases) {
+                                                { items ->
+                                                    purchasesViewModel.startReceipt(items)
+                                                    activeModule = AppModule.PURCHASES
+                                                }
+                                            } else null
                                         )
                                     } else {
                                         InventoryScreen(
@@ -990,6 +1015,9 @@ fun main() = application {
                                             onBackToSales = { activeModule = AppModule.SALES }
                                         )
                                     }
+                                }
+                                AppModule.PURCHASES -> {
+                                    if (isV2 && canManagePurchases) PurchasesScreenV2(purchasesViewModel)
                                 }
                                 AppModule.SETTINGS -> {
                                     if (isV2) {

@@ -57,8 +57,11 @@ import mx.nexuspos.contracts.sales.ParkedSaleResponse
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
+import mx.nexuspos.contracts.purchases.*
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.contracts.system.SettingsPreferencesPatch
+
+internal class PurchaseRequestException(val status: Int, val error: ApiError) : Exception(error.message)
 
 open class ApiClient(
     var baseUrl: String = "http://localhost:8080",
@@ -925,6 +928,64 @@ open class ApiClient(
             Result.failure(e)
         }
     }
+
+    open suspend fun listSuppliers(): Result<List<SupplierDto>> =
+        purchaseCall { http.get("$baseUrl/api/v1/purchases/suppliers") }
+
+    suspend fun saveSupplier(id: String?, pin: String, data: SaveSupplierRequest): Result<SupplierDto> =
+        purchaseCall {
+            val url = "$baseUrl/api/v1/purchases/suppliers"
+            val payload = PurchaseAuthorization(pin, data)
+            if (id == null) {
+                http.post(url) {
+                    contentType(ContentType.Application.Json)
+                    setBody(payload)
+                }
+            } else {
+                http.put("$url/$id") {
+                    contentType(ContentType.Application.Json)
+                    setBody(payload)
+                }
+            }
+        }
+
+    suspend fun listPurchases(limit: Int, offset: Int): Result<List<PurchaseSummary>> =
+        purchaseCall {
+            http.get("$baseUrl/api/v1/purchases/receipts") {
+                parameter("limit", limit)
+                parameter("offset", offset)
+            }
+        }
+
+    suspend fun getPurchase(id: String): Result<PurchaseDetails> =
+        purchaseCall { http.get("$baseUrl/api/v1/purchases/receipts/$id") }
+
+    open suspend fun receivePurchase(pin: String, data: ReceivePurchaseRequest): Result<PurchaseDetails> =
+        purchaseCall {
+            http.post("$baseUrl/api/v1/purchases/receipts") {
+                contentType(ContentType.Application.Json)
+                setBody(PurchaseAuthorization(pin, data))
+            }
+        }
+
+    suspend fun returnPurchase(id: String, pin: String, data: ReturnPurchaseRequest): Result<PurchaseReturn> =
+        purchaseCall {
+            http.post("$baseUrl/api/v1/purchases/receipts/$id/returns") {
+                contentType(ContentType.Application.Json)
+                setBody(PurchaseAuthorization(pin, data))
+            }
+        }
+
+    private suspend inline fun <reified T> purchaseCall(send: () -> HttpResponse): Result<T> =
+        try {
+            val response = send()
+            if (response.status.isSuccess()) Result.success(response.body())
+            else Result.failure(PurchaseRequestException(response.status.value, parseError(response)))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
 
     open suspend fun getDailyReport(
         dateEpochMs: Long? = null,

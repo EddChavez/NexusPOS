@@ -36,3 +36,6 @@ class IdempotencyMismatchException(message: String) :
 
 class StockChangedException(message: String) :
     AppException("STOCK_CHANGED", message)
+
+class DuplicatePurchaseDocumentException(message: String) :
+    AppException("PURCHASE_DOCUMENT_EXISTS", message)

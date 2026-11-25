@@ -45,6 +45,10 @@ import mx.nexuspos.contracts.inventory.LotExpirationStatus
 import mx.nexuspos.contracts.inventory.LotWriteOffRequest
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
+import mx.nexuspos.contracts.purchases.PurchaseAuthorization
+import mx.nexuspos.contracts.purchases.ReceivePurchaseRequest
+import mx.nexuspos.contracts.purchases.ReturnPurchaseRequest
+import mx.nexuspos.contracts.purchases.SaveSupplierRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -59,6 +63,7 @@ import mx.nexuspos.server.modules.identity.IdentityService
 import mx.nexuspos.server.modules.inventory.InventoryService
 import mx.nexuspos.server.modules.inventory.ProductLotsService
 import mx.nexuspos.server.modules.loyalty.LoyaltyService
+import mx.nexuspos.server.modules.purchases.PurchaseService
 import mx.nexuspos.server.modules.reports.ReportsService
 import mx.nexuspos.server.modules.sales.ParkedSalesService
 import mx.nexuspos.server.modules.sales.SalesService
@@ -90,6 +95,14 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val salesService = SalesService(dbFactory, settingsService)
     val parkedSalesService = ParkedSalesService(dbFactory)
     val reportsService = ReportsService(dbFactory)
+    val purchaseService = PurchaseService(dbFactory)
+
+    fun purchaseOperator(pin: String): String {
+        if (!pin.matches(Regex("[0-9]{4}"))) throw UnauthorizedException("Captura el PIN de un encargado.")
+        val authorization = identityService.authorizeSupervisor(AuthorizeRequest(pin, "PURCHASES"))
+        if (!authorization.authorized) throw ForbiddenException("PIN de encargado incorrecto o usuario inactivo.")
+        return authorization.supervisorId
+    }
 
     val activeWsSessions = Collections.synchronizedSet(HashSet<DefaultWebSocketServerSession>())
 
@@ -150,7 +163,8 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 is NotFoundException -> HttpStatusCode.NotFound
                 is UnauthorizedException -> HttpStatusCode.Unauthorized
                 is ForbiddenException -> HttpStatusCode.Forbidden
-                is PriceChangedException, is IdempotencyMismatchException, is SessionClosedException, is StockChangedException -> HttpStatusCode.Conflict
+                is PriceChangedException, is IdempotencyMismatchException, is SessionClosedException,
+                is StockChangedException, is DuplicatePurchaseDocumentException -> HttpStatusCode.Conflict
                 is ValidationException -> HttpStatusCode.BadRequest
                 is CreditLimitExceededException, is InsufficientStockException -> HttpStatusCode.UnprocessableEntity
                 else -> HttpStatusCode.InternalServerError
@@ -629,6 +643,41 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             get("/sales/{id}/refunds") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de venta requerido")
                 call.respond(salesService.getRefundsBySaleId(id))
+            }
+
+            route("/purchases") {
+                get("/suppliers") {
+                    call.respond(purchaseService.listSuppliers())
+                }
+                post("/suppliers") {
+                    val req = call.receive<PurchaseAuthorization<SaveSupplierRequest>>()
+                    purchaseOperator(req.pin)
+                    call.respond(HttpStatusCode.Created, purchaseService.saveSupplier(null, req.data))
+                }
+                put("/suppliers/{id}") {
+                    val req = call.receive<PurchaseAuthorization<SaveSupplierRequest>>()
+                    purchaseOperator(req.pin)
+                    val id = call.parameters["id"] ?: throw ValidationException("Indica el proveedor.")
+                    call.respond(purchaseService.saveSupplier(id, req.data))
+                }
+                get("/receipts") {
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 50
+                    val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
+                    call.respond(purchaseService.listReceipts(limit, offset))
+                }
+                post("/receipts") {
+                    val req = call.receive<PurchaseAuthorization<ReceivePurchaseRequest>>()
+                    call.respond(HttpStatusCode.Created, purchaseService.receive(req.data, purchaseOperator(req.pin)))
+                }
+                get("/receipts/{id}") {
+                    val id = call.parameters["id"] ?: throw ValidationException("Indica la compra.")
+                    call.respond(purchaseService.getReceipt(id))
+                }
+                post("/receipts/{id}/returns") {
+                    val id = call.parameters["id"] ?: throw ValidationException("Indica la compra.")
+                    val req = call.receive<PurchaseAuthorization<ReturnPurchaseRequest>>()
+                    call.respond(HttpStatusCode.Created, purchaseService.returnStock(id, req.data, purchaseOperator(req.pin)))
+                }
             }
 
             // Financial & Daily Reports
