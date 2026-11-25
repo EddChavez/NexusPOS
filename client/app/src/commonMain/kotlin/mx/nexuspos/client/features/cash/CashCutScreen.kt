@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.features.cash.v2.CashCutHistoryPanel
+import mx.nexuspos.client.features.cash.v2.CashMovementAuditPanel
 import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.cash.CashSessionSummary
@@ -39,8 +40,9 @@ fun CashCutScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var showConfirmCloseDialog by remember { mutableStateOf(false) }
-    val tab = state.activeTab.takeUnless { it == CashCutTab.HISTORY && !useMaterialWorkspace } ?: CashCutTab.SHIFT_CUT
-    val showHistory = tab == CashCutTab.HISTORY
+    val auditTab = state.activeTab == CashCutTab.HISTORY || state.activeTab == CashCutTab.MOVEMENTS
+    val tab = if (auditTab && !useMaterialWorkspace) CashCutTab.SHIFT_CUT else state.activeTab
+    val showAudit = useMaterialWorkspace && auditTab
     val selectTab: (CashCutTab) -> Unit = {
         viewModel.closePreview()
         viewModel.selectTab(it)
@@ -80,7 +82,7 @@ fun CashCutScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth().weight(1f)
         ) {
-            if (!showHistory && preview != null) {
+            if (!showAudit && preview != null) {
                 CashCutReceiptPane(
                     title = state.ticketPreviewTitle,
                     receipt = preview,
@@ -94,6 +96,24 @@ fun CashCutScreen(
                         kotlinx.datetime.LocalDate.parse(java.time.LocalDate.now(zone).toString())
                     }
                     CashCutHistoryPanel(viewModel.apiClient, zone.id, today)
+                }
+                CashCutTab.MOVEMENTS -> {
+                    val session = state.activeSession?.takeIf { it.status == "OPEN" }
+                    when {
+                        session != null -> key(session.sessionId) {
+                            CashMovementAuditPanel(
+                                api = viewModel.apiClient,
+                                sessionId = session.sessionId,
+                                registerName = session.registerName.ifBlank { session.registerId },
+                                onReversed = {
+                                    viewModel.loadCurrentSession(session.registerId)
+                                    if (state.dailyReport != null) viewModel.loadDailyReport()
+                                }
+                            )
+                        }
+                        state.isLoadingSession -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                        else -> Text("Abre un turno para registrar reversiones. Los turnos cerrados se consultan en Historial.", Modifier.padding(16.dp))
+                    }
                 }
                 CashCutTab.SHIFT_CUT -> {
                     ShiftCutView(
@@ -113,7 +133,7 @@ fun CashCutScreen(
     }
 
     // Modal de confirmación de Cierre Oficial (Corte Z)
-    if (!showHistory && showConfirmCloseDialog) {
+    if (!showAudit && showConfirmCloseDialog) {
         val diff = state.differenceCents
         AlertDialog(
             onDismissRequest = { showConfirmCloseDialog = false },
@@ -155,7 +175,7 @@ fun CashCutScreen(
     }
 
     // Modal para abrir nuevo turno si no hay sesión abierta
-    if (!showHistory && state.showOpenSessionDialog) {
+    if (!showAudit && state.showOpenSessionDialog) {
         OpenSessionModalDialog(
             fundText = state.openFundText,
             onFundTextChanged = viewModel::onOpenFundTextChanged,
@@ -207,6 +227,7 @@ private fun CashCutWorkspaceHeader(
         val tabs = listOf(
             CashCutTab.SHIFT_CUT to "Turno actual",
             CashCutTab.DAILY_REPORT to "Reporte diario",
+            CashCutTab.MOVEMENTS to "Movimientos",
             CashCutTab.HISTORY to "Historial"
         )
         PrimaryTabRow(selectedTabIndex = tabs.indexOfFirst { it.first == selectedTab }) {

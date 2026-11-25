@@ -417,6 +417,12 @@ Registra un movimiento manual de efectivo en la caja (entrada de cambio o retiro
   ```
 - **Respuesta 201 Created:** `{"status": "OK"}`.
 
+#### `POST /api/v1/cash-sessions/{id}/movements/history`
+Consulta hasta 30 movimientos de un turno abierto o cerrado. Requiere el PIN de un encargado activo en `pin`. Usa el cursor `next` de la respuesta como `before` para cargar la página siguiente. Las reversiones incluyen el vínculo al movimiento original y el encargado que las autorizó.
+
+#### `POST /api/v1/cash-sessions/{id}/movements/{movementId}/reverse`
+Requiere `pin` de un encargado activo y `reason` de hasta 256 caracteres. En un turno abierto registra un movimiento de tipo opuesto por el importe completo del original. El arqueo incluye los dos movimientos en sus importes brutos y aplica el efecto de ambos al saldo. Un reintento con el mismo encargado y motivo devuelve la reversión existente. Un nuevo intento de reversión después del cierre devuelve `409 Conflict`.
+
 #### `POST /api/v1/cash-sessions/{id}/close`
 Cierra oficialmente el turno de caja (**Corte Z**). Registra el efectivo contado físicamente por el cajero, calcula la diferencia de arqueo (`countedCashCents - expectedCashCents`) y marca el turno como `"CLOSED"`.
 - **Cuerpo:**

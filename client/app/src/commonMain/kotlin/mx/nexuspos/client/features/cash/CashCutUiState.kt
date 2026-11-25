@@ -6,7 +6,8 @@ import mx.nexuspos.contracts.cash.DailyFinancialReportDto
 enum class CashCutTab {
     SHIFT_CUT,      // Arqueo y Corte de Turno
     DAILY_REPORT,   // Reporte Financiero del Día
-    HISTORY
+    HISTORY,
+    MOVEMENTS
 }
 
 data class CashCutUiState(
@@ -15,6 +16,7 @@ data class CashCutUiState(
     val isLoadingSession: Boolean = false,
     // Conteo y Arqueo
     val countedCashText: String = "",
+    val hasCountedCash: Boolean = false,
     val countedCashCents: Long = 0L,
     val differenceCents: Long = 0L, // counted - expected
     val denominations: List<mx.nexuspos.contracts.cash.CashDenominationCountDto> = emptyList(),

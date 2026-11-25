@@ -26,6 +26,8 @@ import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.cash.*
 import mx.nexuspos.core.Money
 
+private enum class CutDetailSection { SALES, MOVEMENTS }
+
 private data class CutFilters(
     val from: String,
     val to: String,
@@ -53,7 +55,7 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
     var page by remember { mutableStateOf<CashCutHistoryPage?>(null) }
     var trail by remember { mutableStateOf(listOf<CashCutCursor?>(null)) }
     var detail by remember { mutableStateOf<CashCutHistoryDetail?>(null) }
-    var showSales by remember { mutableStateOf(false) }
+    var section by remember { mutableStateOf<CutDetailSection?>(null) }
     var pin by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -61,7 +63,7 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
     fun lockHistory() {
         page = null
         detail = null
-        showSales = false
+        section = null
         pin = ""
         filters = defaults
         applied = defaults
@@ -119,20 +121,29 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
                     Text("Abrir historial")
                 }
             }
-            showSales && detail != null -> ClosedShiftSalesPanel(
+            section == CutDetailSection.SALES && detail != null -> ClosedShiftSalesPanel(
                 cut = checkNotNull(detail).cut,
                 api = api,
                 pin = pin,
-                onBackToCut = { showSales = false },
+                onBackToCut = { section = null },
                 onAccessDenied = { showError(it, "Se cerró el acceso al historial.") }
             )
+            section == CutDetailSection.MOVEMENTS && detail != null -> {
+                val cut = checkNotNull(detail).cut
+                CashMovementAuditPanel(
+                    api, cut.sessionId, cut.registerName, cutPin = pin,
+                    onBackToCut = { section = null },
+                    onAccessDenied = { showError(it, "Se cerró el acceso al historial.") }
+                )
+            }
             detail != null -> CashCutDetail(
                 checkNotNull(detail),
                 onBack = {
                     detail = null
                     error = null
                 },
-                onOpenSales = { showSales = true }
+                onOpenSales = { section = CutDetailSection.SALES },
+                onOpenMovements = { section = CutDetailSection.MOVEMENTS }
             )
             else -> {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -213,8 +224,11 @@ internal fun CashCutHistoryPanel(api: ApiClient, zoneId: String, today: LocalDat
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CashCutDetail(detail: CashCutHistoryDetail, onBack: () -> Unit, onOpenSales: () -> Unit) {
+private fun CashCutDetail(
+    detail: CashCutHistoryDetail, onBack: () -> Unit, onOpenSales: () -> Unit, onOpenMovements: () -> Unit
+) {
     val cut = detail.cut
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
@@ -227,7 +241,10 @@ private fun CashCutDetail(detail: CashCutHistoryDetail, onBack: () -> Unit, onOp
             Text("${cut.registerName} · Cajero de apertura: ${cut.cashierName}")
             Text("Apertura ${formatShiftHistoryTimestamp(cut.openedAt, true)}")
             Text("Cierre ${formatShiftHistoryTimestamp(cut.closedAt, true)}")
-            FilledTonalButton(onOpenSales, modifier = Modifier.padding(top = 8.dp)) { Text("Ver ventas del turno") }
+            FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onOpenSales) { Text("Ver ventas del turno") }
+                OutlinedButton(onOpenMovements) { Text("Ver movimientos de caja") }
+            }
         }
         item {
             OutlinedCard(Modifier.fillMaxWidth()) {

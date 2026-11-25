@@ -23,7 +23,9 @@ import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.CashCutDetailRequest
 import mx.nexuspos.contracts.cash.CashCutHistoryRequest
 import mx.nexuspos.contracts.cash.ClosedShiftSalesRequest
+import mx.nexuspos.contracts.cash.CashMovementHistoryRequest
 import mx.nexuspos.contracts.cash.CashMovementRequest
+import mx.nexuspos.contracts.cash.ReverseCashMovementRequest
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
@@ -60,6 +62,7 @@ import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.contracts.system.SettingsPreferencesPatch
 import mx.nexuspos.server.modules.cash.CashCutHistoryService
+import mx.nexuspos.server.modules.cash.CashMovementAuditService
 import mx.nexuspos.server.modules.cash.CashSessionService
 import mx.nexuspos.server.modules.catalog.CatalogService
 import mx.nexuspos.server.modules.credit.CreditService
@@ -94,6 +97,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val productLotsService = ProductLotsService(dbFactory)
     val cashService = CashSessionService(dbFactory)
     val cashCutHistory = CashCutHistoryService(dbFactory)
+    val cashMovementAudit = CashMovementAuditService(dbFactory)
     val creditService = CreditService(dbFactory)
     val loyaltyService = LoyaltyService(dbFactory)
     val settingsService = SettingsService(dbFactory)
@@ -545,6 +549,21 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val req = call.receive<CashMovementRequest>()
                 cashService.recordMovement(sessionId, req)
                 call.respond(HttpStatusCode.Created, mapOf("status" to "OK"))
+            }
+
+            post("/cash-sessions/{id}/movements/history") {
+                val request = call.receive<CashMovementHistoryRequest>()
+                requireSupervisor(request.pin, "CASH_MOVEMENT_HISTORY")
+                val sessionId = call.parameters["id"] ?: throw ValidationException("Indica el turno de caja.")
+                call.respond(cashMovementAudit.list(sessionId, request.before))
+            }
+
+            post("/cash-sessions/{id}/movements/{movementId}/reverse") {
+                val request = call.receive<ReverseCashMovementRequest>()
+                val supervisorId = requireSupervisor(request.pin, "REVERSE_CASH_MOVEMENT")
+                val sessionId = call.parameters["id"] ?: throw ValidationException("Indica el turno de caja.")
+                val movementId = call.parameters["movementId"] ?: throw ValidationException("Indica el movimiento.")
+                call.respond(cashMovementAudit.reverse(sessionId, movementId, request.reason, supervisorId))
             }
 
             post("/cash-sessions/{id}/close") {

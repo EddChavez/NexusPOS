@@ -163,6 +163,22 @@ class CashCutFeatureTest {
     }
 
     @Test
+    fun refreshingExpectedCashPreservesAnExplicitZeroCount() {
+        val fakeApi = FakeCashApiClient(activeSession = sampleOpenSession())
+        val vm = CashCutViewModel(fakeApi, CoroutineScope(Dispatchers.Unconfined))
+        val session = sampleOpenSession()
+        fakeApi.activeSession = session.copy(expectedCashCents = 150000)
+        vm.loadCurrentSession()
+        assertEquals(150000L, vm.uiState.value.countedCashCents)
+
+        vm.onCountedCashChanged("0")
+        fakeApi.activeSession = session.copy(expectedCashCents = 140000)
+        vm.loadCurrentSession()
+        assertEquals(0L, vm.uiState.value.countedCashCents)
+        assertEquals(-140000L, vm.uiState.value.differenceCents)
+    }
+
+    @Test
     fun testPerformCorteXDispatchesPrintWithoutClosing() {
         val session = sampleOpenSession()
         val fakeApi = FakeCashApiClient(activeSession = session)

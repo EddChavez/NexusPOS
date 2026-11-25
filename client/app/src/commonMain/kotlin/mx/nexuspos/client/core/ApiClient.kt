@@ -10,6 +10,10 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.ApiError
+import mx.nexuspos.contracts.cash.AuditedCashMovement
+import mx.nexuspos.contracts.cash.CashMovementHistoryPage
+import mx.nexuspos.contracts.cash.CashMovementHistoryRequest
+import mx.nexuspos.contracts.cash.ReverseCashMovementRequest
 import mx.nexuspos.contracts.cash.CashCutDetailRequest
 import mx.nexuspos.contracts.cash.CashCutHistoryDetail
 import mx.nexuspos.contracts.cash.CashCutHistoryPage
@@ -531,21 +535,27 @@ open class ApiClient(
     }
 
     open suspend fun searchCashCutHistory(request: CashCutHistoryRequest): Result<CashCutHistoryPage> =
-        cashHistoryCall("search", request)
+        cashAuditCall("history/search", request)
 
     open suspend fun getClosedCashCut(id: String, pin: String): Result<CashCutHistoryDetail> =
-        cashHistoryCall(id.encodeURLPathPart(), CashCutDetailRequest(pin))
+        cashAuditCall("history/${id.encodeURLPathPart()}", CashCutDetailRequest(pin))
 
     open suspend fun getClosedShiftSales(id: String, request: ClosedShiftSalesRequest): Result<ClosedShiftSalesPage> =
-        cashHistoryCall("${id.encodeURLPathPart()}/sales", request)
+        cashAuditCall("history/${id.encodeURLPathPart()}/sales", request)
 
     open suspend fun getClosedShiftSale(id: String, saleId: String, pin: String): Result<ClosedShiftSaleDetail> =
-        cashHistoryCall("${id.encodeURLPathPart()}/sales/${saleId.encodeURLPathPart()}", CashCutDetailRequest(pin))
+        cashAuditCall("history/${id.encodeURLPathPart()}/sales/${saleId.encodeURLPathPart()}", CashCutDetailRequest(pin))
 
-    private suspend inline fun <reified Request, reified Response> cashHistoryCall(
+    open suspend fun getCashMovements(sessionId: String, request: CashMovementHistoryRequest): Result<CashMovementHistoryPage> =
+        cashAuditCall("${sessionId.encodeURLPathPart()}/movements/history", request)
+
+    open suspend fun reverseCashMovement(sessionId: String, movementId: String, request: ReverseCashMovementRequest): Result<AuditedCashMovement> =
+        cashAuditCall("${sessionId.encodeURLPathPart()}/movements/${movementId.encodeURLPathPart()}/reverse", request)
+
+    private suspend inline fun <reified Request, reified Response> cashAuditCall(
         path: String, request: Request
     ): Result<Response> = try {
-        val response = http.post("$baseUrl/api/v1/cash-sessions/history/$path") {
+        val response = http.post("$baseUrl/api/v1/cash-sessions/$path") {
             contentType(ContentType.Application.Json)
             setBody(request)
         }

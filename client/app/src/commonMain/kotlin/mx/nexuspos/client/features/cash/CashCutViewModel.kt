@@ -52,8 +52,10 @@ class CashCutViewModel(
             res.onSuccess { session ->
                 _uiState.update {
                     if (session != null) {
-                        val initCountedCents = if (blindEnabled) 0L else (if (it.countedCashCents == 0L) session.expectedCashCents else it.countedCashCents)
-                        val initCountedText = if (blindEnabled) "" else (if (it.countedCashText.isBlank()) (session.expectedCashCents / 100.0).toString() else it.countedCashText)
+                        val sameShift = it.activeSession?.sessionId == session.sessionId
+                        val hasCount = sameShift && it.hasCountedCash
+                        val initCountedCents = if (hasCount) it.countedCashCents else if (blindEnabled) 0L else session.expectedCashCents
+                        val initCountedText = if (hasCount) it.countedCashText else if (blindEnabled) "" else (session.expectedCashCents / 100.0).toString()
                         val diff = if (blindEnabled) 0L else (initCountedCents - session.expectedCashCents)
 
                         it.copy(
@@ -61,9 +63,10 @@ class CashCutViewModel(
                             isLoadingSession = false,
                             isBlindCashCountEnabled = blindEnabled,
                             countedCashText = initCountedText,
+                            hasCountedCash = hasCount,
                             countedCashCents = initCountedCents,
                             differenceCents = diff,
-                            denominations = it.denominations.ifEmpty { session.denominations }
+                            denominations = if (sameShift) it.denominations.ifEmpty { session.denominations } else session.denominations
                         )
                     } else {
                         it.copy(
@@ -104,6 +107,7 @@ class CashCutViewModel(
             state.copy(
                 denominations = existing,
                 countedCashCents = totalDenomCents,
+                hasCountedCash = true,
                 countedCashText = (totalDenomCents / 100.0).toString(),
                 differenceCents = totalDenomCents - expected
             )
@@ -117,6 +121,7 @@ class CashCutViewModel(
                 denominations = emptyList(),
                 countedCashCents = 0L,
                 countedCashText = "",
+                hasCountedCash = true,
                 differenceCents = -expected
             )
         }
@@ -129,6 +134,7 @@ class CashCutViewModel(
         _uiState.update {
             it.copy(
                 countedCashText = text,
+                hasCountedCash = true,
                 countedCashCents = cents,
                 differenceCents = cents - expected
             )
@@ -243,6 +249,8 @@ class CashCutViewModel(
                         isOpeningSession = false,
                         showOpenSessionDialog = false,
                         isSessionClosedJustNow = false,
+                        hasCountedCash = false,
+                        denominations = session.denominations,
                         countedCashText = (session.expectedCashCents / 100.0).toString(),
                         countedCashCents = session.expectedCashCents,
                         differenceCents = 0L,
