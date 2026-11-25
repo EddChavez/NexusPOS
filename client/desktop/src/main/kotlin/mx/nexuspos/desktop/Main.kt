@@ -108,7 +108,7 @@ fun main() = application {
     val viewModel = remember {
         SalesViewModel(apiClient = ApiClient(baseUrl = appConfig.baseUrl), initialRegisterId = appConfig.registerId)
     }
-    val authViewModel = remember { AuthViewModel(viewModel.apiClient) }
+    val authViewModel = remember { AuthViewModel(viewModel.apiClient, loginRegisterId = { appConfig.registerId }) }
     var setupState by remember(appConfig.baseUrl) { mutableStateOf<SetupState?>(null) }
     var setupError by remember(appConfig.baseUrl) { mutableStateOf<String?>(null) }
     var setupRetry by remember { mutableIntStateOf(0) }
@@ -383,14 +383,15 @@ fun main() = application {
             }
         }
 
-        authViewModel.onLoginSuccess = { user ->
+        authViewModel.onLoginSuccess = { user, session ->
             viewModel.setActiveCashier(
                 userId = user.userId,
                 name = user.name,
                 role = user.role,
                 permissions = user.permissions
             )
-            viewModel.loadActiveSession(appConfig.registerId)
+            if (session != null) viewModel.setLoginCashSession(session)
+            else viewModel.loadActiveSession(appConfig.registerId)
             viewModel.loadParkedSales()
             viewModel.preloadCatalogCache()
             viewModel.loadSettings()
@@ -498,7 +499,9 @@ fun main() = application {
         onKeyEvent = { keyEvent ->
             // 1. First check if terminal is locked (Login Screen input)
             if (!authState.isAuthenticated) {
-                if (setupState == null || setupState == SetupState.NEW || recoveringRoot || isShowingServerDialog) return@Window false
+                if (setupState == null || setupState == SetupState.NEW || recoveringRoot || isShowingServerDialog || authState.shift != null) {
+                    return@Window false
+                }
                 if (keyEvent.type == KeyEventType.KeyDown) {
                     when (keyEvent.key) {
                         Key.Zero, Key.NumPad0 -> { authViewModel.onDigit('0'); true }

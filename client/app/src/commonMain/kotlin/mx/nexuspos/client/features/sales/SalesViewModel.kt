@@ -21,6 +21,7 @@ import mx.nexuspos.client.features.offline.OfflineSaleQueue
 import mx.nexuspos.client.features.offline.OfflineSyncManager
 import mx.nexuspos.client.features.offline.getDefaultPersistenceProvider
 import mx.nexuspos.client.features.whatsapp.WhatsAppMessageFormatter
+import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.ProductDto
@@ -62,6 +63,7 @@ class SalesViewModel(
 
     private var activeRegisterId = initialRegisterId
     private var activeSessionServer = apiClient.baseUrl
+    private var activeSessionRequest = 0L
     private val connectionCheck = Mutex()
 
     var currentSettings: SettingsDto? = null
@@ -183,6 +185,7 @@ class SalesViewModel(
 
     fun loadActiveSession(registerId: String = activeRegisterId) {
         val server = apiClient.baseUrl
+        val request = ++activeSessionRequest
         if (activeRegisterId != registerId || activeSessionServer != server) {
             activeRegisterId = registerId
             activeSessionServer = server
@@ -190,13 +193,20 @@ class SalesViewModel(
         }
         scope.launch {
             val res = apiClient.getCurrentSession(registerId)
-            if (activeRegisterId != registerId || server != apiClient.baseUrl) return@launch
+            if (request != activeSessionRequest || server != apiClient.baseUrl) return@launch
             res.onSuccess { session ->
                 _uiState.update { it.copy(activeSession = session) }
             }.onFailure {
                 _uiState.update { it.copy(connectionState = ServerConnectionState.NO_SERVER) }
             }
         }
+    }
+
+    fun setLoginCashSession(session: CashSessionSummary) {
+        activeSessionRequest++
+        activeRegisterId = session.registerId
+        activeSessionServer = apiClient.baseUrl
+        _uiState.update { it.copy(activeSession = session, connectionState = ServerConnectionState.CONNECTED) }
     }
 
     fun setActiveCashier(userId: String, name: String, role: String, permissions: List<String> = emptyList()) {

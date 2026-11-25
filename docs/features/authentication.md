@@ -12,7 +12,8 @@ Permitir a los operadores de caja iniciar sesión y alternar turnos en segundos 
 ## 2. Alcance
 
 ### Incluye:
-- Inicio de sesión mediante PIN numérico de 4 dígitos.
+- Inicio de sesión mediante PIN numérico de 4 dígitos o PIN de 6 dígitos para el administrador raíz.
+- Apertura de turno al iniciar sesión en Desktop para usuarios con permisos de consulta y apertura de caja.
 - Hashing y verificación con **BCrypt** (salt dinámico, factor de costo 10).
 - Cambio rápido de cajero en la misma terminal.
 - Autorización al vuelo (*Elevation of Privilege*) mediante diálogo modal de PIN de supervisor sin cerrar la sesión del cajero.
@@ -37,11 +38,10 @@ Permitir a los operadores de caja iniciar sesión y alternar turnos en segundos 
 ## 4. Flujo Funcional
 
 ### A. Inicio de Sesión y Cambio de Cajero
-1. El cajero teclea su PIN de 4 dígitos en el teclado numérico.
-2. La terminal envía la petición `POST /api/v1/auth/login`.
-3. El servidor verifica el PIN contra el hash BCrypt.
-4. Si es válido, responde con el objeto `LoginResponse` (nombre, rol y permisos).
-5. La caja actualiza el encabezado superior con el nombre del cajero activo.
+1. El operador ingresa su PIN en la pantalla de acceso. El administrador raíz selecciona **Usar PIN raíz**.
+2. La terminal envía `POST /api/v1/auth/login`. Si el PIN es válido, el servidor devuelve el usuario, sus permisos y el token de sesión.
+3. Si el usuario tiene `cash.view` y `cash.open`, Desktop consulta el turno de la caja configurada antes de mostrar ventas. Reutiliza el turno abierto o completa la [apertura de un turno nuevo](cash-session.md#apertura-al-iniciar-sesión).
+4. Cuando termina la apertura o se confirma que existe un turno activo, Desktop muestra la aplicación y actualiza el encabezado con el usuario autenticado. Si el rol carece de alguno de esos dos permisos, se aplica el acceso habitual del rol.
 
 ### B. Autorización de Supervisor al Vuelo
 ```mermaid
@@ -66,7 +66,7 @@ sequenceDiagram
 
 ## 5. Reglas de Negocio
 
-- **RN-AUT-01 (Formato y Protección de PIN):** Los PINs son de 4 dígitos numéricos. Nunca se almacenan en texto plano ni se transmiten en URLs.
+- **RN-AUT-01 (Formato y Protección de PIN).** El PIN de operador tiene cuatro dígitos y el del administrador raíz tiene seis. Se almacenan como hashes y se envían en el cuerpo de la petición.
 - **RN-AUT-02 (Persistencia de Carrito en Cambio de Cajero):** Si un cajero releva a otro con un carrito armado a la mitad, los productos no se pierden automáticamente; el nuevo cajero puede continuar la venta o vaciarla conscientemente.
 - **RN-AUT-03 (Acción Atómica de Autorización):** La autorización de supervisor es válida únicamente para la acción inmediata que la detonó; no otorga una sesión permanente de supervisor a la caja.
 - **RN-AUT-04 (Protección de Integridad por Caída de LAN):** Cuando el monitor de red detecta `NO_SERVER`, se bloquea el cobro para evitar la emisión de tickets que no queden registrados en el servidor central.
@@ -98,6 +98,8 @@ sequenceDiagram
 | :--- | :--- |
 | **PIN incorrecto** | El servidor responde `401 INVALID_PIN` y la caja limpia el campo solicitando reintentar. |
 | **PIN correcto pero rol insuficiente** | Si un cajero ingresa su PIN en el diálogo de supervisor, el servidor responde `403 INSUFFICIENT_PERMISSIONS`. |
+| **Se cancela la captura del fondo** | Desktop vuelve al PIN, descarta el token provisional y solicita su invalidación al servidor. |
+| **Error durante la apertura al iniciar sesión** | La terminal permanece en el acceso y muestra el error con una opción para reintentar. |
 | **Pérdida súbita del cable de red** | El monitor pasa a `RECONNECTING` y luego a `NO_SERVER`; la interfaz desactiva los botones de cobro y previene errores 500. |
 
 ---

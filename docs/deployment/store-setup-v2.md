@@ -7,7 +7,7 @@ Actualiza el servidor y Desktop juntos. Antes de actualizar una tienda, sincroni
 1. Inicia el servidor con una base de datos propia de la tienda.
 2. Con las mismas variables `DB_URL`, `DB_USER` y `DB_PASSWORD` del servicio, ejecuta el binario del servidor con el argumento `setup-code`. Usa el código de ocho dígitos de la última línea de la salida dentro de diez minutos.
 3. Abre Desktop, conecta al servidor y completa Negocio, Sucursal, Caja, Administrador raíz y Preferencias. Usa el código al guardar la configuración.
-4. Selecciona **Usar PIN raíz** e ingresa el PIN de seis dígitos. En Configuración V2 registra a los operadores y asigna sus roles. En las demás terminales indica la dirección del servidor y el identificador de una caja existente.
+4. Selecciona **Usar PIN raíz** e ingresa el PIN de seis dígitos. Si la caja todavía no tiene turno y está habilitada la captura de fondo inicial, confirma el importe para entrar. En Configuración V2 registra a los operadores y asigna sus roles. En las demás terminales indica la dirección del servidor y el identificador de una caja existente.
 
 ## Adoptar o recuperar la cuenta raíz
 
@@ -18,5 +18,7 @@ Actualiza el servidor y Desktop juntos. Antes de actualizar una tienda, sincroni
 ## Comprobaciones del despliegue
 
 Prueba permisos con un usuario operador y otro propietario. Confirma que el folio existente se mantiene, que las cajas se registran una sola vez y que el relevo conserva el turno. Prueba abonos en efectivo y con tarjeta para confirmar que solo el efectivo se contabiliza en la caja. Si activas un límite de efectivo, verifica que una operación que lo supera requiera el PIN de un usuario autorizado.
+
+Con una caja de prueba sin turno activo, comprueba la [apertura por PIN](../features/cash-session.md#apertura-al-iniciar-sesión). Con **Configuración V2 → Turnos → Solicitar fondo inicial** activado, confirma que el importe capturado aparece en el corte de turno. Repite con la opción desactivada y comprueba que el fondo sea cero. Bloquea la terminal y vuelve a entrar. El identificador del turno debe seguir siendo el mismo.
 
 Para vincular Android, usa el proxy HTTPS de la tienda y sigue la [guía del piloto móvil](mobile-pilot.md).

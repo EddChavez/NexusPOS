@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Check
@@ -18,17 +19,26 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.core.ServerConnectionState
+import mx.nexuspos.client.features.sales.v2.dialogs.parseCheckoutCents
 import mx.nexuspos.client.theme.NexusTheme
 
 @Composable
@@ -322,6 +332,77 @@ fun LoginScreen(
             }
         }
     }
+
+    state.shift?.let { prompt ->
+        LoginShiftDialog(
+            prompt = prompt,
+            busy = state.isLoading,
+            onConfirm = viewModel::confirmLoginShift,
+            onRetry = viewModel::retryLoginShift,
+            onCancel = viewModel::cancelLoginShift
+        )
+    }
+}
+
+@Composable
+private fun LoginShiftDialog(
+    prompt: LoginShiftPrompt,
+    busy: Boolean,
+    onConfirm: (String) -> Unit,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit
+) {
+    var amount by remember(prompt.registerId) { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    val requiresFund = prompt.currencySymbol != null
+    val validAmount = parseCheckoutCents(amount) != null
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(if (requiresFund) "Fondo de caja" else "Abrir turno") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (requiresFund) {
+                    Text("Ingresa el efectivo inicial para abrir el turno en la caja ${prompt.registerId}.")
+                    OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = it },
+                        label = { Text("Fondo inicial") },
+                        prefix = { Text(prompt.currencySymbol.orEmpty()) },
+                        singleLine = true,
+                        readOnly = busy,
+                        isError = amount.isNotBlank() && !validAmount,
+                        supportingText = {
+                            Text(
+                                if (amount.isNotBlank() && !validAmount) "Ingresa un monto desde cero con hasta dos decimales."
+                                else "Si la caja inicia sin efectivo, ingresa 0."
+                            )
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus).onPreviewKeyEvent { event ->
+                            if (event.key != Key.Enter && event.key != Key.NumPadEnter) return@onPreviewKeyEvent false
+                            if (event.type == KeyEventType.KeyDown && validAmount && !busy) onConfirm(amount)
+                            true
+                        }
+                    )
+                    LaunchedEffect(Unit) { focus.requestFocus() }
+                } else {
+                    Text("Caja ${prompt.registerId}")
+                }
+                prompt.errorMessage?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (requiresFund) onConfirm(amount) else onRetry() },
+                enabled = !busy && (!requiresFund || validAmount)
+            ) { Text(if (requiresFund) "Abrir turno" else "Reintentar") }
+        },
+        dismissButton = { TextButton(onCancel, enabled = !busy) { Text("Cancelar") } }
+    )
 }
 
 @Composable

@@ -9,7 +9,14 @@ data class AuthUiState(
     val pinInput: String = "",
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val useRootPin: Boolean = false
+    val useRootPin: Boolean = false,
+    val shift: LoginShiftPrompt? = null
+)
+
+data class LoginShiftPrompt(
+    val registerId: String,
+    val currencySymbol: String? = null,
+    val errorMessage: String? = null
 )
 
 sealed interface SupervisorAction {

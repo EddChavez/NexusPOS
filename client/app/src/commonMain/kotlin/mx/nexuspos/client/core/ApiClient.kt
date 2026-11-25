@@ -647,13 +647,12 @@ open class ApiClient(
             val res = http.get("$baseUrl/api/v1/cash-sessions/current") {
                 parameter("registerId", registerId)
             }
-            if (res.status == HttpStatusCode.NotFound) {
-                Result.success(null)
-            } else if (res.status.isSuccess()) {
+            if (res.status.isSuccess()) {
                 Result.success(res.body())
             } else {
                 val err = parseError(res)
-                Result.failure(Exception(err.message))
+                if (res.status == HttpStatusCode.NotFound && err.code == "NO_OPEN_SESSION") Result.success(null)
+                else Result.failure(Exception(err.message))
             }
         } catch (e: Exception) {
             Result.failure(e)

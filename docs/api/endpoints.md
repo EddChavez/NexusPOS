@@ -363,6 +363,8 @@ Procesa un lote de productos para actualización masiva o alta inicial mediante 
 
 #### `POST /api/v1/cash-sessions`
 Abre un nuevo turno de caja en una terminal con su fondo inicial de apertura.
+- Requiere el permiso `cash.open`. El `userId` corresponde al usuario autenticado.
+- Si `commerce.requireOpeningFund` está desactivado, el servidor guarda `initialFundCents` en cero.
 - **Cuerpo:**
   ```json
   {
@@ -375,6 +377,7 @@ Abre un nuevo turno de caja en una terminal con su fondo inicial de apertura.
 
 #### `GET /api/v1/cash-sessions/current?registerId={id}`
 Obtiene la sesión de caja activa de la terminal especificada.
+- Requiere el permiso `cash.view`.
 - **Respuesta 200 OK:**
   ```json
   {

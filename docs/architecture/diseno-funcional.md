@@ -146,7 +146,7 @@ Cada **presentación** tiene su propio código de barras, nombre, precio y un **
 
 ### 4.7 Sesión y corte de caja
 
-1. Al iniciar turno, el cajero **abre sesión** con el fondo inicial.
+1. Al iniciar sesión por PIN en Desktop, la caja conserva el turno abierto o [abre uno nuevo según los permisos y la política de fondo inicial](../features/cash-session.md#apertura-al-iniciar-sesión).
 2. Durante el turno registra **entradas y salidas** con concepto.
 3. Al terminar, la caja muestra la **vista previa del corte** con el efectivo esperado.
 4. El cajero captura el efectivo contado (opcionalmente por denominación); el sistema registra la **diferencia** y cierra la sesión.
@@ -254,7 +254,7 @@ stateDiagram-v2
 | ID | Regla |
 | --- | --- |
 | RN-CAJ-01 | Cada caja física tiene a lo sumo una sesión abierta, y pertenece a un cajero |
-| RN-CAJ-02 | La sesión abre con un fondo inicial |
+| RN-CAJ-02 | La sesión abre con el fondo capturado por el operador o con cero si la captura está desactivada |
 | RN-CAJ-03 | Entradas y salidas llevan concepto, usuario y, según permiso, autorización |
 | RN-CAJ-04 | Efectivo esperado = fondo + ventas en efectivo − cambio entregado + abonos en efectivo + entradas − salidas − devoluciones en efectivo |
 | RN-CAJ-05 | Al cerrar se captura el efectivo contado y se registra la diferencia |

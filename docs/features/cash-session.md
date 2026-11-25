@@ -13,7 +13,7 @@ Garantizar el control, la trazabilidad y la reconciliación matemática del dine
 ## 2. Alcance
 
 ### Incluye:
-- **Apertura de Turno:** Diálogo de captura de fondo inicial de cambio (`initialFundCents`).
+- **Apertura de turno.** Desktop verifica el turno de la caja al iniciar sesión y solicita el fondo inicial según la configuración de Turnos.
 - **Registro de Entradas y Salidas:** Atajos `[F7]` (Entrada manual de cambio) y `[F8]` (Retiro de efectivo para proveedores/gastos con concepto y monto).
 - **Módulo de Cortes de Turno ([F6] Cortes):** Pantalla especializada [`CashCutScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutScreen.kt) con dos pestañas de alto impacto:
   1. **Pestaña 1 — Corte de Turno:**
@@ -46,6 +46,21 @@ Garantizar el control, la trazabilidad y la reconciliación matemática del dine
 
 ## 4. Flujo Funcional
 
+### Apertura al iniciar sesión
+
+En Desktop, después de validar el PIN de un usuario con permisos `cash.view` y `cash.open`, NexusPOS consulta la caja configurada en esa terminal.
+
+| Estado de la caja | Qué ocurre |
+| --- | --- |
+| Turno abierto | Se entra con el turno existente. Se conserva su fondo y su operador. El relevo se realiza por separado y depende de **Permitir relevo de operador** y del permiso `cash.handoff`. |
+| Sin turno y **Solicitar fondo inicial** activado | Aparece el diálogo **Fondo de caja** sobre la pantalla del PIN. Ingresa un monto desde cero con hasta dos decimales y selecciona **Abrir turno**. Usa `0` si la caja inicia sin cambio. **Cancelar** vuelve al PIN. |
+| Sin turno y **Solicitar fondo inicial** desactivado | NexusPOS abre el turno con fondo cero y, una vez confirmado por el servidor, muestra la aplicación. |
+| Error de conexión o apertura | La pantalla de acceso muestra el error y permite reintentar o cancelar. Si el servidor confirma un turno que apareció durante la apertura, Desktop usa ese turno. |
+
+Cambia la política en **Configuración V2 → Turnos → Solicitar fondo inicial**. La opción se aplica en la siguiente apertura. Un rol que carece de alguno de los dos permisos conserva su acceso habitual sin activar la apertura al iniciar sesión.
+
+### Arqueo y cortes
+
 ```mermaid
 flowchart TD
     Start["Operador presiona [F6] Cortes"] --> Screen["CashCutScreen"]
@@ -77,7 +92,7 @@ flowchart TD
 ## 5. Reglas de Negocio
 
 - **RN-CAJ-01 (Sesión Única por Caja):** Una caja solo puede tener una sesión abierta a la vez. No se permite abrir una segunda sesión sin haber cerrado la anterior.
-- **RN-CAJ-02 (Fondo Inicial Obligatorio):** Todo turno debe iniciar con un importe de fondo declarado (puede ser `$0.00` si se inicia sin cambio).
+- **RN-CAJ-02 (Fondo inicial).** Cada turno registra un fondo en centavos. Con la captura activada, el operador confirma el importe, incluido cero. Con la captura desactivada, el sistema registra cero.
 - **RN-CAJ-03 (Registro de Movimientos):** Todo retiro o ingreso manual debe registrar monto en centavos, concepto descriptivo y usuario responsable.
 - **RN-CAJ-04 (Fórmula Canónica de Efectivo Esperado):**
   $$\text{Efectivo Esperado} = \text{Fondo Inicial} + \text{Ventas Efectivo} + \text{Abonos Crédito} + \text{Entradas Manuales} - \text{Retiros} - \text{Cancelaciones Efectivo}$$
@@ -97,6 +112,7 @@ flowchart TD
 ## 6. Diseño Técnico
 
 - **Vistas UI Compose:**
+  - Captura de fondo al iniciar sesión en [LoginScreen.kt](../../client/app/src/commonMain/kotlin/mx/nexuspos/client/features/auth/LoginScreen.kt), coordinada por [AuthViewModel.kt](../../client/app/src/commonMain/kotlin/mx/nexuspos/client/features/auth/AuthViewModel.kt).
   - Pantalla principal de cortes: [`CashCutScreen.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashCutScreen.kt).
   - Calculadora interactiva por denominaciones: [`DenominationCalculator.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/DenominationCalculator.kt).
   - Diálogo de fondo inicial: [`CashSessionDialog.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/client/app/src/commonMain/kotlin/mx/nexuspos/client/features/cash/CashSessionDialog.kt).
@@ -119,6 +135,7 @@ flowchart TD
 
 ## 7. Pruebas Automatizadas
 
+- [AuthFeatureTest.kt](../../client/desktop/src/test/kotlin/mx/nexuspos/desktop/auth/AuthFeatureTest.kt) cubre los importes válidos e inválidos, el fondo cero, la cancelación, el reintento, los permisos y la reutilización de turnos existentes o abiertos desde otra terminal.
 - **Pruebas de Backend Integrado:**
   - [`CashSessionDenominationsTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/CashSessionDenominationsTest.kt): Persistencia de denominaciones en `cash_session_denominations` y auditoría de modo ciego.
   - [`ReportsModuleTest.kt`](file:///Users/eddch/Documents/OzafryDev/NexusPOS/server/src/test/kotlin/mx/nexuspos/server/ReportsModuleTest.kt): Verificación de ventas, costos, COGS, ganancia bruta estimada y margen de utilidad.

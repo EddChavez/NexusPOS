@@ -8,12 +8,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
+import mx.nexuspos.client.features.sales.v2.dialogs.parseCheckoutCents
+import mx.nexuspos.contracts.cash.CashSessionSummary
+import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.identity.LoginResponse
 
 class AuthViewModel(
     val apiClient: ApiClient = ApiClient(),
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main)
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main),
+    private val loginRegisterId: (() -> String)? = null
 ) {
+    private data class PendingLogin(val user: LoginResponse, val registerId: String, val serverUrl: String)
+
+    private var pendingLogin: PendingLogin? = null
+    private var loginAttempt = 0L
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
@@ -21,7 +29,7 @@ class AuthViewModel(
     val supervisorState: StateFlow<SupervisorAuthState> = _supervisorState.asStateFlow()
 
     // Callback invoked upon successful cashier login
-    var onLoginSuccess: ((LoginResponse) -> Unit)? = null
+    var onLoginSuccess: ((LoginResponse, CashSessionSummary?) -> Unit)? = null
 
     // Callback invoked upon successful supervisor elevation
     var onSupervisorSuccess: ((SupervisorAction) -> Unit)? = null
@@ -33,7 +41,7 @@ class AuthViewModel(
     fun onDigit(digit: Char) {
         if (digit !in '0'..'9') return
         val state = _uiState.value
-        if (state.isLoading) return
+        if (state.isLoading || state.shift != null) return
         val current = state.pinInput
         val max = if (state.useRootPin) 6 else 4
         if (current.length < max) {
@@ -44,7 +52,10 @@ class AuthViewModel(
     }
 
     fun toggleRootPin() {
-        _uiState.update { if (it.isLoading) it else it.copy(useRootPin = !it.useRootPin, pinInput = "", errorMessage = null) }
+        _uiState.update {
+            if (it.isLoading || it.shift != null) it
+            else it.copy(useRootPin = !it.useRootPin, pinInput = "", errorMessage = null)
+        }
     }
 
     fun onBackspace() {
@@ -59,64 +70,158 @@ class AuthViewModel(
     }
 
     fun submitLogin() {
-        val pin = _uiState.value.pinInput
-        if (pin.length !in setOf(4, 6) || _uiState.value.isLoading) return
+        val state = _uiState.value
+        val pin = state.pinInput
+        if (pin.length !in setOf(4, 6) || state.isAuthenticated || state.isLoading || state.shift != null) return
 
-        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        val registerId = loginRegisterId?.invoke()
+        val serverUrl = apiClient.baseUrl
+        val attempt = ++loginAttempt
+        _uiState.update { it.copy(isLoading = true, pinInput = "", errorMessage = null) }
 
         scope.launch {
+            if (attempt != loginAttempt) return@launch
+            if (serverUrl != apiClient.baseUrl || registerId != loginRegisterId?.invoke()) {
+                lockTerminal()
+                return@launch
+            }
             val res = apiClient.login(pin)
-            res.onSuccess { loginResponse ->
-                apiClient.sessionToken = loginResponse.token
-                _uiState.update {
-                    it.copy(
-                        isAuthenticated = true,
-                        currentUser = loginResponse,
-                        pinInput = "",
-                        isLoading = false,
-                        errorMessage = null
-                    )
+            if (attempt != loginAttempt || serverUrl != apiClient.baseUrl || registerId != loginRegisterId?.invoke()) {
+                if (attempt == loginAttempt) lockTerminal()
+                res.getOrNull()?.let { apiClient.closeDesktopSession(it.token, serverUrl) }
+                return@launch
+            }
+            res.onSuccess { user ->
+                apiClient.sessionToken = user.token
+                if (registerId != null && "cash.open" in user.permissions && "cash.view" in user.permissions) {
+                    val pending = PendingLogin(user, registerId, serverUrl)
+                    pendingLogin = pending
+                    prepareShift(pending)
+                } else {
+                    completeLogin(user)
                 }
-                onLoginSuccess?.invoke(loginResponse)
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        pinInput = "",
-                        errorMessage = err.message ?: "PIN incorrecto o usuario inactivo"
-                    )
-                }
+            }.onFailure { error ->
+                _uiState.update { it.copy(isLoading = false, errorMessage = error.message ?: "PIN incorrecto o usuario inactivo") }
             }
         }
     }
 
+    fun confirmLoginShift(amount: String) {
+        val pending = pendingLogin ?: return
+        val state = _uiState.value
+        val prompt = state.shift ?: return
+        if (state.isLoading || prompt.currencySymbol == null || !isCurrent(pending)) return
+        val cents = parseCheckoutCents(amount) ?: return
+        _uiState.update { it.copy(isLoading = true, shift = prompt.copy(errorMessage = null)) }
+        scope.launch { openShift(pending, cents) }
+    }
+
+    fun retryLoginShift() {
+        val pending = pendingLogin ?: return
+        val state = _uiState.value
+        if (state.isLoading || state.shift?.errorMessage == null || !isCurrent(pending)) return
+        _uiState.update { it.copy(isLoading = true, shift = state.shift.copy(errorMessage = null)) }
+        scope.launch { prepareShift(pending) }
+    }
+
+    fun cancelLoginShift() {
+        if (_uiState.value.shift != null && !_uiState.value.isLoading) lockTerminal()
+    }
+
+    private fun isCurrent(pending: PendingLogin): Boolean {
+        if (pendingLogin !== pending) return false
+        if (pending.serverUrl == apiClient.baseUrl && pending.registerId == loginRegisterId?.invoke()) return true
+        lockTerminal()
+        return false
+    }
+
+    private suspend fun prepareShift(pending: PendingLogin) {
+        if (!isCurrent(pending)) return
+        val session = apiClient.getCurrentSession(pending.registerId)
+        if (!isCurrent(pending)) return
+        if (session.isFailure) {
+            showShiftPrompt(pending, error = session.exceptionOrNull()?.message ?: "No se pudo consultar el turno de la caja.")
+            return
+        }
+        val current = session.getOrNull()
+        if (current != null) {
+            completeLogin(pending.user, current)
+            return
+        }
+        val settings = apiClient.getSettings()
+        if (!isCurrent(pending)) return
+        settings.onSuccess {
+            if (it.commerce.requireOpeningFund) showShiftPrompt(pending, currency = it.currencySymbol)
+            else openShift(pending, 0)
+        }.onFailure {
+            showShiftPrompt(pending, error = it.message ?: "No se pudo consultar la configuración de turnos.")
+        }
+    }
+
+    private suspend fun openShift(pending: PendingLogin, cents: Long) {
+        if (!isCurrent(pending)) return
+        val result = apiClient.openSession(OpenSessionRequest(pending.registerId, pending.user.userId, cents))
+        if (!isCurrent(pending)) return
+        val session = result.getOrNull() ?: run {
+            // Another terminal may have opened the shift, or the response may have been lost.
+            val current = apiClient.getCurrentSession(pending.registerId).getOrNull()
+            if (!isCurrent(pending)) return
+            if (current == null) {
+                showShiftPrompt(
+                    pending,
+                    currency = _uiState.value.shift?.currencySymbol,
+                    error = result.exceptionOrNull()?.message ?: "No se pudo abrir el turno."
+                )
+                return
+            }
+            current
+        }
+        completeLogin(pending.user, session)
+    }
+
+    private fun showShiftPrompt(pending: PendingLogin, currency: String? = null, error: String? = null) {
+        _uiState.update { it.copy(isLoading = false, shift = LoginShiftPrompt(pending.registerId, currency, error)) }
+    }
+
     fun lockTerminal() {
+        loginAttempt++
         val token = apiClient.sessionToken
-        val serverUrl = apiClient.baseUrl
+        val serverUrl = pendingLogin?.serverUrl ?: apiClient.baseUrl
+        pendingLogin = null
         apiClient.sessionToken = null
         if (token != null) scope.launch { apiClient.closeDesktopSession(token, serverUrl) }
         _uiState.update {
             it.copy(
                 isAuthenticated = false,
+                currentUser = null,
                 pinInput = "",
                 isLoading = false,
-                errorMessage = null
+                errorMessage = null,
+                shift = null
             )
         }
     }
 
     fun unlockWithUser(user: LoginResponse) {
+        if (pendingLogin != null) lockTerminal()
+        loginAttempt++
         apiClient.sessionToken = user.token
+        completeLogin(user)
+    }
+
+    private fun completeLogin(user: LoginResponse, session: CashSessionSummary? = null) {
+        pendingLogin = null
         _uiState.update {
             it.copy(
                 isAuthenticated = true,
                 currentUser = user,
                 pinInput = "",
                 isLoading = false,
-                errorMessage = null
+                errorMessage = null,
+                shift = null
             )
         }
-        onLoginSuccess?.invoke(user)
+        onLoginSuccess?.invoke(user, session)
     }
 
     // ==========================================
