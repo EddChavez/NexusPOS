@@ -249,7 +249,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getDepartments(): Result<List<DepartmentDto>> {
+    open suspend fun getDepartments(): Result<List<DepartmentDto>> {
         return try {
             val res = http.get("$baseUrl/api/v1/departments")
             if (res.status.isSuccess()) {

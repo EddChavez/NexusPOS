@@ -20,6 +20,7 @@ import mx.nexuspos.contracts.catalog.KitComponent
 import mx.nexuspos.contracts.catalog.UpdateProductKitRequest
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
+import mx.nexuspos.contracts.catalog.UpdateProductRequest
 import mx.nexuspos.contracts.credit.CreditMovementDto
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
@@ -289,8 +290,43 @@ class ServerComprehensiveTest {
         assertEquals(HttpStatusCode.Conflict, sell(1200, 4320).status)
         val result = sell(1000, 3600)
         assertEquals(HttpStatusCode.Created, result.status)
-        assertEquals(1000L, result.body<SaleResponse>().lines.single().unitPriceCents)
+        val original = result.body<SaleResponse>()
+        assertEquals(1000L, original.lines.single().unitPriceCents)
         assertEquals(26000L, client.get("/api/v1/products/${product.id}").body<ProductDto>().currentStockMillis)
+
+        val edit = UpdateProductRequest(
+            sku = product.sku,
+            name = "Galletas actualizadas",
+            isPerishable = true,
+            shelfLifeAlertDays = 3,
+            presentations = fromBarcode.presentations.map {
+                CreatePresentationRequest(
+                    id = it.id,
+                    barcode = it.barcode,
+                    name = it.name,
+                    factorMillis = it.factorMillis,
+                    priceCents = if (it.id == pack.id) 1600 else it.priceCents
+                )
+            }
+        )
+        suspend fun editProduct(request: UpdateProductRequest) = client.put("/api/v1/products/${product.id}") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+        val editedResponse = editProduct(edit)
+        assertEquals(HttpStatusCode.OK, editedResponse.status)
+        val edited = editedResponse.body<ProductDto>()
+        assertEquals("Galletas actualizadas", edited.name)
+        assertTrue(edited.isPerishable)
+        assertEquals(3, edited.shelfLifeAlertDays)
+        assertEquals(tiers, edited.presentations.single { it.id == pack.id }.priceTiers)
+        assertEquals(1600L, edited.presentations.single { it.id == pack.id }.priceCents)
+        val receipt = client.get("/api/v1/sales/${original.id}").body<SaleResponse>()
+        assertEquals(pack.id, receipt.lines.single().presentationId)
+        assertEquals(1000L, receipt.lines.single().unitPriceCents)
+        assertEquals(HttpStatusCode.BadRequest, editProduct(edit.copy(
+            presentations = edit.presentations.map { if (it.id == pack.id) it.copy(factorMillis = 7000) else it }
+        )).status)
 
         assertEquals(HttpStatusCode.OK, savePrices(emptyList()).status)
         val snapshot = client.get("/api/v1/products/${product.id}").body<ProductDto>()

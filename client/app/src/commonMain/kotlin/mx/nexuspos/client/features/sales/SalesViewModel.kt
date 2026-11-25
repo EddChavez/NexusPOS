@@ -76,11 +76,7 @@ class SalesViewModel(
 
     fun preloadCatalogCache() {
         scope.launch {
-            apiClient.searchProducts().onSuccess { prods ->
-                if (prods.isNotEmpty()) {
-                    catalogCache.saveCatalog(prods)
-                }
-            }
+            apiClient.searchProducts().onSuccess(catalogCache::saveCatalog)
         }
     }
 

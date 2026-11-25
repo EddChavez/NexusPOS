@@ -4,9 +4,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
@@ -33,6 +36,7 @@ class ProductsViewModel(
     val uiState: StateFlow<ProductsUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
+    private val catalogRequests = MutableStateFlow(0L)
 
     init {
         loadDepartments()
@@ -52,32 +56,35 @@ class ProductsViewModel(
         query: String? = _uiState.value.searchQuery,
         departmentId: String? = _uiState.value.selectedDepartmentId
     ) {
+        val snapshot = _uiState.value
+        if (query != snapshot.searchQuery || departmentId != snapshot.selectedDepartmentId) return
+        val request = catalogRequests.updateAndGet { it + 1L }
+        _uiState.update { it.copy(isLoading = true) }
         scope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val res = apiClient.searchProducts(
-                barcode = null,
-                query = query,
-                departmentId = departmentId,
-                includeInactive = _uiState.value.includeInactive
-            )
-            res.onSuccess { list ->
-                _uiState.update { current ->
-                    val selected = current.selectedProduct?.let { sel -> list.firstOrNull { it.id == sel.id } }
-                        ?: list.firstOrNull()
-                    current.copy(
-                        products = list,
-                        selectedProduct = selected,
-                        isLoading = false
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update { it.copy(isLoading = false, errorMessage = err.message) }
+            val result = apiClient.searchProducts(query = query, departmentId = departmentId, includeInactive = snapshot.includeInactive)
+            ensureActive()
+            _uiState.update { state ->
+                if (catalogRequests.value != request || state.searchQuery != query || state.selectedDepartmentId != departmentId ||
+                    state.includeInactive != snapshot.includeInactive
+                ) return@update state
+                result.fold(
+                    onSuccess = { products ->
+                        val selected = state.selectedProduct
+                        state.copy(
+                            products = products,
+                            selectedProduct = selected?.let { item -> products.firstOrNull { it.id == item.id } ?: item }
+                                ?: products.firstOrNull(),
+                            isLoading = false
+                        )
+                    },
+                    onFailure = { state.copy(isLoading = false, errorMessage = it.message ?: "No se pudo cargar el catálogo.") }
+                )
             }
         }
     }
 
     fun onSearchQueryChanged(newQuery: String) {
-        _uiState.update { it.copy(searchQuery = newQuery) }
+        _uiState.update { it.copy(searchQuery = newQuery, isLoading = true) }
         searchJob?.cancel()
         searchJob = scope.launch {
             delay(250) // Debounce
@@ -115,6 +122,7 @@ class ProductsViewModel(
             .onSuccess { updateSelectedProduct(it, "Tarifas guardadas para ${it.name}.") }
 
     private fun updateSelectedProduct(product: ProductDto, message: String) {
+        catalogRequests.update { it + 1L }
         _uiState.update { state ->
             state.copy(
                 products = state.products.map { if (it.id == product.id) product else it },
@@ -122,6 +130,7 @@ class ProductsViewModel(
                 successMessage = message
             )
         }
+        loadProducts()
     }
 
     fun selectProduct(product: ProductDto?) {
@@ -129,7 +138,10 @@ class ProductsViewModel(
     }
 
     fun openCreateDialog() {
-        _uiState.update { it.copy(showFormDialog = true, productToEdit = null, errorMessage = null) }
+        _uiState.update {
+            if (it.isSubmitting || it.showFormDialog) it
+            else it.copy(showFormDialog = true, productToEdit = null, errorMessage = null)
+        }
     }
 
     fun openEditDialog(product: ProductDto) {
@@ -137,7 +149,7 @@ class ProductsViewModel(
     }
 
     fun closeFormDialog() {
-        _uiState.update { it.copy(showFormDialog = false, productToEdit = null) }
+        _uiState.update { if (it.isSubmitting) it else it.copy(showFormDialog = false, productToEdit = null) }
     }
 
     fun saveProduct(
@@ -153,16 +165,23 @@ class ProductsViewModel(
         initialStockMillis: Long,
         minStockMillis: Long,
         maxStockMillis: Long,
-        isActive: Boolean = true
+        isActive: Boolean = true,
+        isPerishable: Boolean? = null,
+        shelfLifeAlertDays: Int? = null,
+        onSaved: () -> Unit = {}
     ) {
+        val started = _uiState.getAndUpdate {
+            if (!it.showFormDialog || it.isSubmitting) it else it.copy(isSubmitting = true, errorMessage = null)
+        }
+        if (!started.showFormDialog || started.isSubmitting) return
+        val currentProduct = started.productToEdit
         scope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            val currentProduct = _uiState.value.productToEdit
 
             val primaryPresentation = CreatePresentationRequest(
                 id = currentProduct?.presentations?.firstOrNull()?.id,
                 barcode = barcode.trim(),
-                name = name.trim(),
+                name = currentProduct?.presentations?.firstOrNull()?.name
+                    ?.takeUnless { it == currentProduct.name } ?: name.trim(),
                 factorMillis = currentProduct?.presentations?.firstOrNull()?.factorMillis ?: 1000L,
                 priceCents = priceCents
             )
@@ -193,10 +212,13 @@ class ProductsViewModel(
                     initialStockMillis = initialStockMillis,
                     minStockMillis = minStockMillis,
                     maxStockMillis = maxStockMillis,
+                    isPerishable = isPerishable ?: false,
+                    shelfLifeAlertDays = shelfLifeAlertDays ?: 7,
                     presentations = allPresentations
                 )
                 val res = apiClient.createProduct(req)
                 res.onSuccess { created ->
+                    catalogRequests.update { it + 1L }
                     _uiState.update {
                         it.copy(
                             isSubmitting = false,
@@ -205,6 +227,7 @@ class ProductsViewModel(
                             successMessage = "Producto '${created.name}' registrado exitosamente"
                         )
                     }
+                    onSaved()
                     loadProducts()
                 }.onFailure { err ->
                     _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
@@ -221,11 +244,14 @@ class ProductsViewModel(
                     usesInventory = usesInventory,
                     minStockMillis = minStockMillis,
                     maxStockMillis = maxStockMillis,
+                    isPerishable = isPerishable ?: currentProduct.isPerishable,
+                    shelfLifeAlertDays = shelfLifeAlertDays ?: currentProduct.shelfLifeAlertDays,
                     isActive = isActive,
                     presentations = allPresentations
                 )
                 val res = apiClient.updateProduct(currentProduct.id, req)
                 res.onSuccess { updated ->
+                    catalogRequests.update { it + 1L }
                     _uiState.update {
                         it.copy(
                             isSubmitting = false,
@@ -234,6 +260,7 @@ class ProductsViewModel(
                             successMessage = "Producto '${updated.name}' actualizado exitosamente"
                         )
                     }
+                    onSaved()
                     loadProducts()
                 }.onFailure { err ->
                     _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
@@ -242,11 +269,15 @@ class ProductsViewModel(
         }
     }
 
-    fun deactivateProduct(product: ProductDto) {
+    fun deactivateProduct(product: ProductDto, onSaved: () -> Unit = {}) {
+        val previous = _uiState.getAndUpdate {
+            if (it.isSubmitting) it else it.copy(isSubmitting = true, errorMessage = null)
+        }
+        if (previous.isSubmitting) return
         scope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
             val res = apiClient.deactivateProduct(product.id)
             res.onSuccess { deactivated ->
+                catalogRequests.update { it + 1L }
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
@@ -254,6 +285,7 @@ class ProductsViewModel(
                         successMessage = "Producto '${deactivated.name}' desactivado"
                     )
                 }
+                onSaved()
                 loadProducts()
             }.onFailure { err ->
                 _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
@@ -261,11 +293,15 @@ class ProductsViewModel(
         }
     }
 
-    fun reactivateProduct(product: ProductDto) {
+    fun reactivateProduct(product: ProductDto, onSaved: () -> Unit = {}) {
+        val previous = _uiState.getAndUpdate {
+            if (it.isSubmitting) it else it.copy(isSubmitting = true, errorMessage = null)
+        }
+        if (previous.isSubmitting) return
         scope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
             val res = apiClient.reactivateProduct(product.id)
             res.onSuccess { reactivated ->
+                catalogRequests.update { it + 1L }
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
@@ -273,6 +309,7 @@ class ProductsViewModel(
                         successMessage = "Producto '${reactivated.name}' reactivado"
                     )
                 }
+                onSaved()
                 loadProducts()
             }.onFailure { err ->
                 _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
@@ -402,7 +439,7 @@ class ProductsViewModel(
         }
     }
 
-    fun importCatalogCsv(csvContent: String) {
+    fun importCatalogCsv(csvContent: String, onSaved: () -> Unit = {}) {
         val rows = CsvCatalogHelper.parseCsvToRows(csvContent)
         if (rows.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "El contenido CSV no contiene filas de productos válidas.") }
@@ -421,6 +458,7 @@ class ProductsViewModel(
                     )
                 }
                 loadDepartments()
+                onSaved()
                 loadProducts()
             }.onFailure { err ->
                 _uiState.update { it.copy(isImporting = false, errorMessage = "Error al importar catálogo: ${err.message}") }

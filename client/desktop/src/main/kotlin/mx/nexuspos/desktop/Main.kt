@@ -37,12 +37,14 @@ import mx.nexuspos.client.features.cash.CashCutViewModel
 import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
 import mx.nexuspos.client.features.customers.v2.CustomersScreenV2
+import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.desktop.hardware.WhatsAppDispatcher
 import mx.nexuspos.client.features.inventory.InventoryScreen
 import mx.nexuspos.client.features.inventory.InventoryViewModel
 import mx.nexuspos.desktop.inventory.ReorderExportHelper
 import mx.nexuspos.client.features.products.ProductsScreen
 import mx.nexuspos.client.features.products.ProductsViewModel
+import mx.nexuspos.client.features.products.v2.ProductsScreenV2
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.features.settings.NetworkUiConfig
 import mx.nexuspos.client.features.settings.PrinterUiConfig
@@ -853,31 +855,40 @@ fun main() = application {
                                     }
                                 }
                                 AppModule.PRODUCTS -> {
-                                    ProductsScreen(
-                                        viewModel = productsViewModel,
-                                        onCatalogChanged = viewModel::preloadCatalogCache,
-                                        onBackToSales = { activeModule = AppModule.SALES },
-                                        onPrintShelfLabel = { prod, copies ->
-                                            CoroutineScope(Dispatchers.IO).launch {
-                                                if (printerConfig.connectionType != PrinterConnectionType.NONE) {
-                                                    val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
-                                                    val pres = prod.presentations.firstOrNull()
-                                                    val barcode = pres?.barcode?.ifBlank { prod.sku } ?: prod.sku
-                                                    val price = pres?.priceCents ?: 0L
-                                                    repeat(copies) {
-                                                        val bytes = printer.generateShelfLabelBytes(
-                                                            productName = prod.name,
-                                                            barcode = barcode,
-                                                            priceCents = price,
-                                                            presentationName = prod.baseUnit,
-                                                            storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
-                                                        )
-                                                        printerDispatcher.printBytes(bytes, printerConfig)
-                                                    }
+                                    val printLabels: (ProductDto, Int) -> Unit = { prod, copies ->
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            if (printerConfig.connectionType != PrinterConnectionType.NONE) {
+                                                val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
+                                                val pres = prod.presentations.firstOrNull()
+                                                val barcode = pres?.barcode?.ifBlank { prod.sku } ?: prod.sku
+                                                val price = pres?.priceCents ?: 0L
+                                                repeat(copies) {
+                                                    val bytes = printer.generateShelfLabelBytes(
+                                                        productName = prod.name,
+                                                        barcode = barcode,
+                                                        priceCents = price,
+                                                        presentationName = prod.baseUnit,
+                                                        storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
+                                                    )
+                                                    printerDispatcher.printBytes(bytes, printerConfig)
                                                 }
                                             }
                                         }
-                                    )
+                                    }
+                                    if (isV2) {
+                                        ProductsScreenV2(
+                                            viewModel = productsViewModel,
+                                            onPrintShelfLabel = printLabels,
+                                            onCatalogChanged = viewModel::preloadCatalogCache
+                                        )
+                                    } else {
+                                        ProductsScreen(
+                                            viewModel = productsViewModel,
+                                            onBackToSales = { activeModule = AppModule.SALES },
+                                            onPrintShelfLabel = printLabels,
+                                            onCatalogChanged = viewModel::preloadCatalogCache
+                                        )
+                                    }
                                 }
                                 AppModule.INVENTORY -> {
                                     InventoryScreen(

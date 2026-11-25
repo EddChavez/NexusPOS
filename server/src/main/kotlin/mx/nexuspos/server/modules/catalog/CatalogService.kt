@@ -546,26 +546,59 @@ class CatalogService(private val db: DatabaseFactory) {
                 checkSku.close()
             }
 
-            // Check barcode uniqueness
-            val checkBarcode = conn.prepareStatement(
-                "SELECT p.name, pp.barcode FROM product_presentations pp JOIN products p ON pp.product_id = p.id WHERE pp.barcode = ? AND pp.product_id != ? AND pp.is_active = TRUE"
-            )
-            for (p in request.presentations) {
-                if (p.barcode.isBlank()) {
-                    throw ValidationException("El código de barras no puede estar vacío")
-                }
-                checkBarcode.setString(1, p.barcode.trim())
-                checkBarcode.setString(2, id)
-                val bRs = checkBarcode.executeQuery()
-                if (bRs.next()) {
-                    val existingName = bRs.getString("name")
-                    bRs.close()
-                    checkBarcode.close()
-                    throw ValidationException("El código de barras '${p.barcode}' ya está registrado en '$existingName'")
-                }
-                bRs.close()
+            val barcodes = request.presentations.map { it.barcode.trim() }
+            if (barcodes.any { it.isBlank() } || barcodes.distinct().size != barcodes.size) {
+                throw ValidationException("Cada presentación requiere un código de barras distinto.")
             }
-            checkBarcode.close()
+            val updates = request.presentations.map { presentation ->
+                val previous = if (presentation.id == null) {
+                    existing.presentations.firstOrNull { it.barcode == presentation.barcode.trim() }
+                } else existing.presentations.firstOrNull { it.id == presentation.id }
+                presentation to previous
+            }
+            val assignedIds = request.presentations.mapNotNull { it.id }
+            if (assignedIds.distinct().size != assignedIds.size) {
+                throw ValidationException("Cada presentación se puede modificar una sola vez.")
+            }
+            conn.prepareStatement("SELECT 1 FROM product_presentations WHERE id = ? AND product_id <> ?").use { owners ->
+                for (presentationId in assignedIds) {
+                    owners.setString(1, presentationId)
+                    owners.setString(2, id)
+                    owners.executeQuery().use { if (it.next()) throw ValidationException("La presentación no pertenece al producto.") }
+                }
+            }
+            val retainedIds = updates.mapNotNull { it.second?.id }
+            if (retainedIds.distinct().size != retainedIds.size) {
+                throw ValidationException("Cada presentación se puede modificar una sola vez.")
+            }
+            val removed = existing.presentations.filter { it.id !in retainedIds }
+            conn.prepareStatement("SELECT 1 FROM sale_lines WHERE presentation_id = ?").use { sold ->
+                fun wasSold(presentationId: String): Boolean {
+                    sold.setString(1, presentationId)
+                    return sold.executeQuery().use { it.next() }
+                }
+                if (removed.any { wasSold(it.id) }) {
+                    throw ValidationException("Conserva las presentaciones que ya tienen ventas registradas.")
+                }
+                for ((update, previous) in updates) {
+                    if (previous != null && update.factorMillis != previous.factorMillis && wasSold(previous.id)) {
+                        throw ValidationException("La cantidad de una presentación vendida se conserva para las devoluciones.")
+                    }
+                }
+            }
+
+            conn.prepareStatement(
+                "SELECT id, product_id FROM product_presentations WHERE barcode = ?"
+            ).use { barcodeQuery ->
+                for ((update, previous) in updates) {
+                    barcodeQuery.setString(1, update.barcode.trim())
+                    barcodeQuery.executeQuery().use { rows ->
+                        if (rows.next() && rows.getString("id") != previous?.id &&
+                            !(rows.getString("product_id") == id && removed.any { it.id == rows.getString("id") })
+                        ) throw ValidationException("El código de barras '${update.barcode.trim()}' ya está registrado.")
+                    }
+                }
+            }
 
             val now = System.currentTimeMillis()
 
@@ -595,32 +628,33 @@ class CatalogService(private val db: DatabaseFactory) {
             updateStmt.executeUpdate()
             updateStmt.close()
 
-            // Update presentations: replace presentations for product
-            val delStmt = conn.prepareStatement("DELETE FROM product_presentations WHERE product_id = ?")
-            delStmt.setString(1, id)
-            delStmt.executeUpdate()
-            delStmt.close()
-
-            val presStmt = conn.prepareStatement(
-                "INSERT INTO product_presentations (id, product_id, barcode, name, factor_millis, price_cents, is_active, price_tiers_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-            )
-            var pIdx = 1
-            for (pres in request.presentations) {
-                val presId = pres.id ?: "pres-$id-$pIdx"
-                presStmt.setString(1, presId)
-                presStmt.setString(2, id)
-                presStmt.setString(3, pres.barcode.trim())
-                presStmt.setString(4, pres.name.trim().ifBlank { request.name.trim() })
-                presStmt.setLong(5, if (pres.factorMillis <= 0) 1000L else pres.factorMillis)
-                presStmt.setLong(6, pres.priceCents.coerceAtLeast(0L))
-                presStmt.setBoolean(7, request.isActive)
-                val previous = existing.presentations.firstOrNull { it.id == pres.id }
-                    ?: existing.presentations.firstOrNull { it.barcode == pres.barcode.trim() }
-                presStmt.setString(8, Json.encodeToString(previous?.priceTiers.orEmpty()))
-                presStmt.executeUpdate()
-                pIdx++
+            conn.prepareStatement("DELETE FROM product_presentations WHERE id = ?").use { delete ->
+                for (presentation in removed) {
+                    delete.setString(1, presentation.id)
+                    delete.executeUpdate()
+                }
             }
-            presStmt.close()
+            conn.prepareStatement("""
+                UPDATE product_presentations SET barcode = ?, name = ?, factor_millis = ?, price_cents = ?, is_active = ?
+                WHERE id = ?
+            """.trimIndent()).use { update ->
+                conn.prepareStatement("""
+                    INSERT INTO product_presentations (barcode, name, factor_millis, price_cents, is_active, id, product_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent()).use { insert ->
+                    for ((presentation, previous) in updates) {
+                        val statement = if (previous == null) insert else update
+                        statement.setString(1, presentation.barcode.trim())
+                        statement.setString(2, presentation.name.trim().ifBlank { request.name.trim() })
+                        statement.setLong(3, if (presentation.factorMillis <= 0) 1000L else presentation.factorMillis)
+                        statement.setLong(4, presentation.priceCents.coerceAtLeast(0L))
+                        statement.setBoolean(5, request.isActive)
+                        statement.setString(6, previous?.id ?: presentation.id ?: "pres-${UUID.randomUUID()}")
+                        if (previous == null) statement.setString(7, id)
+                        statement.executeUpdate()
+                    }
+                }
+            }
 
             fetchProductById(conn, id)
         }
