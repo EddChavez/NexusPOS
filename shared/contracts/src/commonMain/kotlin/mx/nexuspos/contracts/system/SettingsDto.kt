@@ -23,6 +23,36 @@ data class SettingsDto(
 )
 
 @Serializable
+data class SettingsPreferencesPatch(
+    val store: StorePreferences? = null,
+    val policies: OperatingPolicies? = null
+)
+
+@Serializable
+data class StorePreferences(
+    val storeName: String,
+    val storeAddress: String,
+    val storePhone: String,
+    val storeTaxId: String,
+    val ticketHeader: String,
+    val ticketFooter: String,
+    val currencySymbol: String,
+    val whatsappCountryCode: String,
+    val whatsappBankDetails: String,
+    val whatsappCustomFooter: String
+)
+
+@Serializable
+data class OperatingPolicies(
+    val allowNegativeStock: Boolean,
+    val blindCashCountEnabled: Boolean,
+    val maxCashierDiscountPercent: Double,
+    val loyaltyEnabled: Boolean,
+    val loyaltyCashbackPercent: Double,
+    val loyaltyMinRedeemCents: Long
+)
+
+@Serializable
 data class SystemInfoDto(
     val appVersion: String,
     val apiVersion: String = "v1",

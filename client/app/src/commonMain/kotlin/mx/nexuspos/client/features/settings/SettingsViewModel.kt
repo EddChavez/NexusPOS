@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.features.header.ScaleReading
@@ -14,7 +15,10 @@ import mx.nexuspos.client.features.scale.ScaleUiConfig
 import mx.nexuspos.contracts.identity.CreateUserRequest
 import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
+import mx.nexuspos.contracts.system.OperatingPolicies
 import mx.nexuspos.contracts.system.SettingsDto
+import mx.nexuspos.contracts.system.SettingsPreferencesPatch
+import mx.nexuspos.contracts.system.StorePreferences
 
 data class PrinterUiConfig(
     val connectionType: String = "NONE",
@@ -61,6 +65,11 @@ class SettingsViewModel(
     var networkConfigSaver: ((NetworkUiConfig) -> Unit)? = null
     var testNetworkAction: (suspend (host: String, port: Int) -> Result<String>)? = null
 
+    private val settingsLoads = MutableStateFlow(0L)
+    private val usersLoads = MutableStateFlow(0L)
+
+    var onPreferencesSaved: ((SettingsDto) -> Unit)? = null
+
     init {
         loadAll()
     }
@@ -71,13 +80,16 @@ class SettingsViewModel(
     }
 
     fun loadSettings() {
+        val request = settingsLoads.updateAndGet { it + 1 }
+        _uiState.update { it.copy(isLoading = true, settingsAvailable = false, errorBanner = null) }
         scope.launch {
-            _uiState.update { it.copy(isLoading = true, errorBanner = null) }
             val res = apiClient.getSettings()
             res.onSuccess { dto ->
                 _uiState.update {
+                    if (request != settingsLoads.value) return@update it
                     it.copy(
                         isLoading = false,
+                        settingsAvailable = true,
                         storeName = dto.storeName,
                         storeAddress = dto.storeAddress,
                         storePhone = dto.storePhone,
@@ -97,28 +109,33 @@ class SettingsViewModel(
                     )
                 }
             }.onFailure { err ->
-                _uiState.update { it.copy(isLoading = false, errorBanner = err.message) }
+                _uiState.update {
+                    if (request != settingsLoads.value) it else it.copy(isLoading = false, errorBanner = err.message)
+                }
             }
         }
     }
 
     fun loadUsers(includeInactive: Boolean = _uiState.value.includeInactiveUsers) {
+        val request = usersLoads.updateAndGet { it + 1 }
+        _uiState.update { it.copy(isLoadingUsers = true, users = emptyList()) }
         scope.launch {
-            _uiState.update { it.copy(isLoadingUsers = true) }
-            val res = apiClient.getUsers(includeInactive)
-            res.onSuccess { list ->
-                _uiState.update { it.copy(users = list, isLoadingUsers = false) }
-            }.onFailure { err ->
-                _uiState.update { it.copy(isLoadingUsers = false, errorBanner = err.message) }
+            val result = apiClient.getUsers(includeInactive)
+            _uiState.update {
+                if (request != usersLoads.value) return@update it
+                result.fold(
+                    onSuccess = { users -> it.copy(users = users, isLoadingUsers = false) },
+                    onFailure = { error -> it.copy(isLoadingUsers = false, errorBanner = error.message) }
+                )
             }
         }
     }
 
-    fun selectTab(tab: SettingsTab) {
+    fun selectTab(tab: SettingsTab, reloadNetwork: Boolean = true) {
         _uiState.update { it.copy(selectedTab = tab) }
         if (tab == SettingsTab.PRINTER) {
             refreshAvailableOsPrinters()
-        } else if (tab == SettingsTab.NETWORK) {
+        } else if (tab == SettingsTab.NETWORK && reloadNetwork) {
             loadNetworkConfig()
         }
     }
@@ -164,6 +181,55 @@ class SettingsViewModel(
                 autoDismissBanner()
             }.onFailure { err ->
                 _uiState.update { it.copy(isSaving = false, errorBanner = err.message) }
+            }
+        }
+    }
+
+    fun saveStorePreferences() {
+        val state = _uiState.value
+        val store = StorePreferences(
+            storeName = state.storeName,
+            storeAddress = state.storeAddress,
+            storePhone = state.storePhone,
+            storeTaxId = state.storeTaxId,
+            ticketHeader = state.ticketHeader,
+            ticketFooter = state.ticketFooter,
+            currencySymbol = state.currencySymbol,
+            whatsappCountryCode = state.whatsappCountryCode,
+            whatsappBankDetails = state.whatsappBankDetails,
+            whatsappCustomFooter = state.whatsappCustomFooter
+        )
+        saveWorkspacePreferences(SettingsPreferencesPatch(store = store), "Datos de la tienda guardados")
+    }
+
+    fun saveOperatingPolicies(policies: OperatingPolicies) {
+        saveWorkspacePreferences(SettingsPreferencesPatch(policies = policies), "Políticas guardadas") { current, saved ->
+            current.copy(
+                allowNegativeStock = saved.allowNegativeStock,
+                blindCashCountEnabled = saved.blindCashCountEnabled,
+                maxCashierDiscountPercent = saved.maxCashierDiscountPercent,
+                loyaltyEnabled = saved.loyaltyEnabled,
+                loyaltyCashbackPercent = saved.loyaltyCashbackPercent,
+                loyaltyMinRedeemCents = saved.loyaltyMinRedeemCents
+            )
+        }
+    }
+
+    private fun saveWorkspacePreferences(
+        patch: SettingsPreferencesPatch,
+        message: String,
+        applyResponse: (SettingsUiState, SettingsDto) -> SettingsUiState = { current, _ -> current }
+    ) {
+        val current = _uiState.value
+        if (!current.settingsAvailable || current.isSaving || current.isLoading) return
+        if (!_uiState.compareAndSet(current, current.copy(isSaving = true, errorBanner = null, successBanner = null))) return
+        scope.launch {
+            apiClient.updateSettingsPreferences(patch).onSuccess { saved ->
+                onPreferencesSaved?.invoke(saved)
+                _uiState.update { applyResponse(it, saved).copy(isSaving = false, successBanner = message) }
+                autoDismissBanner()
+            }.onFailure { error ->
+                _uiState.update { it.copy(isSaving = false, errorBanner = error.message ?: "No se pudieron guardar los ajustes") }
             }
         }
     }
@@ -326,6 +392,8 @@ class SettingsViewModel(
     // --- User Form Dialog ---
 
     fun openCreateUserDialog() {
+        val state = _uiState.value
+        if (state.isSaving || state.showUserDialog || state.userStatusChangeId != null) return
         _uiState.update {
             it.copy(
                 showUserDialog = true,
@@ -339,6 +407,8 @@ class SettingsViewModel(
     }
 
     fun openEditUserDialog(user: UserDto) {
+        val state = _uiState.value
+        if (state.isSaving || state.showUserDialog || state.userStatusChangeId != null) return
         _uiState.update {
             it.copy(
                 showUserDialog = true,
@@ -352,19 +422,23 @@ class SettingsViewModel(
     }
 
     fun closeUserDialog() {
-        _uiState.update { it.copy(showUserDialog = false, editingUser = null, userFormError = null) }
+        _uiState.update {
+            if (it.isSaving) it
+            else it.copy(showUserDialog = false, editingUser = null, userFormPin = "", userFormError = null)
+        }
     }
 
     fun onUserFormNameChanged(v: String) = _uiState.update { it.copy(userFormName = v) }
     fun onUserFormRoleChanged(v: String) = _uiState.update { it.copy(userFormRole = v) }
     fun onUserFormPinChanged(v: String) {
-        if (v.length <= 4 && v.all { it.isDigit() }) {
+        if (v.length <= 4 && v.all { it in '0'..'9' }) {
             _uiState.update { it.copy(userFormPin = v) }
         }
     }
 
     fun saveUser() {
         val s = _uiState.value
+        if (s.isSaving || !s.showUserDialog) return
         val name = s.userFormName.trim()
         val role = s.userFormRole
         val pin = s.userFormPin
@@ -384,15 +458,14 @@ class SettingsViewModel(
             return
         }
 
+        if (!_uiState.compareAndSet(s, s.copy(isSaving = true, userFormError = null))) return
         scope.launch {
-            _uiState.update { it.copy(isSaving = true, userFormError = null) }
-
             if (isCreating) {
                 val req = CreateUserRequest(name = name, role = role, pin = pin)
                 val res = apiClient.createUser(req)
                 res.onSuccess { created ->
                     _uiState.update {
-                        it.copy(isSaving = false, showUserDialog = false, editingUser = null,
+                        it.copy(isSaving = false, showUserDialog = false, editingUser = null, userFormPin = "",
                             successBanner = "Usuario '${created.name}' creado correctamente")
                     }
                     loadUsers()
@@ -406,7 +479,7 @@ class SettingsViewModel(
                 val res = apiClient.updateUser(editing.id, req)
                 res.onSuccess { updated ->
                     _uiState.update {
-                        it.copy(isSaving = false, showUserDialog = false, editingUser = null,
+                        it.copy(isSaving = false, showUserDialog = false, editingUser = null, userFormPin = "",
                             successBanner = "Usuario '${updated.name}' actualizado correctamente")
                     }
                     loadUsers()
@@ -418,29 +491,25 @@ class SettingsViewModel(
         }
     }
 
-    fun deactivateUser(user: UserDto) {
-        scope.launch {
-            val res = apiClient.deactivateUser(user.id)
-            res.onSuccess {
-                _uiState.update { it.copy(successBanner = "Usuario '${user.name}' desactivado") }
-                loadUsers()
-                autoDismissBanner()
-            }.onFailure { err ->
-                _uiState.update { it.copy(errorBanner = err.message) }
-            }
-        }
-    }
+    fun deactivateUser(user: UserDto) = setUserActive(user, false)
 
-    fun reactivateUser(user: UserDto) {
+    fun reactivateUser(user: UserDto) = setUserActive(user, true)
+
+    private fun setUserActive(user: UserDto, active: Boolean) {
+        val state = _uiState.value
+        if (state.userStatusChangeId != null) return
+        if (!_uiState.compareAndSet(state, state.copy(userStatusChangeId = user.id, errorBanner = null))) return
         scope.launch {
-            val res = apiClient.reactivateUser(user.id)
-            res.onSuccess {
-                _uiState.update { it.copy(successBanner = "Usuario '${user.name}' reactivado") }
+            val result = if (active) apiClient.reactivateUser(user.id) else apiClient.deactivateUser(user.id)
+            result.onSuccess {
+                val action = if (active) "reactivado" else "desactivado"
+                _uiState.update { it.copy(successBanner = "Usuario '${user.name}' $action") }
                 loadUsers()
                 autoDismissBanner()
-            }.onFailure { err ->
-                _uiState.update { it.copy(errorBanner = err.message) }
+            }.onFailure { error ->
+                _uiState.update { it.copy(errorBanner = error.message ?: "No se pudo cambiar el estado del usuario") }
             }
+            _uiState.update { it.copy(userStatusChangeId = null) }
         }
     }
 
@@ -503,6 +572,7 @@ class SettingsViewModel(
 
     fun testPrinter() {
         val s = _uiState.value
+        if (s.isTestingPrinter) return
         if (s.printerConnectionType == "NONE") {
             _uiState.update { it.copy(errorBanner = "La impresora está desactivada (NONE). Seleccione USB o Red Ethernet antes de probar.") }
             return
@@ -524,15 +594,18 @@ class SettingsViewModel(
 
     fun testCashDrawer() {
         val s = _uiState.value
+        if (s.isTestingPrinter) return
         if (s.printerConnectionType == "NONE") {
             _uiState.update { it.copy(errorBanner = "La impresora está desactivada (NONE). Seleccione USB o Red Ethernet para enviar el pulso del cajón.") }
             return
         }
         val cfg = getCurrentPrinterConfig()
+        _uiState.update { it.copy(isTestingPrinter = true, errorBanner = null) }
         scope.launch {
             val res = testDrawerAction?.invoke(cfg) ?: Result.failure(IllegalStateException("Servicio de hardware no disponible"))
             _uiState.update { state ->
                 state.copy(
+                    isTestingPrinter = false,
                     successBanner = if (res.isSuccess) "Comando de apertura de cajón enviado exitosamente." else null,
                     errorBanner = res.exceptionOrNull()?.message
                 )
@@ -548,6 +621,7 @@ class SettingsViewModel(
         val ports = serialPortsProvider?.invoke() ?: emptyList()
         _uiState.update {
             it.copy(
+                appliedScaleConfig = loaded,
                 scaleEnabled = loaded.enabled,
                 scalePortName = loaded.portName,
                 availableScalePorts = ports,
@@ -576,7 +650,8 @@ class SettingsViewModel(
             portName = s.scalePortName,
             baudRate = s.scaleBaudRate.toIntOrNull() ?: 9600,
             protocol = s.scaleProtocol,
-            autoAcceptStableWeight = s.scaleAutoAcceptWeight
+            autoAcceptStableWeight = s.scaleAutoAcceptWeight,
+            pollIntervalMs = s.appliedScaleConfig.pollIntervalMs
         )
     }
 
@@ -585,6 +660,8 @@ class SettingsViewModel(
         scaleConfigSaver?.invoke(cfg)
         _uiState.update {
             it.copy(
+                appliedScaleConfig = cfg,
+                scaleTestResult = null,
                 successBanner = "Configuración de báscula guardada correctamente.",
                 errorBanner = null
             )
@@ -713,9 +790,10 @@ class SettingsViewModel(
     }
 
     private fun autoDismissBanner() {
+        val message = _uiState.value.successBanner
         scope.launch {
             delay(4000)
-            _uiState.update { it.copy(successBanner = null) }
+            _uiState.update { if (it.successBanner == message) it.copy(successBanner = null) else it }
         }
     }
 }

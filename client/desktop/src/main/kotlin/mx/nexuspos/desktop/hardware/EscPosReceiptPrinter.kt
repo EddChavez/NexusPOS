@@ -77,10 +77,17 @@ class EscPosReceiptPrinter(
         val sep = "=".repeat(columnWidth)
         val thinSep = "-".repeat(columnWidth)
 
-        // Store Header
+        fun formatAmount(cents: Long): String =
+            Money(cents).format().replaceFirst("$", settings?.currencySymbol ?: "$")
+
+
+        // Store header
+        (settings?.ticketHeader ?: "¡Gracias por su compra!").lineSequence()
+            .filter { it.isNotBlank() }.forEach { sb.appendLine(centerText(it)) }
         sb.appendLine(centerText(settings?.storeName ?: "NEXUS POS - ABARROTES"))
         settings?.storeAddress?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText(it)) }
         settings?.storePhone?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText("Tel: $it")) }
+        settings?.storeTaxId?.takeIf { it.isNotBlank() }?.let { sb.appendLine(centerText("RFC: $it")) }
         sb.appendLine(sep)
 
         val isOffline = isContingency || sale.id.startsWith("offline-")
@@ -107,16 +114,16 @@ class EscPosReceiptPrinter(
         // Items
         for (item in sale.lines) {
             val qtyStr = "${Quantity(item.quantityMillis).format()} ${item.description}"
-            val totalStr = Money(item.totalCents).format()
+            val totalStr = formatAmount(item.totalCents)
             sb.appendLine(formatRow(qtyStr, totalStr))
             if (item.quantityMillis != 1000L) {
-                sb.appendLine("  @ ${Money(item.unitPriceCents).format()} c/u")
+                sb.appendLine("  @ ${formatAmount(item.unitPriceCents)} c/u")
             }
             if (item.discountCents > 0L) {
                 val discStr = if (item.discountPercent > 0.0) {
-                    "  (Desc. ${item.discountPercent.toInt()}%: -${Money(item.discountCents).format()})"
+                    "  (Desc. ${item.discountPercent.toInt()}%: -${formatAmount(item.discountCents)})"
                 } else {
-                    "  (Descuento: -${Money(item.discountCents).format()})"
+                    "  (Descuento: -${formatAmount(item.discountCents)})"
                 }
                 sb.appendLine(discStr)
             }
@@ -124,12 +131,12 @@ class EscPosReceiptPrinter(
         sb.appendLine(sep)
 
         // Totals
-        sb.appendLine(formatRow("SUBTOTAL:", Money(sale.subtotalCents).format()))
+        sb.appendLine(formatRow("SUBTOTAL:", formatAmount(sale.subtotalCents)))
         if (sale.discountCents > 0L) {
-            sb.appendLine(formatRow("DESCUENTO:", "-${Money(sale.discountCents).format()}"))
+            sb.appendLine(formatRow("DESCUENTO:", "-${formatAmount(sale.discountCents)}"))
         }
-        sb.appendLine(formatRow("IVA:", Money(sale.taxCents).format()))
-        sb.appendLine(formatRow("TOTAL:", Money(sale.totalCents).format()))
+        sb.appendLine(formatRow("IVA:", formatAmount(sale.taxCents)))
+        sb.appendLine(formatRow("TOTAL:", formatAmount(sale.totalCents)))
         sb.appendLine(thinSep)
 
         // Payment Details
@@ -140,27 +147,27 @@ class EscPosReceiptPrinter(
             val refStr = if (pay.reference.isNotBlank()) " (Ref: ${pay.reference})" else ""
             when (pay.method) {
                 "CASH" -> {
-                    sb.appendLine(formatRow("EFECTIVO:", Money(pay.amountCents).format()))
+                    sb.appendLine(formatRow("EFECTIVO:", formatAmount(pay.amountCents)))
                     if (pay.receivedCents > 0L) {
-                        sb.appendLine(formatRow("RECIBIDO:", Money(pay.receivedCents).format()))
-                        sb.appendLine(formatRow("CAMBIO:", Money(pay.changeCents).format()))
+                        sb.appendLine(formatRow("RECIBIDO:", formatAmount(pay.receivedCents)))
+                        sb.appendLine(formatRow("CAMBIO:", formatAmount(pay.changeCents)))
                     }
                 }
                 "CARD" -> {
-                    sb.appendLine(formatRow("TARJETA$refStr:", Money(pay.amountCents).format()))
+                    sb.appendLine(formatRow("TARJETA$refStr:", formatAmount(pay.amountCents)))
                 }
                 "TRANSFER" -> {
-                    sb.appendLine(formatRow("TRANSFERENCIA$refStr:", Money(pay.amountCents).format()))
+                    sb.appendLine(formatRow("TRANSFERENCIA$refStr:", formatAmount(pay.amountCents)))
                 }
                 "LOYALTY" -> {
-                    sb.appendLine(formatRow("MONEDERO ELECTRÓNICO:", Money(pay.amountCents).format()))
+                    sb.appendLine(formatRow("MONEDERO ELECTRÓNICO:", formatAmount(pay.amountCents)))
                 }
                 "CREDIT" -> {
                     sb.appendLine(centerText("** VENTA A CRÉDITO / FIADO **"))
                     sale.customerName?.let { sb.appendLine("Cliente: $it") }
-                    sb.appendLine(formatRow("Cargo a Cuenta:", Money(pay.amountCents).format()))
+                    sb.appendLine(formatRow("Cargo a Cuenta:", formatAmount(pay.amountCents)))
                     sale.customerRemainingCreditCents?.let {
-                        sb.appendLine(formatRow("Crédito Disponible:", Money(it).format()))
+                        sb.appendLine(formatRow("Crédito Disponible:", formatAmount(it)))
                     }
                     sb.appendLine()
                     sb.appendLine(centerText("Firma del Cliente:"))
@@ -168,7 +175,7 @@ class EscPosReceiptPrinter(
                     sb.appendLine(centerText("_______________________________"))
                 }
                 else -> {
-                    sb.appendLine(formatRow("PAGO (${pay.method})$refStr:", Money(pay.amountCents).format()))
+                    sb.appendLine(formatRow("PAGO (${pay.method})$refStr:", formatAmount(pay.amountCents)))
                 }
             }
         }
@@ -178,17 +185,17 @@ class EscPosReceiptPrinter(
             sb.appendLine(thinSep)
             sb.appendLine(centerText("** MONEDERO ELECTRÓNICO **"))
             if (reward.redeemedCents > 0L) {
-                sb.appendLine(formatRow("Saldo Redimido:", Money(reward.redeemedCents).format()))
+                sb.appendLine(formatRow("Saldo Redimido:", formatAmount(reward.redeemedCents)))
             }
             if (reward.earnedCents > 0L) {
-                sb.appendLine(formatRow("Puntos Ganados (${reward.cashbackPercentApplied}%):", "+" + Money(reward.earnedCents).format()))
+                sb.appendLine(formatRow("Puntos Ganados (${reward.cashbackPercentApplied}%):", "+" + formatAmount(reward.earnedCents)))
             }
-            sb.appendLine(formatRow("Nuevo Saldo Disponible:", Money(reward.finalBalanceCents).format()))
+            sb.appendLine(formatRow("Nuevo Saldo Disponible:", formatAmount(reward.finalBalanceCents)))
         }
 
         sb.appendLine(sep)
-        sb.appendLine(centerText(settings?.ticketHeader ?: "¡Gracias por su compra!"))
-        sb.appendLine(centerText(settings?.ticketFooter ?: "Conserve su ticket para aclaraciones."))
+        (settings?.ticketFooter ?: "Conserve su ticket para aclaraciones.").lineSequence()
+            .filter { it.isNotBlank() }.forEach { sb.appendLine(centerText(it)) }
         sb.appendLine()
         sb.appendLine()
 

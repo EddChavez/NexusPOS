@@ -343,7 +343,7 @@ private fun StoreTicketTab(state: SettingsUiState, viewModel: SettingsViewModel)
 }
 
 @Composable
-private fun ThermalTicketPreview(state: SettingsUiState) {
+internal fun ThermalTicketPreview(state: SettingsUiState) {
     Surface(
         color = NexusTheme.colors.bgSurfaceSubtle,
         shape = RoundedCornerShape(10.dp),
@@ -370,11 +370,10 @@ private fun ThermalTicketPreview(state: SettingsUiState) {
                         fontFamily = mono, color = Color.Black, fontSize = 11.sp
                     )
                     val ticketBold = ticketText.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    val separator = "-".repeat(32)
 
                     if (state.ticketHeader.isNotBlank()) {
                         Text(state.ticketHeader, style = ticketText.copy(fontSize = 10.sp), color = Color.DarkGray)
-                        Text(separator, style = ticketText, color = Color.Gray)
+                        HorizontalDivider(color = Color.LightGray, modifier = Modifier.padding(vertical = 2.dp))
                     }
 
                     Text(
@@ -392,11 +391,11 @@ private fun ThermalTicketPreview(state: SettingsUiState) {
                         Text("RFC: ${state.storeTaxId}", style = ticketText, color = Color.DarkGray)
                     }
 
-                    Text(separator, style = ticketText, color = Color.Gray)
+                    HorizontalDivider(color = Color.LightGray, modifier = Modifier.padding(vertical = 2.dp))
                     Text("TICKET #0001", style = ticketText, color = Color.Gray)
                     Text("Fecha: 06/11/2026  11:30", style = ticketText, color = Color.Gray)
                     Text("Cajero: Cajero Ejemplo", style = ticketText, color = Color.Gray)
-                    Text(separator, style = ticketText, color = Color.Gray)
+                    HorizontalDivider(color = Color.LightGray, modifier = Modifier.padding(vertical = 2.dp))
 
                     // Sample items
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -412,7 +411,7 @@ private fun ThermalTicketPreview(state: SettingsUiState) {
                         Text("${state.currencySymbol}25.50", style = ticketText, color = Color.Black)
                     }
 
-                    Text(separator, style = ticketText, color = Color.Gray)
+                    HorizontalDivider(color = Color.LightGray, modifier = Modifier.padding(vertical = 2.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("SUBTOTAL", style = ticketText, color = Color.Black)
                         Text("${state.currencySymbol}62.50", style = ticketText, color = Color.Black)
@@ -430,12 +429,10 @@ private fun ThermalTicketPreview(state: SettingsUiState) {
                         Text("${state.currencySymbol}7.50", style = ticketText, color = Color.DarkGray)
                     }
 
-                    Text(separator, style = ticketText, color = Color.Gray)
+                    HorizontalDivider(color = Color.LightGray, modifier = Modifier.padding(vertical = 2.dp))
 
                     if (state.ticketFooter.isNotBlank()) {
                         Text(state.ticketFooter, style = ticketText.copy(fontSize = 10.sp), color = Color.DarkGray)
-                    } else {
-                        Text("¡Gracias por su compra!", style = ticketText.copy(fontSize = 10.sp), color = Color.DarkGray)
                     }
                 }
             }

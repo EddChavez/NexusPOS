@@ -63,21 +63,29 @@ class ReceiptPrinterTest {
         val settings = SettingsDto(
             storeName = "Abarrotes Don Pepe",
             storeAddress = "Av. Hidalgo 123",
-            storePhone = "555-987-6543"
+            storePhone = "555-987-6543",
+            storeTaxId = "RFC123",
+            ticketHeader = "Bienvenidos\nTienda local",
+            ticketFooter = "Conserve el comprobante",
+            currencySymbol = "MX$"
         )
 
         val text = printer.formatSaleReceiptText(sale, settings, isReprint = false)
 
         assertTrue(text.contains("Abarrotes Don Pepe"))
+        assertTrue(text.contains("RFC: RFC123"))
+        assertTrue(text.indexOf("Bienvenidos") in 0 until text.indexOf("Folio:"))
+        assertTrue(text.contains("Tienda local"))
+        assertTrue(text.lines().last { it.isNotBlank() }.contains("Conserve el comprobante"))
         assertTrue(text.contains("Folio: #101"))
         assertTrue(text.contains("Coca-Cola 600ml"))
         assertTrue(text.contains("Huevo Blanco a Granel"))
         assertTrue(text.contains("TOTAL:"))
-        assertTrue(text.contains("$35.00"))
+        assertTrue(text.contains("MX$35.00"))
         assertTrue(text.contains("RECIBIDO:"))
-        assertTrue(text.contains("$50.00"))
+        assertTrue(text.contains("MX$50.00"))
         assertTrue(text.contains("CAMBIO:"))
-        assertTrue(text.contains("$15.00"))
+        assertTrue(text.contains("MX$15.00"))
 
         val bytes = printer.generateEscPosBytes(text)
         assertTrue(bytes.isNotEmpty())

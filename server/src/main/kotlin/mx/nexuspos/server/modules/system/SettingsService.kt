@@ -1,8 +1,10 @@
 package mx.nexuspos.server.modules.system
 
 import mx.nexuspos.contracts.system.SettingsDto
+import mx.nexuspos.contracts.system.SettingsPreferencesPatch
 import mx.nexuspos.contracts.system.SystemInfoDto
 import mx.nexuspos.server.persistence.DatabaseFactory
+import mx.nexuspos.server.platform.ValidationException
 
 class SettingsService(private val db: DatabaseFactory) {
 
@@ -71,30 +73,70 @@ class SettingsService(private val db: DatabaseFactory) {
         }
     }
 
-    fun updateSettings(settings: SettingsDto): SettingsDto {
+    fun updateSettings(settings: SettingsDto): SettingsDto = updateSettingValues(
+        mapOf(
+            "store_name" to settings.storeName,
+            "store_address" to settings.storeAddress,
+            "store_phone" to settings.storePhone,
+            "store_tax_id" to settings.storeTaxId,
+            "ticket_header" to settings.ticketHeader,
+            "ticket_footer" to settings.ticketFooter,
+            "allow_negative_stock" to settings.allowNegativeStock.toString(),
+            "currency_symbol" to settings.currencySymbol,
+            "blind_cash_count_enabled" to settings.blindCashCountEnabled.toString(),
+            "max_cashier_discount_percent" to settings.maxCashierDiscountPercent.toString(),
+            "loyalty_enabled" to settings.loyaltyEnabled.toString(),
+            "loyalty_cashback_percent" to settings.loyaltyCashbackPercent.toString(),
+            "loyalty_min_redeem_cents" to settings.loyaltyMinRedeemCents.toString(),
+            "whatsapp_country_code" to settings.whatsappCountryCode,
+            "whatsapp_bank_details" to settings.whatsappBankDetails,
+            "whatsapp_custom_footer" to settings.whatsappCustomFooter
+        )
+    )
+
+    fun updatePreferences(patch: SettingsPreferencesPatch): SettingsDto {
+        val values = linkedMapOf<String, String>()
+        patch.store?.let {
+            values.putAll(
+                mapOf(
+                    "store_name" to it.storeName,
+                    "store_address" to it.storeAddress,
+                    "store_phone" to it.storePhone,
+                    "store_tax_id" to it.storeTaxId,
+                    "ticket_header" to it.ticketHeader,
+                    "ticket_footer" to it.ticketFooter,
+                    "currency_symbol" to it.currencySymbol,
+                    "whatsapp_country_code" to it.whatsappCountryCode,
+                    "whatsapp_bank_details" to it.whatsappBankDetails,
+                    "whatsapp_custom_footer" to it.whatsappCustomFooter,
+                )
+            )
+        }
+        patch.policies?.let {
+            if (it.maxCashierDiscountPercent !in 0.0..100.0 || it.loyaltyCashbackPercent !in 0.0..100.0 ||
+                it.loyaltyMinRedeemCents < 0
+            ) {
+                throw ValidationException("Los porcentajes deben estar entre 0 y 100 y el importe de canje debe ser positivo o cero.")
+            }
+            values.putAll(
+                mapOf(
+                    "allow_negative_stock" to it.allowNegativeStock.toString(),
+                    "blind_cash_count_enabled" to it.blindCashCountEnabled.toString(),
+                    "max_cashier_discount_percent" to it.maxCashierDiscountPercent.toString(),
+                    "loyalty_enabled" to it.loyaltyEnabled.toString(),
+                    "loyalty_cashback_percent" to it.loyaltyCashbackPercent.toString(),
+                    "loyalty_min_redeem_cents" to it.loyaltyMinRedeemCents.toString(),
+                )
+            )
+        }
+        return updateSettingValues(values)
+    }
+
+    private fun updateSettingValues(values: Map<String, String>): SettingsDto {
         db.inTransaction { conn ->
             val updateStmt = conn.prepareStatement("UPDATE settings SET setting_value = ? WHERE setting_key = ?")
             val insertStmt = conn.prepareStatement("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)")
-
-            val map = mapOf(
-                "store_name" to settings.storeName,
-                "store_address" to settings.storeAddress,
-                "store_phone" to settings.storePhone,
-                "store_tax_id" to settings.storeTaxId,
-                "ticket_header" to settings.ticketHeader,
-                "ticket_footer" to settings.ticketFooter,
-                "allow_negative_stock" to settings.allowNegativeStock.toString(),
-                "currency_symbol" to settings.currencySymbol,
-                "blind_cash_count_enabled" to settings.blindCashCountEnabled.toString(),
-                "max_cashier_discount_percent" to settings.maxCashierDiscountPercent.toString(),
-                "loyalty_enabled" to settings.loyaltyEnabled.toString(),
-                "loyalty_cashback_percent" to settings.loyaltyCashbackPercent.toString(),
-                "loyalty_min_redeem_cents" to settings.loyaltyMinRedeemCents.toString(),
-                "whatsapp_country_code" to settings.whatsappCountryCode,
-                "whatsapp_bank_details" to settings.whatsappBankDetails,
-                "whatsapp_custom_footer" to settings.whatsappCustomFooter
-            )
-            for ((k, v) in map) {
+            for ((k, v) in values) {
                 updateStmt.setString(1, v)
                 updateStmt.setString(2, k)
                 val rows = updateStmt.executeUpdate()

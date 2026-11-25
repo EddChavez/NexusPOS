@@ -58,6 +58,7 @@ import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.sales.SaleRefundResponse
 import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.system.SettingsDto
+import mx.nexuspos.contracts.system.SettingsPreferencesPatch
 
 open class ApiClient(
     var baseUrl: String = "http://localhost:8080",
@@ -912,6 +913,19 @@ open class ApiClient(
         }
     }
 
+    open suspend fun updateSettingsPreferences(patch: SettingsPreferencesPatch): Result<SettingsDto> {
+        return try {
+            val res = http.patch("$baseUrl/api/v1/system/settings/preferences") {
+                contentType(ContentType.Application.Json)
+                setBody(patch)
+            }
+            if (res.status.isSuccess()) Result.success(res.body())
+            else Result.failure(Exception(parseError(res).message))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     open suspend fun getDailyReport(
         dateEpochMs: Long? = null,
         sessionId: String? = null
@@ -939,7 +953,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getUsers(includeInactive: Boolean = true): Result<List<UserDto>> {
+    open suspend fun getUsers(includeInactive: Boolean = true): Result<List<UserDto>> {
         return try {
             val res = http.get("$baseUrl/api/v1/users") {
                 parameter("includeInactive", includeInactive)

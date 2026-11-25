@@ -82,11 +82,13 @@ class SalesViewModel(
 
     fun loadSettings() {
         scope.launch {
-            apiClient.getSettings().onSuccess { s ->
-                currentSettings = s
-                _uiState.update { it.copy(maxCashierDiscountPercent = s.maxCashierDiscountPercent) }
-            }
+            apiClient.getSettings().onSuccess(::applySettings)
         }
+    }
+
+    fun applySettings(settings: SettingsDto) {
+        currentSettings = settings
+        _uiState.update { it.copy(maxCashierDiscountPercent = settings.maxCashierDiscountPercent) }
     }
 
     fun openSaleWhatsAppDialog(sale: SaleResponse) {

@@ -51,6 +51,7 @@ import mx.nexuspos.contracts.sales.CreateSaleRequest
 import mx.nexuspos.contracts.sales.ParkSaleRequest
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.system.SettingsDto
+import mx.nexuspos.contracts.system.SettingsPreferencesPatch
 import mx.nexuspos.server.modules.cash.CashSessionService
 import mx.nexuspos.server.modules.catalog.CatalogService
 import mx.nexuspos.server.modules.credit.CreditService
@@ -213,6 +214,12 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             patch("/system/settings") {
                 val req = call.receive<SettingsDto>()
                 val updated = settingsService.updateSettings(req)
+                broadcastEventJson("settings.changed", jsonConfig.encodeToString(updated))
+                call.respond(updated)
+            }
+
+            patch("/system/settings/preferences") {
+                val updated = settingsService.updatePreferences(call.receive<SettingsPreferencesPatch>())
                 broadcastEventJson("settings.changed", jsonConfig.encodeToString(updated))
                 call.respond(updated)
             }

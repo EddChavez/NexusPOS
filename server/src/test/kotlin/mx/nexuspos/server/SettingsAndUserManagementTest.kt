@@ -10,7 +10,10 @@ import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.identity.CreateUserRequest
 import mx.nexuspos.contracts.identity.UpdateUserRequest
 import mx.nexuspos.contracts.identity.UserDto
+import mx.nexuspos.contracts.system.OperatingPolicies
 import mx.nexuspos.contracts.system.SettingsDto
+import mx.nexuspos.contracts.system.SettingsPreferencesPatch
+import mx.nexuspos.contracts.system.StorePreferences
 import mx.nexuspos.server.persistence.DatabaseFactory
 import java.util.UUID
 import kotlin.test.*
@@ -75,6 +78,59 @@ class SettingsAndUserManagementTest {
         assertEquals("442-123-9999", finalSettings.storePhone)
         assertEquals("GUEA800101XYZ", finalSettings.storeTaxId)
         assertEquals(false, finalSettings.allowNegativeStock)
+    }
+
+    @Test
+    fun sectionUpdatesPreserveOtherPreferencesAndRejectInvalidPolicies() = testApplication {
+        val db = createTestDb()
+        application { nexusModule(db) }
+        val client = createClient {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        val path = "/api/v1/system/settings"
+        val store = StorePreferences(
+            storeName = "Tienda Norte",
+            storeAddress = "Calle 1",
+            storePhone = "5551234567",
+            storeTaxId = "RFC123",
+            ticketHeader = "Bienvenidos",
+            ticketFooter = "Gracias",
+            currencySymbol = "$",
+            whatsappCountryCode = "54",
+            whatsappBankDetails = "Cuenta de la tienda",
+            whatsappCustomFooter = "Mensaje personalizado"
+        )
+        val policies = OperatingPolicies(false, true, 15.5, true, 2.25, 1225L)
+
+        suspend fun update(patch: SettingsPreferencesPatch) = client.patch("$path/preferences") {
+            contentType(ContentType.Application.Json)
+            setBody(patch)
+        }
+
+        assertEquals(HttpStatusCode.OK, update(SettingsPreferencesPatch(store = store)).status)
+        val policyResponse = update(SettingsPreferencesPatch(policies = policies))
+        assertEquals(HttpStatusCode.OK, policyResponse.status)
+        val afterPolicies = policyResponse.body<SettingsDto>()
+        assertEquals("54", afterPolicies.whatsappCountryCode)
+        assertEquals("Cuenta de la tienda", afterPolicies.whatsappBankDetails)
+        assertEquals("Mensaje personalizado", afterPolicies.whatsappCustomFooter)
+        assertEquals("Tienda Norte", afterPolicies.storeName)
+        assertEquals(1225L, afterPolicies.loyaltyMinRedeemCents)
+
+        assertEquals(HttpStatusCode.OK, update(SettingsPreferencesPatch(store = store.copy(storeName = "Tienda Centro"))).status)
+        val invalid = SettingsPreferencesPatch(
+            store = store.copy(storeName = "Nombre que no debe persistir"),
+            policies = policies.copy(maxCashierDiscountPercent = 101.0)
+        )
+        assertEquals(HttpStatusCode.BadRequest, update(invalid).status)
+
+        val persisted = client.get(path).body<SettingsDto>()
+        assertEquals("Tienda Centro", persisted.storeName)
+        assertFalse(persisted.allowNegativeStock)
+        assertTrue(persisted.blindCashCountEnabled)
+        assertEquals(15.5, persisted.maxCashierDiscountPercent)
+        assertEquals(2.25, persisted.loyaltyCashbackPercent)
+        assertEquals(1225L, persisted.loyaltyMinRedeemCents)
     }
 
     @Test

@@ -1,11 +1,13 @@
 package mx.nexuspos.client.features.settings
 
 import mx.nexuspos.contracts.identity.UserDto
+import mx.nexuspos.client.features.scale.ScaleUiConfig
 
 enum class SettingsTab { STORE_TICKET, POLICIES, PRINTER, SCALE, NETWORK, USERS }
 
 data class SettingsUiState(
     val isLoading: Boolean = true,
+    val settingsAvailable: Boolean = false,
     val selectedTab: SettingsTab = SettingsTab.STORE_TICKET,
     // Store / Ticket fields
     val storeName: String = "",
@@ -28,6 +30,7 @@ data class SettingsUiState(
     // Users
     val users: List<UserDto> = emptyList(),
     val isLoadingUsers: Boolean = false,
+    val userStatusChangeId: String? = null,
     val userFilter: String = "",
     val includeInactiveUsers: Boolean = false,
     // User form dialog
@@ -48,6 +51,7 @@ data class SettingsUiState(
     val openDrawerOnCashSale: Boolean = true,
     val isTestingPrinter: Boolean = false,
     // Scale Hardware settings
+    val appliedScaleConfig: ScaleUiConfig = ScaleUiConfig(),
     val scaleEnabled: Boolean = true,
     val scalePortName: String = "AUTO",
     val availableScalePorts: List<String> = emptyList(),

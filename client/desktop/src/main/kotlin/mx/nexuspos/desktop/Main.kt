@@ -54,6 +54,7 @@ import mx.nexuspos.client.features.settings.NetworkUiConfig
 import mx.nexuspos.client.features.settings.PrinterUiConfig
 import mx.nexuspos.client.features.settings.ServerConnectionDialog
 import mx.nexuspos.client.features.settings.SettingsScreen
+import mx.nexuspos.client.features.settings.v2.SettingsScreenV2
 import mx.nexuspos.client.features.settings.SettingsTab
 import mx.nexuspos.client.features.settings.SettingsViewModel
 import mx.nexuspos.client.features.footer.SystemFooter
@@ -72,7 +73,6 @@ import mx.nexuspos.client.features.scale.ScaleProtocol
 import mx.nexuspos.client.features.scale.ScaleUiConfig
 import mx.nexuspos.desktop.hardware.scale.ScaleConfigRepository
 import mx.nexuspos.desktop.hardware.scale.ScaleManager
-import mx.nexuspos.desktop.config.AppConfig
 import mx.nexuspos.desktop.config.AppConfigRepository
 import mx.nexuspos.desktop.hardware.DefaultPrinterDispatcher
 import mx.nexuspos.desktop.hardware.EscPosReceiptPrinter
@@ -117,9 +117,20 @@ fun main() = application {
         }
     }
 
+    LaunchedEffect(authState.isAuthenticated) {
+        if (!authState.isAuthenticated && activeModule == AppModule.SETTINGS) {
+            settingsViewModel.closeUserDialog()
+            activeModule = AppModule.SALES
+        }
+    }
+
     // Wire auth and hardware printer callbacks
     LaunchedEffect(Unit) {
         cashCutViewModel.hasUnconfirmedSales = viewModel::hasUnconfirmedSales
+        settingsViewModel.onPreferencesSaved = { settings ->
+            viewModel.applySettings(settings)
+            customersViewModel.currentSettings = settings
+        }
         // 0. Base URL and server health check
         viewModel.apiClient.baseUrl = appConfig.baseUrl
         val isHealthy = viewModel.apiClient.checkHealth()
@@ -142,29 +153,36 @@ fun main() = application {
         }
 
         settingsViewModel.networkConfigSaver = { netCfg ->
-            val newCfg = AppConfig(
+            val newCfg = appConfig.copy(
                 serverHost = netCfg.serverHost,
                 serverPort = netCfg.serverPort,
                 serverScheme = netCfg.serverScheme,
                 registerId = netCfg.registerId,
-                registerName = netCfg.registerName,
-                connectTimeoutMs = appConfig.connectTimeoutMs
+                registerName = netCfg.registerName
             )
             appConfigRepo.save(newCfg)
+            val serverChanged = newCfg.baseUrl != viewModel.apiClient.baseUrl
             appConfig = newCfg
             viewModel.apiClient.baseUrl = newCfg.baseUrl
+            if (serverChanged) {
+                settingsViewModel.loadSettings()
+                settingsViewModel.loadUsers()
+                viewModel.loadSettings()
+                customersViewModel.loadSettings()
+            }
             viewModel.checkServerConnection()
             viewModel.loadActiveSession(newCfg.registerId)
             cashCutViewModel.loadCurrentSession(newCfg.registerId)
         }
 
         settingsViewModel.testNetworkAction = { host, port ->
-            val testClient = ApiClient(baseUrl = "http://$host:$port")
+            val url = "${settingsViewModel.uiState.value.serverScheme}://$host:$port"
+            val testClient = ApiClient(baseUrl = url)
             val ok = testClient.checkHealth()
             if (ok) {
                 Result.success("Servidor responde OK (HTTP 200 /health)")
             } else {
-                Result.failure(Exception("Host inaccesible en http://$host:$port"))
+                Result.failure(Exception("Host inaccesible en $url"))
             }
         }
         settingsViewModel.loadNetworkConfig()
@@ -287,7 +305,7 @@ fun main() = application {
         // 2. Receipt formatting hook
         viewModel.receiptFormatter = { sale, isReprint ->
             val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
-            printer.formatSaleReceiptText(sale, isReprint = isReprint)
+            printer.formatSaleReceiptText(sale, viewModel.currentSettings, isReprint = isReprint)
         }
 
         // 3. Sales auto-print and cash drawer hooks
@@ -296,7 +314,7 @@ fun main() = application {
                 if (printerConfig.autoPrintOnSale && printerConfig.connectionType != PrinterConnectionType.NONE) {
                     printerDispatcher.printSaleReceipt(
                         sale = sale,
-                        settings = null,
+                        settings = viewModel.currentSettings,
                         config = printerConfig,
                         isReprint = false
                     )
@@ -318,7 +336,7 @@ fun main() = application {
             CoroutineScope(Dispatchers.IO).launch {
                 printerDispatcher.printSaleReceipt(
                     sale = sale,
-                    settings = null,
+                    settings = viewModel.currentSettings,
                     config = printerConfig,
                     isReprint = true
                 )
@@ -502,7 +520,7 @@ fun main() = application {
                         true
                     }
                     Key.F5 -> {
-                        if (salesState.activeCashierRole == "CASHIER") {
+                        if (authState.currentUser?.role == "CASHIER") {
                             authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
                         } else {
                             activeModule = AppModule.SETTINGS
@@ -709,7 +727,7 @@ fun main() = application {
                         } else if (inventoryViewModel.uiState.value.lotForWriteOff != null) {
                             inventoryViewModel.closeLotWriteOffDialog()
                             true
-                        } else if (settingsViewModel.uiState.value.showUserDialog) {
+                        } else if (activeModule == AppModule.SETTINGS && settingsViewModel.uiState.value.showUserDialog) {
                             settingsViewModel.closeUserDialog()
                             true
                         } else if (productsViewModel.uiState.value.showDepartmentsDialog) {
@@ -756,7 +774,7 @@ fun main() = application {
             } else {
                 val isV2 = appConfig.salesUiVersion == "V2"
                 val selectModule: (AppModule) -> Unit = { selected ->
-                    if (selected == AppModule.SETTINGS && salesState.activeCashierRole == "CASHIER") {
+                    if (selected == AppModule.SETTINGS && authState.currentUser?.role == "CASHIER") {
                         authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
                     } else {
                         activeModule = selected
@@ -812,7 +830,7 @@ fun main() = application {
                                                     Result.failure(IllegalStateException("Configura una impresora para reimprimir el ticket."))
                                                 } else {
                                                     withContext(Dispatchers.IO) {
-                                                        printerDispatcher.printSaleReceipt(sale, null, printerConfig, isReprint = true)
+                                                        printerDispatcher.printSaleReceipt(sale, viewModel.currentSettings, printerConfig, isReprint = true)
                                                     }
                                                 }
                                             },
@@ -974,10 +992,19 @@ fun main() = application {
                                     }
                                 }
                                 AppModule.SETTINGS -> {
-                                    SettingsScreen(
-                                        viewModel = settingsViewModel,
-                                        onBackToSales = { activeModule = AppModule.SALES }
-                                    )
+                                    if (isV2) {
+                                        key(appConfig.baseUrl) {
+                                            SettingsScreenV2(
+                                                viewModel = settingsViewModel,
+                                                onBackToSales = { activeModule = AppModule.SALES }
+                                            )
+                                        }
+                                    } else {
+                                        SettingsScreen(
+                                            viewModel = settingsViewModel,
+                                            onBackToSales = { activeModule = AppModule.SALES }
+                                        )
+                                    }
                                 }
                             }
 
@@ -1013,7 +1040,7 @@ fun main() = application {
                     }
                 },
                 onSaveAndConnect = { host, port, regId, regName ->
-                    val newCfg = AppConfig(
+                    val newCfg = appConfig.copy(
                         serverHost = host,
                         serverPort = port,
                         serverScheme = "http",
@@ -1021,8 +1048,16 @@ fun main() = application {
                         registerName = regName
                     )
                     appConfigRepo.save(newCfg)
+                    val serverChanged = newCfg.baseUrl != viewModel.apiClient.baseUrl
                     appConfig = newCfg
                     viewModel.apiClient.baseUrl = newCfg.baseUrl
+                    settingsViewModel.loadNetworkConfig()
+                    if (serverChanged || !settingsViewModel.uiState.value.settingsAvailable) {
+                        settingsViewModel.loadSettings()
+                        settingsViewModel.loadUsers()
+                        viewModel.loadSettings()
+                        customersViewModel.loadSettings()
+                    }
                     viewModel.checkServerConnection()
                     viewModel.loadActiveSession(regId)
                     cashCutViewModel.loadCurrentSession(regId)
