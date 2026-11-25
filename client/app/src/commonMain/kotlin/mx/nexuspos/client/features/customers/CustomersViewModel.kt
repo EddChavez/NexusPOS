@@ -273,26 +273,43 @@ class CustomersViewModel(
         }
     }
 
-    fun deactivateCustomer(customer: CustomerDto) {
+    fun deactivateCustomer(customer: CustomerDto) =
+        updateCustomerStatus(customer, active = false)
+
+    fun reactivateCustomer(customer: CustomerDto) =
+        updateCustomerStatus(customer, active = true)
+
+    private fun updateCustomerStatus(customer: CustomerDto, active: Boolean) {
         val previous = _uiState.getAndUpdate {
             if (it.isSubmitting) it else it.copy(isSubmitting = true, errorMessage = null)
         }
         if (previous.isSubmitting) return
         scope.launch {
-            val res = apiClient.deactivateCustomer(customer.id)
-            res.onSuccess { deactivated ->
-                _uiState.update {
-                    it.copy(
+            val result = if (active) apiClient.reactivateCustomer(customer.id) else apiClient.deactivateCustomer(customer.id)
+            result.onSuccess { updated ->
+                val status = if (updated.isActive) "reactivado" else "desactivado"
+                _uiState.update { state ->
+                    val isSelected = state.selectedCustomer?.id == updated.id
+                    state.copy(
                         isSubmitting = false,
-                        selectedCustomer = if (it.selectedCustomer?.id == deactivated.id) deactivated else it.selectedCustomer,
-                        statementRequestId = if (it.selectedCustomer?.id == deactivated.id) it.statementRequestId + 1L else it.statementRequestId,
-                        successMessage = "Cliente '${deactivated.name}' desactivado"
+                        customers = state.customers.mapNotNull {
+                            when {
+                                it.id != updated.id -> it
+                                updated.isActive || state.includeInactive -> updated
+                                else -> null
+                            }
+                        },
+                        selectedCustomer = if (isSelected) updated else state.selectedCustomer,
+                        statementRequestId = if (isSelected) state.statementRequestId + 1L else state.statementRequestId,
+                        successMessage = "Cliente '${updated.name}' $status"
                     )
                 }
                 loadCustomers()
-                loadCustomerStatement(deactivated.id)
-            }.onFailure { err ->
-                _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
+                loadCustomerStatement(updated.id)
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(isSubmitting = false, errorMessage = error.message ?: "No se pudo cambiar el estado del cliente.")
+                }
             }
         }
     }

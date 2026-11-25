@@ -106,6 +106,20 @@ class CustomerAndCreditTest {
         val allSearch = client.get("/api/v1/customers?query=Ramiro&includeInactive=true")
         val allList = allSearch.body<List<CustomerDto>>()
         assertEquals(1, allList.size)
+
+        val reactivation = client.post("/api/v1/customers/${createdCust.id}/reactivate")
+        assertEquals(HttpStatusCode.OK, reactivation.status)
+        val reactivated = reactivation.body<CustomerDto>()
+        assertTrue(reactivated.isActive)
+        assertEquals(updatedCust.id, reactivated.id)
+        assertEquals(updatedCust.folio, reactivated.folio)
+        assertEquals(updatedCust.notes, reactivated.notes)
+        assertEquals(updatedCust.creditLimitCents, reactivated.creditLimitCents)
+
+        val restored = client.get("/api/v1/customers?query=${createdCust.folio}").body<List<CustomerDto>>().single()
+        assertEquals(reactivated.id, restored.id)
+        assertTrue(restored.isActive)
+        assertEquals(HttpStatusCode.NotFound, client.post("/api/v1/customers/missing/reactivate").status)
     }
 
     @Test

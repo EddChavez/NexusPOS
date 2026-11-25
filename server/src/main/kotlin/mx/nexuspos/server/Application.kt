@@ -611,6 +611,13 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 call.respond(deactivated)
             }
 
+            post("/customers/{id}/reactivate") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
+                val customer = creditService.reactivateCustomer(id)
+                broadcastEventJson("customer.updated", jsonConfig.encodeToString(customer))
+                call.respond(customer)
+            }
+
             get("/customers/{id}/statement") {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de cliente requerido")
                 call.respond(creditService.getCustomerStatement(id))

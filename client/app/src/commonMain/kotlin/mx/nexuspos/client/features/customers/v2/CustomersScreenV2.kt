@@ -220,10 +220,10 @@ fun CustomersScreenV2(
                                 onTab = ::showTab,
                                 cashSessionReady = !cashSessionId.isNullOrBlank(),
                                 onEdit = { viewModel.openEditDialog(customer) },
-                                onLoyalty = { showTab(CustomerTab.WALLET) },
                                 onAdjustLoyalty = viewModel::openAdjustLoyaltyDialog,
                                 onReloadWallet = { viewModel.loadLoyaltyMovements(customer.id) },
                                 onDeactivate = { pendingDeactivation = customer },
+                                onReactivate = { viewModel.reactivateCustomer(customer) },
                                 onPayment = {
                                     showTab(CustomerTab.STATEMENT)
                                     viewModel.openPaymentDialog(it)
@@ -323,10 +323,10 @@ private fun CustomerDetailV2(
     onTab: (CustomerTab) -> Unit,
     cashSessionReady: Boolean,
     onEdit: () -> Unit,
-    onLoyalty: () -> Unit,
     onAdjustLoyalty: () -> Unit,
     onReloadWallet: () -> Unit,
     onDeactivate: () -> Unit,
+    onReactivate: () -> Unit,
     onPayment: (Boolean) -> Unit,
     onRetry: () -> Unit,
     onShare: () -> Unit,
@@ -385,16 +385,14 @@ private fun CustomerDetailV2(
                     ).filter { it.second.isNotBlank() }
                     items(details, key = { it.first }) { (label, value) -> CustomerAmount(label, value) }
                     item {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = onLoyalty, enabled = !state.isSubmitting) { Text("Ver monedero") }
-                            if (customer.isActive) {
-                                TextButton(
-                                    onClick = onDeactivate,
-                                    enabled = !state.isSubmitting,
-                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                ) { Text("Desactivar cliente") }
-                            }
-                        }
+                        TextButton(
+                            onClick = if (customer.isActive) onDeactivate else onReactivate,
+                            enabled = !state.isSubmitting,
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = if (customer.isActive) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.primary
+                            )
+                        ) { Text(if (customer.isActive) "Desactivar cliente" else "Reactivar cliente") }
                     }
                 }
                 CustomerTab.WALLET -> CustomerWalletV2(

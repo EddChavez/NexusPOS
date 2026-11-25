@@ -675,17 +675,19 @@ open class ApiClient(
         }
     }
 
-    suspend fun deactivateCustomer(id: String): Result<CustomerDto> {
+    suspend fun deactivateCustomer(id: String): Result<CustomerDto> =
+        changeCustomerStatus { http.delete("$baseUrl/api/v1/customers/$id") }
+
+    suspend fun reactivateCustomer(id: String): Result<CustomerDto> =
+        changeCustomerStatus { http.post("$baseUrl/api/v1/customers/$id/reactivate") }
+
+    private suspend fun changeCustomerStatus(request: suspend () -> HttpResponse): Result<CustomerDto> {
         return try {
-            val res = http.delete("$baseUrl/api/v1/customers/$id")
-            if (res.status.isSuccess()) {
-                Result.success(res.body())
-            } else {
-                val err = parseError(res)
-                Result.failure(Exception(err.message))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
+            val response = request()
+            if (response.status.isSuccess()) Result.success(response.body())
+            else Result.failure(Exception(parseError(response).message))
+        } catch (error: Exception) {
+            Result.failure(error)
         }
     }
 

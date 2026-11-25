@@ -303,17 +303,17 @@ class CreditService(private val db: DatabaseFactory) {
         }
     }
 
-    fun deactivateCustomer(id: String): CustomerDto {
-        val now = System.currentTimeMillis()
-        return db.inTransaction { conn ->
-            val stmt = conn.prepareStatement("UPDATE customers SET is_active = FALSE, updated_at = ? WHERE id = ?")
-            stmt.setLong(1, now)
-            stmt.setString(2, id)
-            val rows = stmt.executeUpdate()
-            stmt.close()
+    fun deactivateCustomer(id: String): CustomerDto = setCustomerActive(id, false)
 
-            if (rows == 0) {
-                throw NotFoundException("Cliente '$id' no encontrado")
+    fun reactivateCustomer(id: String): CustomerDto = setCustomerActive(id, true)
+
+    private fun setCustomerActive(id: String, active: Boolean): CustomerDto {
+        return db.inTransaction { conn ->
+            conn.prepareStatement("UPDATE customers SET is_active = ?, updated_at = ? WHERE id = ?").use {
+                it.setBoolean(1, active)
+                it.setLong(2, System.currentTimeMillis())
+                it.setString(3, id)
+                if (it.executeUpdate() == 0) throw NotFoundException("Cliente '$id' no encontrado")
             }
             getCustomerFromConn(conn, id)
         }

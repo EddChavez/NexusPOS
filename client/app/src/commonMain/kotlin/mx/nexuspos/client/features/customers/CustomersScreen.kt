@@ -134,7 +134,8 @@ fun CustomersScreen(
                 onEdit = { cust -> viewModel.openEditDialog(cust) },
                 onPayment = { viewModel.openPaymentDialog(false) },
                 onLiquidate = { viewModel.openPaymentDialog(true) },
-                onDeactivate = { cust -> viewModel.deactivateCustomer(cust) },
+                onReactivate = viewModel::reactivateCustomer,
+                isSubmitting = state.isSubmitting,
                 onOpenLoyalty = { cust -> viewModel.openLoyaltyDialog(cust) },
                 onSendWhatsAppStatement = {
                     state.selectedCustomer?.let { viewModel.openStatementWhatsAppDialog(it) }
@@ -385,7 +386,8 @@ private fun CustomerDetailPanel(
     onEdit: (CustomerDto) -> Unit,
     onPayment: () -> Unit,
     onLiquidate: () -> Unit,
-    onDeactivate: (CustomerDto) -> Unit,
+    onReactivate: (CustomerDto) -> Unit,
+    isSubmitting: Boolean,
     onOpenLoyalty: (CustomerDto) -> Unit,
     onSendWhatsAppStatement: () -> Unit = {},
     onSendPaymentReceipt: (CreditMovementDto) -> Unit = {},
@@ -416,7 +418,8 @@ private fun CustomerDetailPanel(
                     onEdit = { onEdit(customer) },
                     onPayment = onPayment,
                     onLiquidate = onLiquidate,
-                    onDeactivate = { onDeactivate(customer) },
+                    onReactivate = { onReactivate(customer) },
+                    isSubmitting = isSubmitting,
                     onOpenLoyalty = { onOpenLoyalty(customer) },
                     onSendWhatsAppStatement = onSendWhatsAppStatement
                 )
@@ -444,7 +447,8 @@ private fun CustomerHeaderCard(
     onEdit: () -> Unit,
     onPayment: () -> Unit,
     onLiquidate: () -> Unit,
-    onDeactivate: () -> Unit,
+    onReactivate: () -> Unit,
+    isSubmitting: Boolean,
     onOpenLoyalty: () -> Unit,
     onSendWhatsAppStatement: () -> Unit = {}
 ) {
@@ -497,6 +501,11 @@ private fun CustomerHeaderCard(
             }
             if (customer.notes.isNotBlank()) {
                 Text("📝 Nota: ${customer.notes}", style = MaterialTheme.typography.bodySmall, color = NexusTheme.colors.textSecondary, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+            }
+            if (!customer.isActive) {
+                OutlinedButton(onClick = onReactivate, enabled = !isSubmitting) {
+                    Text("Reactivar cliente")
+                }
             }
         }
 
