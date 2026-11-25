@@ -3,7 +3,7 @@ package mx.nexuspos.client.core
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -108,14 +108,17 @@ open class ApiClient(
 
     val http = client ?: HttpClient {
         followRedirects = false
-        defaultRequest {
-            val expected = Url(this@ApiClient.baseUrl)
-            if (url.host == expected.host && url.port == expected.port && url.protocol == expected.protocol) {
-                if (!headers.contains(HttpHeaders.Authorization)) {
-                    this@ApiClient.sessionToken?.let { headers.append(HttpHeaders.Authorization, "Bearer $it") }
+        install(createClientPlugin("DesktopSession") {
+            onRequest { request, _ ->
+                val expected = Url(this@ApiClient.baseUrl)
+                val target = request.url.build()
+                if (target.host == expected.host && target.port == expected.port && target.protocol == expected.protocol &&
+                    !request.headers.contains(HttpHeaders.Authorization)
+                ) {
+                    this@ApiClient.sessionToken?.let { request.bearerAuth(it) }
                 }
             }
-        }
+        })
         install(ContentNegotiation) {
             json(this@ApiClient.json)
         }
