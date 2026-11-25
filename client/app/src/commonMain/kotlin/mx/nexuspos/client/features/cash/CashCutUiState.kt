@@ -7,7 +7,8 @@ enum class CashCutTab {
     SHIFT_CUT,      // Arqueo y Corte de Turno
     DAILY_REPORT,   // Reporte Financiero del Día
     HISTORY,
-    MOVEMENTS
+    MOVEMENTS,
+    SALES_ANALYSIS
 }
 
 data class CashCutUiState(

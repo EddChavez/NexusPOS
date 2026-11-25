@@ -72,5 +72,6 @@ data class DailyFinancialReportDto(
     val totalCostCents: Long,
     val estimatedGrossProfitCents: Long,
     val profitMarginPercent: Double,
-    val activeSessionsCount: Int
+    val activeSessionsCount: Int,
+    val estimatedCostLines: Long = 0
 )

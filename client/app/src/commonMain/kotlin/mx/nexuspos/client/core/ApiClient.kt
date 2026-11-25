@@ -60,6 +60,8 @@ import mx.nexuspos.contracts.inventory.StockMovementDto
 import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
 import mx.nexuspos.contracts.loyalty.LoyaltyMovementDto
 import mx.nexuspos.contracts.loyalty.LoyaltySummaryDto
+import mx.nexuspos.contracts.reports.SalesAnalysisReport
+import mx.nexuspos.contracts.reports.SalesAnalysisRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -535,27 +537,30 @@ open class ApiClient(
     }
 
     open suspend fun searchCashCutHistory(request: CashCutHistoryRequest): Result<CashCutHistoryPage> =
-        cashAuditCall("history/search", request)
+        supervisedReportCall("cash-sessions/history/search", request)
 
     open suspend fun getClosedCashCut(id: String, pin: String): Result<CashCutHistoryDetail> =
-        cashAuditCall("history/${id.encodeURLPathPart()}", CashCutDetailRequest(pin))
+        supervisedReportCall("cash-sessions/history/${id.encodeURLPathPart()}", CashCutDetailRequest(pin))
 
     open suspend fun getClosedShiftSales(id: String, request: ClosedShiftSalesRequest): Result<ClosedShiftSalesPage> =
-        cashAuditCall("history/${id.encodeURLPathPart()}/sales", request)
+        supervisedReportCall("cash-sessions/history/${id.encodeURLPathPart()}/sales", request)
 
     open suspend fun getClosedShiftSale(id: String, saleId: String, pin: String): Result<ClosedShiftSaleDetail> =
-        cashAuditCall("history/${id.encodeURLPathPart()}/sales/${saleId.encodeURLPathPart()}", CashCutDetailRequest(pin))
+        supervisedReportCall("cash-sessions/history/${id.encodeURLPathPart()}/sales/${saleId.encodeURLPathPart()}", CashCutDetailRequest(pin))
 
     open suspend fun getCashMovements(sessionId: String, request: CashMovementHistoryRequest): Result<CashMovementHistoryPage> =
-        cashAuditCall("${sessionId.encodeURLPathPart()}/movements/history", request)
+        supervisedReportCall("cash-sessions/${sessionId.encodeURLPathPart()}/movements/history", request)
 
     open suspend fun reverseCashMovement(sessionId: String, movementId: String, request: ReverseCashMovementRequest): Result<AuditedCashMovement> =
-        cashAuditCall("${sessionId.encodeURLPathPart()}/movements/${movementId.encodeURLPathPart()}/reverse", request)
+        supervisedReportCall("cash-sessions/${sessionId.encodeURLPathPart()}/movements/${movementId.encodeURLPathPart()}/reverse", request)
 
-    private suspend inline fun <reified Request, reified Response> cashAuditCall(
+    open suspend fun getSalesAnalysis(request: SalesAnalysisRequest): Result<SalesAnalysisReport> =
+        supervisedReportCall("reports/sales-analysis", request)
+
+    private suspend inline fun <reified Request, reified Response> supervisedReportCall(
         path: String, request: Request
     ): Result<Response> = try {
-        val response = http.post("$baseUrl/api/v1/cash-sessions/$path") {
+        val response = http.post("$baseUrl/api/v1/$path") {
             contentType(ContentType.Application.Json)
             setBody(request)
         }

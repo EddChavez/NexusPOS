@@ -46,6 +46,7 @@ import mx.nexuspos.client.features.inventory.includes
 import mx.nexuspos.client.features.inventory.v2.InventoryScreenV2
 import mx.nexuspos.client.features.inventory.InventoryViewModel
 import mx.nexuspos.desktop.inventory.ReorderExportHelper
+import mx.nexuspos.desktop.reports.exportSalesAnalysisCsv
 import mx.nexuspos.client.features.products.ProductsScreen
 import mx.nexuspos.client.features.products.ProductsViewModel
 import mx.nexuspos.client.features.products.v2.ProductsScreenV2
@@ -887,7 +888,8 @@ fun main() = application {
                                             viewModel = cashCutViewModel,
                                             onBackToSales = { activeModule = AppModule.SALES },
                                             activeCashierUserId = salesState.activeCashierId,
-                                            useMaterialWorkspace = isV2
+                                            useMaterialWorkspace = isV2,
+                                            onExportSalesCsv = { report -> exportSalesAnalysisCsv(window, report) }
                                         )
                                     }
                                 }

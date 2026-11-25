@@ -22,10 +22,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mx.nexuspos.client.features.cash.v2.CashCutHistoryPanel
 import mx.nexuspos.client.features.cash.v2.CashMovementAuditPanel
+import mx.nexuspos.client.features.cash.v2.SalesAnalysisPanel
 import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
+import mx.nexuspos.contracts.reports.SalesAnalysisReport
 import mx.nexuspos.core.Money
 import java.time.Instant
 import java.time.ZoneId
@@ -36,11 +38,12 @@ fun CashCutScreen(
     viewModel: CashCutViewModel,
     onBackToSales: () -> Unit,
     activeCashierUserId: String = "usr-cajero",
-    useMaterialWorkspace: Boolean = false
+    useMaterialWorkspace: Boolean = false,
+    onExportSalesCsv: (suspend (SalesAnalysisReport) -> Result<String?>)? = null
 ) {
     val state by viewModel.uiState.collectAsState()
     var showConfirmCloseDialog by remember { mutableStateOf(false) }
-    val auditTab = state.activeTab == CashCutTab.HISTORY || state.activeTab == CashCutTab.MOVEMENTS
+    val auditTab = state.activeTab in listOf(CashCutTab.HISTORY, CashCutTab.MOVEMENTS, CashCutTab.SALES_ANALYSIS)
     val tab = if (auditTab && !useMaterialWorkspace) CashCutTab.SHIFT_CUT else state.activeTab
     val showAudit = useMaterialWorkspace && auditTab
     val selectTab: (CashCutTab) -> Unit = {
@@ -96,6 +99,11 @@ fun CashCutScreen(
                         kotlinx.datetime.LocalDate.parse(java.time.LocalDate.now(zone).toString())
                     }
                     CashCutHistoryPanel(viewModel.apiClient, zone.id, today)
+                }
+                CashCutTab.SALES_ANALYSIS -> {
+                    val zone = remember { ZoneId.systemDefault() }
+                    val today = remember(zone) { java.time.LocalDate.now(zone) }
+                    SalesAnalysisPanel(viewModel.apiClient, zone.id, today.minusDays(6).toString(), today.toString(), onExportSalesCsv)
                 }
                 CashCutTab.MOVEMENTS -> {
                     val session = state.activeSession?.takeIf { it.status == "OPEN" }
@@ -228,7 +236,8 @@ private fun CashCutWorkspaceHeader(
             CashCutTab.SHIFT_CUT to "Turno actual",
             CashCutTab.DAILY_REPORT to "Reporte diario",
             CashCutTab.MOVEMENTS to "Movimientos",
-            CashCutTab.HISTORY to "Historial"
+            CashCutTab.HISTORY to "Historial",
+            CashCutTab.SALES_ANALYSIS to "Reportes"
         )
         PrimaryTabRow(selectedTabIndex = tabs.indexOfFirst { it.first == selectedTab }) {
             tabs.forEach { (tab, label) ->
@@ -749,10 +758,17 @@ private fun DailyFinancialReportView(
                         color = NexusTheme.colors.textGreen
                     )
                     Text(
-                        text = "Cálculo: Ventas Totales (${Money(report.totalSalesCents).format()}) − Costo de Reposición (${Money(report.totalCostCents).format()})",
+                        text = "Ventas totales (${Money(report.totalSalesCents).format()}) − Costo de ventas (${Money(report.totalCostCents).format()})",
                         style = MaterialTheme.typography.bodySmall,
                         color = NexusTheme.colors.textGreen.copy(alpha = 0.85f)
                     )
+                    if (report.estimatedCostLines > 0) {
+                        Text(
+                            "${report.estimatedCostLines} partidas sin costo histórico usan el costo actual.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NexusTheme.colors.textGreen
+                        )
+                    }
                 }
 
                 Surface(

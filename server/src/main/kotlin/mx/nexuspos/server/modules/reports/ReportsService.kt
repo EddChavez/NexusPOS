@@ -137,12 +137,16 @@ class ReportsService(private val db: DatabaseFactory) {
             movRs.close()
             movStmt.close()
 
-            // 6. Cost of Goods Sold (Costo de reposición)
+            // Show the cost originally recorded for these sales and flag older estimates.
             val costSql = """
-                SELECT COALESCE(SUM((sl.quantity_millis * COALESCE(p.cost_cents, 0)) / 1000), 0) as total_cost
+                SELECT COALESCE(SUM(COALESCE(sl.cost_snapshot_cents,
+                           ROUND(FLOOR(CAST(sl.quantity_millis AS NUMERIC) * COALESCE(pp.factor_millis, 1000) / 1000.0)
+                               * COALESCE(p.cost_cents, 0) / 1000.0, 0))), 0) AS total_cost,
+                       COUNT(*) - COUNT(sl.cost_snapshot_cents) AS estimated_lines
                 FROM sale_lines sl
                 JOIN sales s ON sl.sale_id = s.id
                 LEFT JOIN products p ON sl.product_id = p.id
+                LEFT JOIN product_presentations pp ON sl.presentation_id = pp.id
                 WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
                   AND s.created_at >= ? AND s.created_at <= ?
                   AND (? IS NULL OR s.cash_session_id = ?)
@@ -155,6 +159,7 @@ class ReportsService(private val db: DatabaseFactory) {
             val costRs = costStmt.executeQuery()
             costRs.next()
             val totalCostCents = costRs.getLong("total_cost")
+            val estimatedCostLines = costRs.getLong("estimated_lines")
             costRs.close()
             costStmt.close()
 
@@ -196,7 +201,8 @@ class ReportsService(private val db: DatabaseFactory) {
                 totalCostCents = totalCostCents,
                 estimatedGrossProfitCents = estimatedGrossProfitCents,
                 profitMarginPercent = profitMarginPercent,
-                activeSessionsCount = activeSessionsCount
+                activeSessionsCount = activeSessionsCount,
+                estimatedCostLines = estimatedCostLines
             )
         }
     }

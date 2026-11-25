@@ -54,6 +54,7 @@ import mx.nexuspos.contracts.purchases.PurchaseAuthorization
 import mx.nexuspos.contracts.purchases.ReceivePurchaseRequest
 import mx.nexuspos.contracts.purchases.ReturnPurchaseRequest
 import mx.nexuspos.contracts.purchases.SaveSupplierRequest
+import mx.nexuspos.contracts.reports.SalesAnalysisRequest
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -72,6 +73,7 @@ import mx.nexuspos.server.modules.inventory.ProductLotsService
 import mx.nexuspos.server.modules.loyalty.LoyaltyService
 import mx.nexuspos.server.modules.purchases.PurchaseService
 import mx.nexuspos.server.modules.reports.ReportsService
+import mx.nexuspos.server.modules.reports.SalesAnalysisService
 import mx.nexuspos.server.modules.sales.ParkedSalesService
 import mx.nexuspos.server.modules.sales.SalesService
 import mx.nexuspos.server.modules.system.SettingsService
@@ -104,6 +106,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val salesService = SalesService(dbFactory, settingsService)
     val parkedSalesService = ParkedSalesService(dbFactory)
     val reportsService = ReportsService(dbFactory)
+    val salesAnalysis = SalesAnalysisService(dbFactory)
     val purchaseService = PurchaseService(dbFactory)
 
     fun requireSupervisor(pin: String, action: String): String {
@@ -733,6 +736,12 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
             }
 
             // Financial & Daily Reports
+            post("/reports/sales-analysis") {
+                val request = call.receive<SalesAnalysisRequest>()
+                requireSupervisor(request.pin, "SALES_ANALYSIS")
+                call.respond(salesAnalysis.report(request))
+            }
+
             get("/reports/daily") {
                 val dateParam = call.request.queryParameters["date"]?.toLongOrNull() ?: System.currentTimeMillis()
                 val sessionParam = call.request.queryParameters["sessionId"]

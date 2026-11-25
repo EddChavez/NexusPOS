@@ -659,6 +659,11 @@ Cancela una venta de un turno abierto y revierte sus operaciones en una sola tra
 
 ### I. Reportes Financieros Consolidados (`/api/v1/reports`)
 
+#### `POST /api/v1/reports/sales-analysis`
+Requiere el PIN de un encargado en `pin`, fechas inclusivas `fromDate` y `toDate` con formato AAAA-MM-DD, y `timeZone` con un identificador como `America/Mexico_City`. `groupBy` admite `DAY`, `PRODUCT` u `DEPARTMENT`.
+
+Devuelve ventas, devoluciones, cancelaciones, costo y utilidad bruta sin IVA. Cada ajuste se incluye en su fecha de registro. Una devolución revierte el costo proporcional al reingreso a inventario. Las cancelaciones antiguas sin fecha se excluyen de la actividad del reporte. El campo `estimatedCostEvents` indica cuántas partidas usan un costo estimado a partir del catálogo actual o carecen de costo de catálogo.
+
 #### `GET /api/v1/reports/daily`
 Genera el reporte financiero consolidado del día o de una sesión específica, calculando ventas por método de pago, cobranza de fiados, costo de reposición de mercancía (COGS), ganancia bruta estimada y margen de rentabilidad.
 - **Query Params:**

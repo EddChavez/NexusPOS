@@ -547,7 +547,10 @@ class EscPosReceiptPrinter(
 
         // Rentabilidad
         sb.appendLine(centerText("-- GANANCIA BRUTA ESTIMADA --"))
-        sb.appendLine(formatRow("Costo Reposición:", Money(report.totalCostCents).format()))
+        sb.appendLine(formatRow("Costo de ventas:", Money(report.totalCostCents).format()))
+        if (report.estimatedCostLines > 0) {
+            sb.appendLine(formatRow("Costos estimados:", report.estimatedCostLines.toString()))
+        }
         sb.appendLine(formatRow("GANANCIA BRUTA:", Money(report.estimatedGrossProfitCents).format()))
         sb.appendLine(formatRow("Margen de Utilidad:", "${report.profitMarginPercent}%"))
         sb.appendLine(sep)

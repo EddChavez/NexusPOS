@@ -93,7 +93,8 @@ class SalesService(
                 val discountCents: Long,
                 val discountPercent: Double,
                 val kitStock: List<KitComponent>,
-                val stock: List<KitComponent>
+                val stock: List<KitComponent>,
+                val factorMillis: Long
             )
 
             val validatedLines = mutableListOf<ValidatedLine>()
@@ -231,7 +232,8 @@ class SalesService(
                         discountCents = lineDisc.cents,
                         discountPercent = line.discountPercent,
                         kitStock = components,
-                        stock = stock
+                        stock = stock,
+                        factorMillis = factorMillis
                     )
                 )
             }
@@ -450,11 +452,21 @@ class SalesService(
             insertSaleStmt.executeUpdate()
             insertSaleStmt.close()
 
+            // Capture cost after locking stock, so a completed purchase is reflected in this sale.
+            val catalogIds = validatedLines.flatMap { line ->
+                listOfNotNull(line.productId) + line.kitStock.map { it.productId }
+            }.toSet()
+            val catalogSnapshot = loadSaleCatalogSnapshots(conn, catalogIds)
+
             // 9. Record Lines & Deduct Stock
             val insertLineStmt = conn.prepareStatement(
                 """
-                INSERT INTO sale_lines (id, sale_id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate, tax_cents, total_cents, discount_cents, discount_percent, kit_stock_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sale_lines (
+                    id, sale_id, product_id, presentation_id, description, quantity_millis, unit_price_cents, tax_rate,
+                    tax_cents, total_cents, discount_cents, discount_percent, kit_stock_json,
+                    cost_snapshot_cents, base_factor_millis, snapshot_product_name, snapshot_sku, snapshot_base_unit,
+                    snapshot_department_id, snapshot_department_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent()
             )
             val lineResponses = mutableListOf<SaleLineItemResponse>()
@@ -473,6 +485,16 @@ class SalesService(
                 insertLineStmt.setLong(11, vl.discountCents)
                 insertLineStmt.setDouble(12, vl.discountPercent)
                 insertLineStmt.setString(13, vl.kitStock.takeIf { it.isNotEmpty() }?.let { json.encodeToString(it) })
+                val product = vl.productId?.let(catalogSnapshot::get)
+                val baseQuantity = multiplyStock(vl.quantityMillis, vl.factorMillis) / 1000L
+                val cost = snapshotCost(vl.productId, baseQuantity, if (vl.kitStock.isEmpty()) emptyList() else vl.stock, catalogSnapshot)
+                insertLineStmt.setObject(14, cost, java.sql.Types.BIGINT)
+                insertLineStmt.setLong(15, vl.factorMillis)
+                insertLineStmt.setString(16, product?.name ?: vl.description)
+                insertLineStmt.setString(17, product?.sku)
+                insertLineStmt.setString(18, product?.unit ?: "PZA")
+                insertLineStmt.setString(19, product?.departmentId)
+                insertLineStmt.setString(20, product?.departmentName)
                 insertLineStmt.executeUpdate()
 
                 lineResponses.add(
@@ -1372,7 +1394,7 @@ class SalesService(
                     """
                     SELECT sl.id, sl.product_id, sl.presentation_id, sl.description, sl.quantity_millis,
                            sl.unit_price_cents, sl.tax_rate, sl.tax_cents, sl.total_cents, sl.kit_stock_json,
-                           p.uses_inventory
+                           sl.base_factor_millis, p.uses_inventory
                     FROM sale_lines sl
                     LEFT JOIN products p ON sl.product_id = p.id
                     WHERE sl.id = ? AND sl.sale_id = ?
@@ -1396,6 +1418,7 @@ class SalesService(
                 val presId = lineRs.getString("presentation_id")
                 val desc = lineRs.getString("description")
                 val usesInventory = lineRs.getBoolean("uses_inventory")
+                val originalFactor = lineRs.getLong("base_factor_millis").let { if (lineRs.wasNull()) null else it }
                 val kitStock = lineRs.getString("kit_stock_json")?.let { json.decodeFromString<List<KitComponent>>(it) }
                 lineRs.close()
                 lineStmt.close()
@@ -1430,7 +1453,7 @@ class SalesService(
                         it.copy(quantityMillis = multiplyStock(it.quantityMillis, reqLine.quantityMillis / 1000L))
                     }
                     usesInventory && prodId != null -> {
-                        val factor = presId?.let { presentationFactor(conn, it) } ?: 1000L
+                        val factor = originalFactor ?: presId?.let { presentationFactor(conn, it) } ?: 1000L
                         listOf(KitComponent(prodId, multiplyStock(reqLine.quantityMillis, factor) / 1000L))
                     }
                     else -> emptyList()

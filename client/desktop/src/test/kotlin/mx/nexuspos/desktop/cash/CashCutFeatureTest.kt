@@ -301,7 +301,7 @@ class CashCutFeatureTest {
         assertTrue(receiptText.contains("$3000.00"))
         assertTrue(receiptText.contains("TOTAL VENTAS BRUTAS:"))
         assertTrue(receiptText.contains("$12500.00"))
-        assertTrue(receiptText.contains("Costo Reposición:"))
+        assertTrue(receiptText.contains("Costo de ventas:"))
         assertTrue(receiptText.contains("$7500.00"))
         assertTrue(receiptText.contains("GANANCIA BRUTA:"))
         assertTrue(receiptText.contains("$5000.00"))
