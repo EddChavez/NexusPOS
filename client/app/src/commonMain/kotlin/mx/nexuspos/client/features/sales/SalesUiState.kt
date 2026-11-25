@@ -71,6 +71,7 @@ data class SalesUiState(
     val isHandingOffShift: Boolean = false,
     val cashDrawerLimitEnabled: Boolean = false,
     val isCashMovementSubmitting: Boolean = false,
+    val isClosingCashSession: Boolean = false,
     val cashMovementError: String? = null,
     val activeCashierName: String = "Cajero Principal",
     val activeCashierId: String = "usr-cajero",

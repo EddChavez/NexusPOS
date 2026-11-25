@@ -15,7 +15,8 @@ fun CashSessionDialog(
     activeSession: CashSessionSummary?,
     onOpenSession: (fundCents: Long) -> Unit,
     onCloseSession: (countedCashCents: Long, notes: String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isClosing: Boolean = false
 ) {
     if (activeSession == null) {
         // Open session mode
@@ -64,7 +65,7 @@ fun CashSessionDialog(
         val differenceCents = (countedCents ?: 0L) - activeSession.expectedCashCents
 
         AlertDialog(
-            onDismissRequest = onDismiss,
+            onDismissRequest = { if (!isClosing) onDismiss() },
             title = {
                 Text("Corte y Cierre de Turno", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             },
@@ -139,14 +140,14 @@ fun CashSessionDialog(
             confirmButton = {
                 Button(
                     onClick = { countedCents?.let { onCloseSession(it, notesText) } },
-                    enabled = countedCents != null,
+                    enabled = countedCents != null && !isClosing,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Cerrar Turno")
+                    Text(if (isClosing) "Cerrando turno…" else "Cerrar turno")
                 }
             },
             dismissButton = {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = onDismiss, enabled = !isClosing) {
                     Text("Cancelar")
                 }
             }

@@ -931,6 +931,7 @@ class SalesViewModel(
     var onSaleCompleted: ((SaleResponse) -> Unit)? = null
     var onOpenCashDrawer: (() -> Unit)? = null
     var onPrintPhysicalReceipt: ((SaleResponse) -> Unit)? = null
+    var onCashSessionClosed: ((CashSessionSummary) -> Unit)? = null
     var scaleReadingProvider: (() -> ScaleReading)? = null
     var autoAcceptScaleWeightProvider: (() -> Boolean)? = null
 
@@ -1419,23 +1420,30 @@ class SalesViewModel(
     }
 
     fun closeCashSession(countedCashCents: Long, notes: String = "") {
-        val sess = _uiState.value.activeSession ?: return
+        val state = _uiState.value
+        if (state.isClosingCashSession) return
+        val sess = state.activeSession ?: return
         if (hasUnconfirmedSales(sess.sessionId)) {
             setErrorMessage("Sincroniza las ventas pendientes de este turno antes de cerrarlo.")
             return
         }
+        if (!_uiState.compareAndSet(state, state.copy(isClosingCashSession = true, errorMessage = null))) return
+        val token = apiClient.sessionToken
         scope.launch {
             val req = CloseSessionRequest(countedCashCents = countedCashCents, notes = notes)
             apiClient.closeSession(sess.sessionId, req).onSuccess { closed ->
+                if (_uiState.value.activeSession?.sessionId == closed.sessionId) activeSessionRequest++
                 _uiState.update {
                     it.copy(
-                        activeSession = null,
+                        activeSession = it.activeSession?.takeUnless { active -> active.sessionId == closed.sessionId },
+                        isClosingCashSession = false,
                         isShowingSessionDialog = false,
                         successMessage = "Corte de caja completado. Diferencia: $${(closed.differenceCents ?: 0L) / 100.0}"
                     )
                 }
+                if (token == apiClient.sessionToken) onCashSessionClosed?.invoke(closed)
             }.onFailure { err ->
-                _uiState.update { it.copy(errorMessage = err.message) }
+                _uiState.update { it.copy(isClosingCashSession = false, errorMessage = err.message) }
             }
         }
     }

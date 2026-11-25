@@ -27,6 +27,7 @@ class CashCutFeatureTest {
         var settings: SettingsDto = SettingsDto(blindCashCountEnabled = false)
     ) : ApiClient() {
         var closedSessionRequest: CloseSessionRequest? = null
+        var closeSessionError: Throwable? = null
         var openedSessionRequest: OpenSessionRequest? = null
 
         override suspend fun getSettings(): Result<SettingsDto> {
@@ -39,6 +40,7 @@ class CashCutFeatureTest {
 
         override suspend fun closeSession(sessionId: String, req: CloseSessionRequest): Result<CashSessionSummary> {
             closedSessionRequest = req
+            closeSessionError?.let { return Result.failure(it) }
             val closed = activeSession?.copy(
                 status = "CLOSED",
                 countedCashCents = req.countedCashCents,
@@ -210,14 +212,14 @@ class CashCutFeatureTest {
         var drawerTriggered = false
         var printInvoked = false
         var isFinalCutArg = false
-        var closedCallbackCalled = false
+        var completedShift: CashSessionSummary? = null
 
         vm.onOpenCashDrawer = { drawerTriggered = true }
         vm.onPrintCashCut = { _, isFinal ->
             printInvoked = true
             isFinalCutArg = isFinal
         }
-        vm.onSessionClosedCallback = { closedCallbackCalled = true }
+        vm.onSessionClosedCallback = { completedShift = it }
 
         vm.onCountedCashChanged("1850.00")
         vm.onNotesChanged("Turno matutino sin incidentes.")
@@ -229,7 +231,8 @@ class CashCutFeatureTest {
         assertTrue(drawerTriggered, "Cash drawer kick pulse should be sent on Corte Z")
         assertTrue(printInvoked, "Print cut ticket must be invoked")
         assertTrue(isFinalCutArg, "isFinalZCut must be true for Corte Z")
-        assertTrue(closedCallbackCalled, "onSessionClosedCallback should be invoked")
+        assertEquals(session.sessionId, completedShift?.sessionId)
+        assertEquals("CLOSED", completedShift?.status)
 
         assertEquals("CLOSED", vm.uiState.value.activeSession?.status)
         assertTrue(vm.uiState.value.isSessionClosedJustNow)
@@ -244,6 +247,24 @@ class CashCutFeatureTest {
         vm.loadCurrentSession()
         vm.reprintPreview()
         assertEquals(session.sessionId, reprintedId)
+    }
+
+    @Test
+    fun failedCloseDoesNotPublishPostCloseOptions() {
+        val session = sampleOpenSession()
+        val api = FakeCashApiClient(activeSession = session).apply {
+            closeSessionError = IllegalStateException("Servidor no disponible")
+        }
+        val vm = CashCutViewModel(api, CoroutineScope(Dispatchers.Unconfined))
+        var completedShift: CashSessionSummary? = null
+        vm.onSessionClosedCallback = { completedShift = it }
+
+        vm.performCorteZ()
+
+        assertNull(completedShift)
+        assertEquals("OPEN", vm.uiState.value.activeSession?.status)
+        assertFalse(vm.uiState.value.isClosingSession)
+        assertTrue(vm.uiState.value.errorMessage.orEmpty().contains("Servidor no disponible"))
     }
 
     @Test

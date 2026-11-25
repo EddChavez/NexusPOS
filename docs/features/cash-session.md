@@ -61,6 +61,8 @@ Cambia la política en **Configuración V2 → Turnos → Solicitar fondo inicia
 
 ### Arqueo y cortes
 
+Después de confirmar el cierre del turno, Desktop ofrece **Salir de NexusPOS** o **Nuevo turno**. Al elegir **Nuevo turno**, la terminal vuelve al PIN y aplica la configuración del fondo de caja. Si el cierre se hizo desde **Cortes**, la confirmación también permite consultar y reimprimir el comprobante.
+
 ```mermaid
 flowchart TD
     Start["Operador presiona [F6] Cortes"] --> Screen["CashCutScreen"]

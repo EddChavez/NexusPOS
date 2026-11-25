@@ -38,6 +38,8 @@ import mx.nexuspos.client.features.auth.SupervisorAction
 import mx.nexuspos.client.features.auth.SupervisorAuthDialog
 import mx.nexuspos.client.features.cash.CashCutScreen
 import mx.nexuspos.client.features.cash.CashCutViewModel
+import mx.nexuspos.client.features.cash.ShiftClosedDialog
+import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
 import mx.nexuspos.client.features.customers.v2.CustomersScreenV2
@@ -92,6 +94,8 @@ import mx.nexuspos.desktop.hardware.PrinterConfigRepository
 import mx.nexuspos.desktop.hardware.PrinterConnectionType
 import mx.nexuspos.desktop.hardware.PrinterDispatcher
 
+private data class ShiftCloseNotice(val summary: CashSessionSummary, val receipt: String? = null)
+
 fun main() = application {
     val windowState = rememberWindowState(width = 1280.dp, height = 820.dp)
     val appConfigRepo = remember { AppConfigRepository() }
@@ -110,6 +114,8 @@ fun main() = application {
         SalesViewModel(apiClient = ApiClient(baseUrl = appConfig.baseUrl), initialRegisterId = appConfig.registerId)
     }
     val authViewModel = remember { AuthViewModel(viewModel.apiClient, loginRegisterId = { appConfig.registerId }) }
+    val desktopScope = rememberCoroutineScope()
+    var shiftCloseNotice by remember { mutableStateOf<ShiftCloseNotice?>(null) }
     var setupState by remember(appConfig.baseUrl) { mutableStateOf<SetupState?>(null) }
     var setupError by remember(appConfig.baseUrl) { mutableStateOf<String?>(null) }
     var setupRetry by remember { mutableIntStateOf(0) }
@@ -161,6 +167,7 @@ fun main() = application {
     }
 
     LaunchedEffect(authState.isAuthenticated) {
+        if (!authState.isAuthenticated) shiftCloseNotice = null
         if (!authState.isAuthenticated && activeModule == AppModule.SETTINGS) {
             settingsViewModel.closeUserDialog()
             activeModule = AppModule.SALES
@@ -467,8 +474,19 @@ fun main() = application {
 
         cashCutViewModel.onOpenCashDrawer = { viewModel.openCashDrawer() }
 
-        cashCutViewModel.onSessionClosedCallback = {
-            viewModel.loadActiveSession()
+        cashCutViewModel.onSessionClosedCallback = { closed ->
+            val receipt = cashCutViewModel.uiState.value.ticketPreviewText
+            desktopScope.launch {
+                if (authViewModel.uiState.value.isAuthenticated && closed.registerId == appConfig.registerId) {
+                    viewModel.loadActiveSession(closed.registerId)
+                    shiftCloseNotice = ShiftCloseNotice(closed, receipt)
+                }
+            }
+        }
+        viewModel.onCashSessionClosed = { closed ->
+            if (authViewModel.uiState.value.isAuthenticated && closed.registerId == appConfig.registerId) {
+                shiftCloseNotice = ShiftCloseNotice(closed)
+            }
         }
     }
 
@@ -823,6 +841,23 @@ fun main() = application {
             TerminalTheme.LIGHT -> false
             TerminalTheme.DARK -> true
         }) {
+            if (authState.isAuthenticated) shiftCloseNotice?.takeIf { it.summary.registerId == appConfig.registerId }?.let { notice ->
+                ShiftClosedDialog(
+                    session = notice.summary,
+                    receipt = notice.receipt,
+                    onNewShift = {
+                        shiftCloseNotice = null
+                        cashCutViewModel.closePreview()
+                        activeModule = AppModule.SALES
+                        authViewModel.lockTerminal()
+                    },
+                    onExit = {
+                        authViewModel.lockTerminal()
+                        exitApplication()
+                    },
+                    onReprint = if (notice.receipt != null) cashCutViewModel::reprintPreview else null
+                )
+            }
             if (setupState == SetupState.NEW) {
                 StoreSetupScreen(viewModel.apiClient, onConfigureConnection = { isShowingServerDialog = true }) { result ->
                     val updated = appConfig.copy(registerId = result.registerId, registerName = result.registerName)

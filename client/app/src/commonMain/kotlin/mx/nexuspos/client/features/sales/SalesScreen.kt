@@ -261,7 +261,8 @@ fun SalesScreen(
                 activeSession = state.activeSession,
                 onOpenSession = { fund -> viewModel.openCashSession(fund) },
                 onCloseSession = { counted, notes -> viewModel.closeCashSession(counted, notes) },
-                onDismiss = { viewModel.showSessionDialog(false) }
+                onDismiss = { viewModel.showSessionDialog(false) },
+                isClosing = state.isClosingCashSession
             )
         }
 

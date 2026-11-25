@@ -29,7 +29,7 @@ class CashCutViewModel(
     var dailyReportFormatter: ((report: DailyFinancialReportDto) -> String)? = null
     private var printPreview: (() -> Unit)? = null
     var hasUnconfirmedSales: (String) -> Boolean = { false }
-    var onSessionClosedCallback: (() -> Unit)? = null
+    var onSessionClosedCallback: ((CashSessionSummary) -> Unit)? = null
 
     init {
         loadCurrentSession()
@@ -169,7 +169,9 @@ class CashCutViewModel(
     }
 
     fun performCorteZ() {
-        val session = _uiState.value.activeSession
+        val state = _uiState.value
+        if (state.isClosingSession) return
+        val session = state.activeSession
         if (session == null || session.status != "OPEN") {
             _uiState.update { it.copy(errorMessage = "La sesión actual ya está cerrada o no existe.") }
             return
@@ -180,8 +182,8 @@ class CashCutViewModel(
             return
         }
 
-        val state = _uiState.value
-        _uiState.update { it.copy(isClosingSession = true, errorMessage = null) }
+        if (!_uiState.compareAndSet(state, state.copy(isClosingSession = true, errorMessage = null))) return
+        val token = apiClient.sessionToken
 
         scope.launch {
             val req = CloseSessionRequest(
@@ -212,7 +214,7 @@ class CashCutViewModel(
                     )
                 }
 
-                onSessionClosedCallback?.invoke()
+                if (token == apiClient.sessionToken) onSessionClosedCallback?.invoke(closedSession)
             }.onFailure { err ->
                 _uiState.update {
                     it.copy(
