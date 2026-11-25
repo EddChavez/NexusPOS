@@ -846,6 +846,7 @@ fun main() = application {
                     viewModel = authViewModel,
                     connectionState = salesState.connectionState,
                     registerId = appConfig.registerId,
+                    registerName = appConfig.registerName,
                     onConfigureServerConnection = { isShowingServerDialog = true },
                     onRecoverRoot = if (setupState == SetupState.READY) ({ recoveringRoot = true }) else null
                 )

@@ -48,10 +48,12 @@ fun LoginScreen(
     registerId: String = "01",
     onConfigureServerConnection: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    onRecoverRoot: (() -> Unit)? = null
+    onRecoverRoot: (() -> Unit)? = null,
+    registerName: String? = null
 ) {
     val state by viewModel.uiState.collectAsState()
     val pinLength = if (state.useRootPin) 6 else 4
+    val registerLabel = registerName?.takeIf { it.isNotBlank() } ?: registerId
 
     Box(
         modifier = modifier
@@ -107,7 +109,7 @@ fun LoginScreen(
                     }
 
                     Text(
-                        text = "Terminal de Punto de Venta • Caja $registerId",
+                        text = "Terminal de Punto de Venta · $registerLabel",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
@@ -336,6 +338,7 @@ fun LoginScreen(
     state.shift?.let { prompt ->
         LoginShiftDialog(
             prompt = prompt,
+            registerLabel = registerLabel.takeIf { prompt.registerId == registerId } ?: prompt.registerId,
             busy = state.isLoading,
             onConfirm = viewModel::confirmLoginShift,
             onRetry = viewModel::retryLoginShift,
@@ -347,6 +350,7 @@ fun LoginScreen(
 @Composable
 private fun LoginShiftDialog(
     prompt: LoginShiftPrompt,
+    registerLabel: String,
     busy: Boolean,
     onConfirm: (String) -> Unit,
     onRetry: () -> Unit,
@@ -363,7 +367,7 @@ private fun LoginShiftDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (requiresFund) {
-                    Text("Ingresa el efectivo inicial para abrir el turno en la caja ${prompt.registerId}.")
+                    Text("Ingresa el efectivo inicial para abrir el turno en $registerLabel.")
                     OutlinedTextField(
                         value = amount,
                         onValueChange = { amount = it },
@@ -387,7 +391,7 @@ private fun LoginShiftDialog(
                     )
                     LaunchedEffect(Unit) { focus.requestFocus() }
                 } else {
-                    Text("Caja ${prompt.registerId}")
+                    Text(registerLabel)
                 }
                 prompt.errorMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
