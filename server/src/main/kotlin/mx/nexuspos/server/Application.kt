@@ -60,6 +60,7 @@ import mx.nexuspos.contracts.catalog.UpdatePresentationPromotionRequest
 import mx.nexuspos.contracts.purchases.ReturnPurchaseRequest
 import mx.nexuspos.contracts.purchases.SaveSupplierRequest
 import mx.nexuspos.contracts.reports.SalesAnalysisRequest
+import mx.nexuspos.contracts.reports.SalesAnalysisGroup
 import mx.nexuspos.contracts.sales.CancelSaleRequest
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -1005,7 +1006,11 @@ fun Application.nexusModule(
             // Financial & Daily Reports
             post("/reports/sales-analysis") {
                 val request = call.receive<SalesAnalysisRequest>()
-                if (request.groupBy == mx.nexuspos.contracts.reports.SalesAnalysisGroup.CUSTOMER) call.access?.require("reports.customer")
+                when (request.groupBy) {
+                    SalesAnalysisGroup.CUSTOMER -> call.access?.require("reports.customer")
+                    SalesAnalysisGroup.ROTATION -> call.access?.require("inventory.report")
+                    else -> Unit
+                }
                 requireSupervisor(request.pin, "SALES_ANALYSIS")
                 call.respond(call.access.projectSalesAnalysis(salesAnalysis.report(request)))
             }

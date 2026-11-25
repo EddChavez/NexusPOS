@@ -128,13 +128,10 @@ Quedan pendientes los esquemas como 3×2, los combos de productos distintos y la
 ### Bloque 4: Inteligencia de Negocio y Control Remoto
 
 #### 4.1. Dashboard de BI y Reportes Analíticos (Pareto 80/20)
-- **Problema:** La administración necesita visibilidad estratégica más allá del corte diario de caja.
-- **Solución Técnica:**
-  - Análisis ABC / Pareto (identificar el 20% de productos que generan el 80% de ingresos).
-  - Mapa de calor de afluencia: Horas y días de la semana con mayor volumen de transacciones para optimizar turnos de personal.
-  - Margen de ganancia bruto y neto por departamento y categoría en periodos mensuales.
-  - Alertas de productos estancados o de nula rotación ("huesos de inventario").
-- **Esfuerzo:** Medio (1 etapa).
+
+**Cortes → Reportes** incluye tres agrupaciones nuevas. **Hora** usa la zona horaria elegida. **Pareto por producto** ordena la venta neta positiva y muestra su participación acumulada. **Rotación de inventario** divide las salidas netas por ventas, incluidos los insumos de kits, entre la existencia promedio al inicio y al cierre. Las tres vistas se pueden exportar a CSV.
+
+Quedan pendientes el mapa de calor por día y hora y las alertas de baja rotación.
 
 #### 4.2. Portal Web / App Móvil para el Propietario (Nexus Cloud Sync)
 - **Problema:** El dueño del negocio no puede ver cómo van las ventas ni el arqueo si no está físicamente en el local.

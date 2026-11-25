@@ -80,6 +80,15 @@ class SalesAnalysisTest {
         val dayOne = Instant.parse("2026-11-24T06:00:00Z").toEpochMilli()
         val dayTwo = Instant.parse("2026-11-25T06:00:00Z").toEpochMilli()
         db.inTransaction { conn ->
+            conn.prepareStatement(
+                "UPDATE stock_movements SET created_at = CASE WHEN type = 'ENTRY' THEN ? ELSE ? END WHERE product_id IN (?, ?)"
+            ).use {
+                it.setLong(1, dayOne - 1)
+                it.setLong(2, dayTwo + 1)
+                it.setString(3, single.id)
+                it.setString(4, ingredient.id)
+                it.executeUpdate()
+            }
             conn.prepareStatement("UPDATE sales SET created_at = ? WHERE id IN (?, ?, ?, ?)").use {
                 it.setLong(1, dayOne)
                 listOf(sold, kitSale, cancelled, legacy).forEachIndexed { index, sale -> it.setString(index + 2, sale.id) }
@@ -116,6 +125,15 @@ class SalesAnalysisTest {
         assertEquals(byDay.totals, byProduct.totals)
         assertEquals(6000L, byProduct.rows.single { it.sku == single.sku }.netQuantityMillis)
         assertEquals(354L, byProduct.rows.single { it.sku == kit.sku }.totals.costCents)
+        val hourly = report(client, request.copy(groupBy = SalesAnalysisGroup.HOUR)).body<SalesAnalysisReport>()
+        assertEquals(byDay.totals, hourly.rows.single { it.key == "00" }.totals)
+        val pareto = report(client, request.copy(groupBy = SalesAnalysisGroup.PARETO)).body<SalesAnalysisReport>()
+        assertEquals(listOf(5000L, 10_000L), pareto.rows.map { it.cumulativeShareBasisPoints })
+        val rotation = report(client, request.copy(groupBy = SalesAnalysisGroup.ROTATION)).body<SalesAnalysisReport>()
+        assertEquals(193_000L, rotation.rows.single { it.sku == single.sku }.averageStockMillis)
+        assertEquals(14_000L, rotation.rows.single { it.sku == single.sku }.stockConsumedMillis)
+        assertEquals(725L, rotation.rows.single { it.sku == single.sku }.turnoverBasisPoints)
+        assertEquals(500L, rotation.rows.single { it.sku == ingredient.sku }.stockConsumedMillis)
         val byDept = report(client, request.copy(groupBy = SalesAnalysisGroup.DEPARTMENT)).body<SalesAnalysisReport>()
         assertEquals(byDay.totals, byDept.totals)
         assertEquals(606L, byDept.rows.single { it.key == "dept-despensa" }.totals.costCents)

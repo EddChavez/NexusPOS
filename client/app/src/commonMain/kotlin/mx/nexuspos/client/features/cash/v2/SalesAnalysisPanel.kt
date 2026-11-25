@@ -144,6 +144,11 @@ internal fun SalesAnalysisPanel(
             if (!filtersApplied) {
                 Text("Hay filtros sin aplicar.", style = MaterialTheme.typography.bodySmall)
             }
+            when (ready.groupBy) {
+                SalesAnalysisGroup.PARETO -> Text("Porcentaje acumulado sobre productos con venta neta positiva.", style = MaterialTheme.typography.bodySmall)
+                SalesAnalysisGroup.ROTATION -> Text("Salidas netas por ventas ÷ existencia promedio al inicio y al cierre.", style = MaterialTheme.typography.bodySmall)
+                else -> Unit
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AnalysisMetric("Ventas brutas", ready.totals.salesCents)
                 AnalysisMetric("Ventas netas", ready.totals.netSalesCents)
@@ -193,6 +198,16 @@ private fun AnalysisRow(row: SalesAnalysisRow, costsVisible: Boolean) {
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AnalysisMetric("Ventas netas", row.totals.netSalesCents)
+                row.cumulativeShareBasisPoints?.let {
+                    MetricValue("Participación acumulada", Money(it).format().removePrefix("$") + "%")
+                }
+                row.averageStockMillis?.let {
+                    MetricValue("Existencia promedio", Quantity(it).format(ProductUnit.fromCode(row.unit.orEmpty())))
+                    row.stockConsumedMillis?.let { consumed ->
+                        MetricValue("Salidas netas", Quantity(consumed).format(ProductUnit.fromCode(row.unit.orEmpty())))
+                    }
+                    MetricValue("Rotación", row.turnoverBasisPoints?.let { rate -> Money(rate / 100).format().removePrefix("$") + "×" } ?: "Sin base")
+                }
                 if (costsVisible) {
                     AnalysisMetric("Costo", row.totals.costCents)
                     AnalysisMetric("Utilidad bruta", row.totals.profitCents)
@@ -209,7 +224,10 @@ private fun SalesAnalysisGroup.displayLabel(): String = when (this) {
     SalesAnalysisGroup.DAY -> "Día"
     SalesAnalysisGroup.PRODUCT -> "Producto"
     SalesAnalysisGroup.DEPARTMENT -> "Departamento"
-        SalesAnalysisGroup.CUSTOMER -> "Cliente"
+    SalesAnalysisGroup.CUSTOMER -> "Cliente"
+    SalesAnalysisGroup.HOUR -> "Hora"
+    SalesAnalysisGroup.PARETO -> "Pareto por producto"
+    SalesAnalysisGroup.ROTATION -> "Rotación de inventario"
 }
 
 private fun parseReportDate(value: String): LocalDate? =

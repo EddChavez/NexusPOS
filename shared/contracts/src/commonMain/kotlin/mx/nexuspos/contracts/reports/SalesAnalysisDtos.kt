@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlin.math.roundToLong
 
 @Serializable
-enum class SalesAnalysisGroup { DAY, PRODUCT, DEPARTMENT, CUSTOMER }
+enum class SalesAnalysisGroup { DAY, PRODUCT, DEPARTMENT, CUSTOMER, HOUR, PARETO, ROTATION }
 
 @Serializable
 data class SalesAnalysisRequest(
@@ -36,7 +36,11 @@ data class SalesAnalysisRow(
     val sku: String? = null,
     val unit: String? = null,
     val netQuantityMillis: Long? = null,
-    val totals: SalesAnalysisTotals
+    val totals: SalesAnalysisTotals,
+    val cumulativeShareBasisPoints: Long? = null,
+    val averageStockMillis: Long? = null,
+    val turnoverBasisPoints: Long? = null,
+    val stockConsumedMillis: Long? = null
 )
 
 @Serializable

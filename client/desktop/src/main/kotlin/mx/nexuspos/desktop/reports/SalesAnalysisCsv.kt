@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import mx.nexuspos.contracts.reports.SalesAnalysisGroup
 import mx.nexuspos.contracts.reports.SalesAnalysisReport
 import mx.nexuspos.contracts.reports.SalesAnalysisTotals
+import mx.nexuspos.contracts.reports.SalesAnalysisRow
 import java.awt.FileDialog
 import java.awt.Frame
 import java.math.BigDecimal
@@ -36,29 +37,45 @@ internal suspend fun exportSalesAnalysisCsv(owner: Frame, report: SalesAnalysisR
 
 internal fun salesAnalysisCsv(report: SalesAnalysisReport): String = buildString {
     append('\uFEFF')
+    val analysisColumns = when (report.groupBy) {
+        SalesAnalysisGroup.PARETO -> ",Participación acumulada (%)"
+        SalesAnalysisGroup.ROTATION -> ",Existencia promedio,Salidas netas,Rotación (veces)"
+        else -> ""
+    }
     appendLine(
         "Desde,Hasta,Zona horaria,Agrupación,Nombre,SKU,Unidad,Cantidad neta," +
             "Ventas sin IVA,Cancelaciones sin IVA,Devoluciones sin IVA,Ventas netas sin IVA" +
-            if (report.costsVisible) ",Costo,Utilidad bruta,Margen bruto (%),Partidas con costo estimado" else ""
+            (if (report.costsVisible) ",Costo,Utilidad bruta,Margen bruto (%),Partidas con costo estimado" else "") + analysisColumns
     )
     val group = when (report.groupBy) {
         SalesAnalysisGroup.DAY -> "Día"
         SalesAnalysisGroup.PRODUCT -> "Producto"
         SalesAnalysisGroup.DEPARTMENT -> "Departamento"
         SalesAnalysisGroup.CUSTOMER -> "Cliente"
+        SalesAnalysisGroup.HOUR -> "Hora"
+        SalesAnalysisGroup.PARETO -> "Pareto por producto"
+        SalesAnalysisGroup.ROTATION -> "Rotación de inventario"
     }
-    fun appendRow(label: String, sku: String?, unit: String?, quantity: Long?, totals: SalesAnalysisTotals) {
+    fun appendRow(label: String, sku: String?, unit: String?, quantity: Long?, totals: SalesAnalysisTotals, row: SalesAnalysisRow? = null) {
         val fields = listOf(
             csvText(report.fromDate), csvText(report.toDate), csvText(report.timeZone), csvText(group), csvText(label),
             csvText(sku.orEmpty()), csvText(unit.orEmpty()), quantity?.let { BigDecimal.valueOf(it, 3).toPlainString() }.orEmpty(),
             decimal(totals.salesCents), decimal(totals.cancellationsCents), decimal(totals.refundsCents),
             decimal(totals.netSalesCents)
-        ) + if (report.costsVisible) listOf(
+        ) + (if (report.costsVisible) listOf(
             decimal(totals.costCents), decimal(totals.profitCents), totals.marginBasisPoints?.let(::decimal).orEmpty(), totals.estimatedCostEvents.toString()
-        ) else emptyList()
+        ) else emptyList()) + when (report.groupBy) {
+            SalesAnalysisGroup.PARETO -> listOf(row?.cumulativeShareBasisPoints?.let(::decimal).orEmpty())
+            SalesAnalysisGroup.ROTATION -> listOf(
+                row?.averageStockMillis?.let { BigDecimal.valueOf(it, 3).toPlainString() }.orEmpty(),
+                row?.stockConsumedMillis?.let { BigDecimal.valueOf(it, 3).toPlainString() }.orEmpty(),
+                row?.turnoverBasisPoints?.let { BigDecimal.valueOf(it, 4).toPlainString() }.orEmpty()
+            )
+            else -> emptyList()
+        }
         appendLine(fields.joinToString(","))
     }
-    report.rows.forEach { appendRow(it.label, it.sku, it.unit, it.netQuantityMillis, it.totals) }
+    report.rows.forEach { appendRow(it.label, it.sku, it.unit, it.netQuantityMillis, it.totals, it) }
     appendRow("Total", null, null, null, report.totals)
 }
 

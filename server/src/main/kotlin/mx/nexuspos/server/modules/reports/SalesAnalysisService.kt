@@ -6,6 +6,9 @@ import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.ValidationException
 import java.math.BigInteger
 import java.sql.ResultSet
+import java.sql.Connection
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.DateTimeException
 import java.time.Instant
 import java.time.LocalDate
@@ -44,16 +47,91 @@ class SalesAnalysisService(private val db: DatabaseFactory) {
                     }
                 }
             }
+            val stock = if (request.groupBy == SalesAnalysisGroup.ROTATION) stockForPeriod(conn, start, endExclusive) else emptyMap()
             val rows = groups.map { (key, bucket) ->
-                SalesAnalysisRow(key, bucket.label, bucket.sku, bucket.unit, bucket.quantity.takeIf { bucket.unit != null }, bucket.totals.result())
+                val row = SalesAnalysisRow(key, bucket.label, bucket.sku, bucket.unit, bucket.quantity.takeIf { bucket.unit != null }, bucket.totals.result())
+                val inventory = stock[bucket.productId]
+                if (inventory == null) row else row.withStock(inventory)
             }
+            val salesOrder = compareByDescending<SalesAnalysisRow> { it.totals.netSalesCents }.thenBy { it.label }.thenBy { it.key }
             val sorted = when (request.groupBy) {
-                SalesAnalysisGroup.DAY -> rows.sortedBy { it.label }
-                else -> rows.sortedWith(compareByDescending<SalesAnalysisRow> { it.totals.netSalesCents }.thenBy { it.label }.thenBy { it.key })
+                SalesAnalysisGroup.DAY, SalesAnalysisGroup.HOUR -> rows.sortedBy { it.key }
+                SalesAnalysisGroup.PARETO -> {
+                    val ranking = rows.filter { it.totals.netSalesCents > 0 }.sortedWith(salesOrder)
+                    val positiveTotal = ranking.fold(BigInteger.ZERO) { sum, row -> sum + BigInteger.valueOf(row.totals.netSalesCents) }
+                    var cumulative = BigInteger.ZERO
+                    ranking.map {
+                        cumulative += BigInteger.valueOf(it.totals.netSalesCents)
+                        it.copy(cumulativeShareBasisPoints = basisPoints(cumulative, positiveTotal))
+                    }
+                }
+                SalesAnalysisGroup.ROTATION -> {
+                    val sold = groups.values.mapNotNull { it.productId }.toSet()
+                    val withoutSales = stock.values.filter { it.id !in sold && (it.consumed != 0L || (it.active && it.average > 0)) }.map {
+                        SalesAnalysisRow("stock:${it.id}", it.name, it.sku, it.unit, 0, SalesAnalysisTotals()).withStock(it)
+                    }
+                    (rows.filter { it.averageStockMillis != null } + withoutSales)
+                        .sortedWith(compareByDescending<SalesAnalysisRow> { it.turnoverBasisPoints ?: -1L }.thenBy { it.label }.thenBy { it.key })
+                }
+                else -> rows.sortedWith(salesOrder)
             }
             SalesAnalysisReport(request.fromDate, request.toDate, zone.id, request.groupBy, grand.result(), sorted)
         }
     }
+
+    private data class PeriodStock(
+        val id: String, val name: String, val sku: String, val unit: String,
+        val active: Boolean, val average: Long, val consumed: Long
+    )
+
+    private fun stockForPeriod(connection: Connection, start: Long, end: Long): Map<String, PeriodStock> =
+        connection.prepareStatement(
+            """
+            SELECT p.id, p.name, p.sku, p.base_unit, p.is_active,
+                   COALESCE(b.quantity_millis, 0) - COALESCE(m.since_start, 0) AS opening,
+                   COALESCE(b.quantity_millis, 0) - COALESCE(m.since_end, 0) AS closing,
+                   COALESCE(m.consumed, 0) AS consumed
+            FROM products p LEFT JOIN stock_balances b ON b.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id, SUM(quantity_millis) AS since_start,
+                       SUM(CASE WHEN created_at >= ? THEN quantity_millis ELSE 0 END) AS since_end,
+                       -SUM(CASE WHEN created_at < ? AND type IN ('SALE', 'REFUND') THEN quantity_millis ELSE 0 END) AS consumed
+                FROM stock_movements WHERE created_at >= ? GROUP BY product_id
+            ) m ON m.product_id = p.id
+            WHERE p.uses_inventory = TRUE
+            """.trimIndent()
+        ).use {
+            it.setLong(1, end)
+            it.setLong(2, end)
+            it.setLong(3, start)
+            it.executeQuery().use { rs ->
+                buildMap {
+                    while (rs.next()) {
+                        val opening = rs.getLong("opening")
+                        val closing = rs.getLong("closing")
+                        if (opening < 0 || closing < 0) continue
+                        val average = opening / 2 + closing / 2 + (opening % 2 + closing % 2) / 2
+                        val id = rs.getString("id")
+                        put(id, PeriodStock(
+                            id, rs.getString("name"), rs.getString("sku"), rs.getString("base_unit"),
+                            rs.getBoolean("is_active"), average, rs.getLong("consumed")
+                        ))
+                    }
+                }
+            }
+        }
+
+    private fun SalesAnalysisRow.withStock(inventory: PeriodStock) = copy(
+        averageStockMillis = inventory.average,
+        stockConsumedMillis = inventory.consumed,
+        turnoverBasisPoints = if (inventory.average > 0) basisPoints(
+            BigInteger.valueOf(inventory.consumed.coerceAtLeast(0)), BigInteger.valueOf(inventory.average)
+        ) else null
+    )
+
+    private fun basisPoints(amount: BigInteger, total: BigInteger): Long =
+        BigDecimal(amount).movePointRight(4).divide(BigDecimal(total), 0, RoundingMode.HALF_UP)
+            .toBigInteger().min(BigInteger.valueOf(Long.MAX_VALUE)).toLong()
 
     private fun ResultSet.entry(): ReportEvent {
         val kind = getString("event_kind")
@@ -97,10 +175,13 @@ class SalesAnalysisService(private val db: DatabaseFactory) {
         val customerId: String?, val customerName: String?
     ) {
         fun localDay(zone: ZoneId): String = Instant.ofEpochMilli(date).atZone(zone).toLocalDate().toString()
+        fun localHour(zone: ZoneId): String = Instant.ofEpochMilli(date).atZone(zone).hour.toString().padStart(2, '0')
 
         fun key(group: SalesAnalysisGroup, zone: ZoneId): String = when (group) {
             SalesAnalysisGroup.DAY -> localDay(zone)
-            SalesAnalysisGroup.PRODUCT -> "${productId?.let { "product:$it" } ?: "manual:$product"}:$unit"
+            SalesAnalysisGroup.HOUR -> localHour(zone)
+            SalesAnalysisGroup.PRODUCT, SalesAnalysisGroup.PARETO, SalesAnalysisGroup.ROTATION ->
+                "${productId?.let { "product:$it" } ?: "manual:$product"}:$unit"
             SalesAnalysisGroup.DEPARTMENT -> departmentId ?: ""
             SalesAnalysisGroup.CUSTOMER -> customerId ?: ""
         }
@@ -111,16 +192,19 @@ class SalesAnalysisService(private val db: DatabaseFactory) {
         var label = ""
         var sku: String? = null
         var unit: String? = null
+        var productId: String? = null
         var quantity = 0L
 
         fun accept(event: ReportEvent, group: SalesAnalysisGroup, zone: ZoneId) {
             label = when (group) {
                 SalesAnalysisGroup.DAY -> event.localDay(zone)
-                SalesAnalysisGroup.PRODUCT -> event.product
+                SalesAnalysisGroup.HOUR -> "${event.localHour(zone)}:00–${event.localHour(zone)}:59"
+                SalesAnalysisGroup.PRODUCT, SalesAnalysisGroup.PARETO, SalesAnalysisGroup.ROTATION -> event.product
                 SalesAnalysisGroup.DEPARTMENT -> event.department ?: "Sin departamento"
                 SalesAnalysisGroup.CUSTOMER -> event.customerName ?: "Público general"
             }
-            if (group == SalesAnalysisGroup.PRODUCT) {
+            if (group in setOf(SalesAnalysisGroup.PRODUCT, SalesAnalysisGroup.PARETO, SalesAnalysisGroup.ROTATION)) {
+                productId = event.productId
                 sku = event.sku
                 unit = event.unit
                 quantity = checkedTotal(quantity, if (event.kind == "SALE") event.quantity else -event.quantity)
