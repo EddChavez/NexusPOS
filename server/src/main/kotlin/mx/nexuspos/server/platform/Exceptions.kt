@@ -32,3 +32,7 @@ class ForbiddenException(message: String) :
 
 class IdempotencyMismatchException(message: String) :
     AppException("IDEMPOTENCY_MISMATCH", message)
+
+
+class StockChangedException(message: String) :
+    AppException("STOCK_CHANGED", message)

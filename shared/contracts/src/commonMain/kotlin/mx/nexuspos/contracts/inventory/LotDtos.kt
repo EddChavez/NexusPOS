@@ -38,7 +38,8 @@ data class CreateProductLotRequest(
     val quantityMillis: Long,
     val costCents: Long = 0L,
     val notes: String = "",
-    val addToGeneralStock: Boolean = true
+    val addToGeneralStock: Boolean = true,
+    val userId: String = "usr-admin"
 )
 
 @Serializable

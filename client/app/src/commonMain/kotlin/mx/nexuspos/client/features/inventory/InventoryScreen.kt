@@ -176,8 +176,8 @@ fun InventoryScreen(
                 KardexPanel(
                     movements = state.movements,
                     isLoading = state.isMovementsLoading,
-                    selectedProduct = state.selectedProduct,
-                    onClearProductFilter = { viewModel.selectProduct(null) },
+                    selectedProduct = state.movementProduct,
+                    onClearProductFilter = { viewModel.selectMovementProduct(null) },
                     modifier = Modifier.fillMaxWidth().weight(1f)
                 )
             }

@@ -31,9 +31,10 @@ class ProductLotsService(private val db: DatabaseFactory) {
             val prodStmt = conn.prepareStatement(
                 """
                 SELECT p.id, p.sku, p.name, p.base_unit, p.cost_cents, p.is_perishable, p.shelf_life_alert_days,
+                       EXISTS(SELECT 1 FROM product_kit_components k WHERE k.kit_product_id = p.id) AS is_kit,
                        COALESCE((SELECT barcode FROM product_presentations WHERE product_id = p.id ORDER BY factor_millis ASC LIMIT 1), 'S/C') as barcode
                 FROM products p
-                WHERE p.id = ?
+                WHERE p.id = ? AND p.is_active = TRUE
                 """.trimIndent()
             )
             prodStmt.setString(1, req.productId)
@@ -44,6 +45,11 @@ class ProductLotsService(private val db: DatabaseFactory) {
                 throw NotFoundException("Producto con ID '${req.productId}' no encontrado")
             }
 
+            if (prodRs.getBoolean("is_kit")) {
+                prodRs.close()
+                prodStmt.close()
+                throw ValidationException("Registra los lotes en los componentes del kit.")
+            }
             val prodSku = prodRs.getString("sku")
             val prodName = prodRs.getString("name")
             val baseUnit = prodRs.getString("base_unit")
@@ -152,7 +158,7 @@ class ProductLotsService(private val db: DatabaseFactory) {
                 val movStmt = conn.prepareStatement(
                     """
                     INSERT INTO stock_movements (id, product_id, type, quantity_millis, reason, reference, user_id, created_at)
-                    VALUES (?, ?, 'ENTRY', ?, ?, ?, 'usr-admin', ?)
+                    VALUES (?, ?, 'ENTRY', ?, ?, ?, ?, ?)
                     """.trimIndent()
                 )
                 movStmt.setString(1, "mov-" + UUID.randomUUID().toString().take(12))
@@ -160,7 +166,8 @@ class ProductLotsService(private val db: DatabaseFactory) {
                 movStmt.setLong(3, req.quantityMillis)
                 movStmt.setString(4, "Ingreso de Lote $cleanLotNum")
                 movStmt.setString(5, "LOTE:$cleanLotNum VENCE:${req.expirationDate.trim()}")
-                movStmt.setLong(6, now)
+                movStmt.setString(6, req.userId)
+                movStmt.setLong(7, now)
                 movStmt.executeUpdate()
                 movStmt.close()
             }

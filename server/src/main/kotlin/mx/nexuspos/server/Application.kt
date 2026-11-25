@@ -149,7 +149,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 is NotFoundException -> HttpStatusCode.NotFound
                 is UnauthorizedException -> HttpStatusCode.Unauthorized
                 is ForbiddenException -> HttpStatusCode.Forbidden
-                is PriceChangedException, is IdempotencyMismatchException, is SessionClosedException -> HttpStatusCode.Conflict
+                is PriceChangedException, is IdempotencyMismatchException, is SessionClosedException, is StockChangedException -> HttpStatusCode.Conflict
                 is ValidationException -> HttpStatusCode.BadRequest
                 is CreditLimitExceededException, is InsufficientStockException -> HttpStatusCode.UnprocessableEntity
                 else -> HttpStatusCode.InternalServerError

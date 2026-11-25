@@ -22,10 +22,17 @@ enum class StockFilter {
     OUT_OF_STOCK
 }
 
+fun StockFilter.includes(product: ProductDto): Boolean = when (this) {
+    StockFilter.ALL -> true
+    StockFilter.LOW_STOCK -> product.usesInventory && product.currentStockMillis in 1L..product.minStockMillis
+    StockFilter.OUT_OF_STOCK -> product.usesInventory && product.currentStockMillis <= 0L
+}
+
 data class InventoryUiState(
     val summary: InventorySummaryDto? = null,
     val products: List<ProductDto> = emptyList(),
     val movements: List<StockMovementDto> = emptyList(),
+    val movementProduct: ProductDto? = null,
     val departments: List<DepartmentDto> = emptyList(),
     val selectedProduct: ProductDto? = null,
     val selectedDepartmentId: String? = null,

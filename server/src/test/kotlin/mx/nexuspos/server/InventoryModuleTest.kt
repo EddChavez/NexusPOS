@@ -131,8 +131,15 @@ class InventoryModuleTest {
             quantityMillis = -2000L,
             reason = "Ajuste por conteo físico mensual",
             reference = "INV-MENSUAL",
-            userId = "usr-supervisor"
+            userId = "usr-supervisor",
+            expectedStockMillis = 27000L
         )
+        val staleCount = client.post("/api/v1/inventory/movements") {
+            contentType(ContentType.Application.Json)
+            setBody(adjustReq.copy(expectedStockMillis = 30000L))
+        }
+        assertEquals(HttpStatusCode.Conflict, staleCount.status)
+        assertEquals(27000L, client.get("/api/v1/products/${product.id}").body<ProductDto>().currentStockMillis)
         val adjustRes = client.post("/api/v1/inventory/movements") {
             contentType(ContentType.Application.Json)
             setBody(adjustReq)
@@ -150,6 +157,8 @@ class InventoryModuleTest {
         // Al menos debe tener el movimiento inicial de creación + ENTRY + LOSS + ADJUSTMENT = 4
         assertTrue(movements.size >= 4)
         assertEquals("ADJUSTMENT", movements[0].type)
+        assertEquals("PZA", movements[0].baseUnit)
+        assertEquals("usr-supervisor", movements[0].userId)
         assertEquals("LOSS", movements[1].type)
         assertEquals("ENTRY", movements[2].type)
     }

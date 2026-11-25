@@ -15,7 +15,8 @@ data class StockMovementDto(
     val reference: String = "",
     val userId: String,
     val userName: String? = null,
-    val createdAt: Long
+    val createdAt: Long,
+    val baseUnit: String? = null
 )
 
 @Serializable
@@ -25,7 +26,8 @@ data class RegisterStockMovementRequest(
     val quantityMillis: Long, // positive for entry/increase, negative for loss/decrease
     val reason: String,
     val reference: String = "",
-    val userId: String = "usr-cajero"
+    val userId: String = "usr-cajero",
+    val expectedStockMillis: Long? = null
 )
 
 @Serializable

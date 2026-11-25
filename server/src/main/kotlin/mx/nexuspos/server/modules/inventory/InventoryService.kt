@@ -9,6 +9,7 @@ import mx.nexuspos.contracts.inventory.StockMovementDto
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.NotFoundException
 import mx.nexuspos.server.platform.ValidationException
+import mx.nexuspos.server.platform.StockChangedException
 import java.util.UUID
 import kotlin.math.abs
 
@@ -54,7 +55,7 @@ class InventoryService(private val db: DatabaseFactory) {
     ): List<StockMovementDto> {
         return db.inTransaction { conn ->
             val sql = StringBuilder("""
-                SELECT sm.id, sm.product_id, p.name as product_name, p.sku as product_sku,
+                SELECT sm.id, sm.product_id, p.name as product_name, p.sku as product_sku, p.base_unit,
                        sm.type, sm.quantity_millis, sm.reason, sm.reference, sm.user_id,
                        COALESCE(u.name, 'Cajero Principal') as user_name, sm.created_at
                 FROM stock_movements sm
@@ -96,7 +97,8 @@ class InventoryService(private val db: DatabaseFactory) {
                         reference = rs.getString("reference") ?: "",
                         userId = rs.getString("user_id"),
                         userName = rs.getString("user_name"),
-                        createdAt = rs.getLong("created_at")
+                        createdAt = rs.getLong("created_at"),
+                        baseUnit = rs.getString("base_unit")
                     )
                 )
             }
@@ -115,7 +117,7 @@ class InventoryService(private val db: DatabaseFactory) {
 
         return db.inTransaction { conn ->
             // 1. Verificar producto
-            val prodStmt = conn.prepareStatement("SELECT id, name, sku, uses_inventory FROM products WHERE id = ?")
+            val prodStmt = conn.prepareStatement("SELECT id, name, sku, base_unit, uses_inventory FROM products WHERE id = ?")
             prodStmt.setString(1, req.productId)
             val prodRs = prodStmt.executeQuery()
             if (!prodRs.next()) {
@@ -125,6 +127,7 @@ class InventoryService(private val db: DatabaseFactory) {
             }
             val prodName = prodRs.getString("name")
             val prodSku = prodRs.getString("sku")
+            val unit = prodRs.getString("base_unit")
             val usesInventory = prodRs.getBoolean("uses_inventory")
             prodRs.close()
             prodStmt.close()
@@ -140,6 +143,10 @@ class InventoryService(private val db: DatabaseFactory) {
             val currentStock = if (balRs.next()) balRs.getLong("quantity_millis") else 0L
             balRs.close()
             balStmt.close()
+
+            if (req.expectedStockMillis != null && req.expectedStockMillis != currentStock) {
+                throw StockChangedException("El saldo de inventario cambió. Revisa la existencia actual antes de confirmar el conteo.")
+            }
 
             // 3. Calcular delta según tipo
             val deltaMillis = when (movementType) {
@@ -211,7 +218,8 @@ class InventoryService(private val db: DatabaseFactory) {
                 reference = req.reference.trim(),
                 userId = req.userId,
                 userName = "Cajero",
-                createdAt = now
+                createdAt = now,
+                baseUnit = unit
             )
         }
     }

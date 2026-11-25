@@ -143,7 +143,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getProduct(id: String): Result<ProductDto> {
+    open suspend fun getProduct(id: String): Result<ProductDto> {
         return try {
             val res = http.get("$baseUrl/api/v1/products/$id")
             if (res.status.isSuccess()) {
@@ -342,7 +342,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getInventorySummary(): Result<InventorySummaryDto> {
+    open suspend fun getInventorySummary(): Result<InventorySummaryDto> {
         return try {
             val res = http.get("$baseUrl/api/v1/inventory/summary")
             if (res.status.isSuccess()) {
@@ -376,7 +376,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun getStockMovements(
+    open suspend fun getStockMovements(
         productId: String? = null,
         type: String? = null,
         limit: Int = 100
@@ -398,7 +398,7 @@ open class ApiClient(
         }
     }
 
-    suspend fun registerStockMovement(req: RegisterStockMovementRequest): Result<StockMovementDto> {
+    open suspend fun registerStockMovement(req: RegisterStockMovementRequest): Result<StockMovementDto> {
         return try {
             val res = http.post("$baseUrl/api/v1/inventory/movements") {
                 contentType(ContentType.Application.Json)

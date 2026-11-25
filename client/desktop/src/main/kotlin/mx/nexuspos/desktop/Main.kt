@@ -38,8 +38,12 @@ import mx.nexuspos.client.features.customers.CustomersScreen
 import mx.nexuspos.client.features.customers.CustomersViewModel
 import mx.nexuspos.client.features.customers.v2.CustomersScreenV2
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.inventory.ReorderSuggestionItemDto
 import mx.nexuspos.desktop.hardware.WhatsAppDispatcher
 import mx.nexuspos.client.features.inventory.InventoryScreen
+import mx.nexuspos.client.features.inventory.InventoryTab
+import mx.nexuspos.client.features.inventory.includes
+import mx.nexuspos.client.features.inventory.v2.InventoryScreenV2
 import mx.nexuspos.client.features.inventory.InventoryViewModel
 import mx.nexuspos.desktop.inventory.ReorderExportHelper
 import mx.nexuspos.client.features.products.ProductsScreen
@@ -537,12 +541,20 @@ fun main() = application {
                             productsViewModel.openCreateDialog()
                             true
                         } else if (activeModule == AppModule.INVENTORY) {
-                            val sel = inventoryViewModel.uiState.value.selectedProduct
-                            if (sel != null) {
+                            val inventory = inventoryViewModel.uiState.value
+                            val item = inventory.selectedProduct?.takeIf {
+                                it.usesInventory && it.kitComponents.isEmpty() && it.isActive
+                            }
+                            val visible = item != null && !inventory.isLoading && inventory.activeTab == InventoryTab.STOCK_TABLE &&
+                                inventory.stockFilter.includes(item) && inventory.products.any { it.id == item.id }
+                            val canAdjust = !inventory.isSubmitting && !inventory.showMovementDialog &&
+                                !inventory.showCreateLotDialog && inventory.lotForWriteOff == null &&
+                                (appConfig.salesUiVersion != "V2" || visible)
+                            if (canAdjust && item != null) {
                                 if (salesState.activeCashierRole == "CASHIER") {
-                                    authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(sel))
+                                    authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(item))
                                 } else {
-                                    inventoryViewModel.openMovementDialog(sel)
+                                    inventoryViewModel.openMovementDialog(item)
                                 }
                                 true
                             } else false
@@ -690,6 +702,12 @@ fun main() = application {
                             true
                         } else if (inventoryViewModel.uiState.value.showMovementDialog) {
                             inventoryViewModel.closeMovementDialog()
+                            true
+                        } else if (inventoryViewModel.uiState.value.showCreateLotDialog) {
+                            inventoryViewModel.closeCreateLotDialog()
+                            true
+                        } else if (inventoryViewModel.uiState.value.lotForWriteOff != null) {
+                            inventoryViewModel.closeLotWriteOffDialog()
                             true
                         } else if (settingsViewModel.uiState.value.showUserDialog) {
                             settingsViewModel.closeUserDialog()
@@ -891,60 +909,69 @@ fun main() = application {
                                     }
                                 }
                                 AppModule.INVENTORY -> {
-                                    InventoryScreen(
-                                        viewModel = inventoryViewModel,
-                                        onRequestAdjustStock = { product ->
-                                            if (salesState.activeCashierRole == "CASHIER") {
-                                                authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(product))
-                                            } else {
-                                                inventoryViewModel.openMovementDialog(product)
-                                            }
-                                        },
-                                        onExportReorderCsv = { items ->
-                                            val csv = ReorderExportHelper.generateCsvContent(items)
-                                            try {
-                                                val file = java.io.File(System.getProperty("user.home"), "pedido_sugerido_${System.currentTimeMillis()}.csv")
-                                                file.writeText(csv)
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
-                                            }
-                                        },
-                                        onCopyReorderWhatsApp = { items ->
-                                            val text = ReorderExportHelper.generateWhatsAppText(
+                                    val requestAdjustment: (ProductDto) -> Unit = { product ->
+                                        if (salesState.activeCashierRole == "CASHIER") {
+                                            authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(product))
+                                        } else {
+                                            inventoryViewModel.openMovementDialog(product)
+                                        }
+                                    }
+                                    val exportReorder: (List<ReorderSuggestionItemDto>) -> Unit = { items ->
+                                        val csv = ReorderExportHelper.generateCsvContent(items)
+                                        try {
+                                            val file = java.io.File(System.getProperty("user.home"), "pedido_sugerido_${System.currentTimeMillis()}.csv")
+                                            file.writeText(csv)
+                                        } catch (error: Exception) {
+                                            error.printStackTrace()
+                                        }
+                                    }
+                                    val copyReorder: (List<ReorderSuggestionItemDto>) -> Unit = { items ->
+                                        val text = ReorderExportHelper.generateWhatsAppText(
+                                            items = items,
+                                            storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
+                                        )
+                                        WhatsAppDispatcher.copyToClipboard(text)
+                                    }
+                                    val printReorder: (List<ReorderSuggestionItemDto>) -> Unit = { items ->
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            printerDispatcher.printReorderList(
                                                 items = items,
-                                                storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
+                                                settings = null,
+                                                departmentName = null,
+                                                config = printerConfig
                                             )
-                                            try {
-                                                val selection = java.awt.datatransfer.StringSelection(text)
-                                                java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
-                                            }
-                                        },
-                                        onPrintReorderTicket = { items ->
+                                        }
+                                    }
+                                    val printLots: () -> Unit = {
+                                        val report = inventoryViewModel.uiState.value.lotsReport
+                                        if (report != null) {
                                             CoroutineScope(Dispatchers.IO).launch {
-                                                printerDispatcher.printReorderList(
-                                                    items = items,
-                                                    settings = null,
-                                                    departmentName = null,
-                                                    config = printerConfig
-                                                )
+                                                printerDispatcher.printExpirationsReport(report, null, printerConfig)
                                             }
-                                        },
-                                        onPrintLotsReport = {
-                                            val rep = inventoryViewModel.uiState.value.lotsReport
-                                            if (rep != null) {
-                                                CoroutineScope(Dispatchers.IO).launch {
-                                                    printerDispatcher.printExpirationsReport(
-                                                        report = rep,
-                                                        settings = null,
-                                                        config = printerConfig
-                                                    )
-                                                }
-                                            }
-                                        },
-                                        onBackToSales = { activeModule = AppModule.SALES }
-                                    )
+                                        }
+                                    }
+                                    if (isV2) {
+                                        InventoryScreenV2(
+                                            viewModel = inventoryViewModel,
+                                            cashierUserId = salesState.activeCashierId,
+                                            onRequestAdjustStock = requestAdjustment,
+                                            onExportReorderCsv = exportReorder,
+                                            onCopyReorderWhatsApp = copyReorder,
+                                            onPrintReorderTicket = printReorder,
+                                            onPrintLotsReport = printLots,
+                                            onStockChanged = viewModel::preloadCatalogCache
+                                        )
+                                    } else {
+                                        InventoryScreen(
+                                            viewModel = inventoryViewModel,
+                                            onRequestAdjustStock = requestAdjustment,
+                                            onExportReorderCsv = exportReorder,
+                                            onCopyReorderWhatsApp = copyReorder,
+                                            onPrintReorderTicket = printReorder,
+                                            onPrintLotsReport = printLots,
+                                            onBackToSales = { activeModule = AppModule.SALES }
+                                        )
+                                    }
                                 }
                                 AppModule.SETTINGS -> {
                                     SettingsScreen(
