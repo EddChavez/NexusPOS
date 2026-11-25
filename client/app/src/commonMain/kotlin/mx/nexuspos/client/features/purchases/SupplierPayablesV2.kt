@@ -52,7 +52,7 @@ internal fun SupplierPayablesList(state: PurchasesState, viewModel: PurchasesVie
 }
 
 @Composable
-internal fun SupplierPayablePane(state: PurchasesState, viewModel: PurchasesViewModel, permissions: Set<String>) {
+internal fun SupplierPayablePane(state: PurchasesState, viewModel: PurchasesViewModel, permissions: Set<String>, cashSessionId: String?) {
     val detail = state.payable
     val invoice = state.payableInvoice
     val editable = !state.loading && !state.saving && !state.awaitingConfirmation
@@ -89,7 +89,7 @@ internal fun SupplierPayablePane(state: PurchasesState, viewModel: PurchasesView
         PayableBalance(account)
         Text("Factura ${Money(account.totalCents).format()} · Devuelto ${Money(account.returnedCents).format()} · Pagado ${Money(account.paidCents).format()}")
         if (showPayment && canPay) {
-            SupplierPaymentForm(account.balanceCents, state, viewModel) { showPayment = false }
+            SupplierPaymentForm(account.balanceCents, state, viewModel, cashSessionId.takeIf { "cash.out" in permissions }) { showPayment = false }
         } else if (canPay) {
             Button(onClick = { showPayment = true }, enabled = editable) { Text("Registrar abono") }
         }
@@ -104,6 +104,7 @@ internal fun SupplierPayablePane(state: PurchasesState, viewModel: PurchasesView
                         Column {
                             Text("${payment.operatorName} · ${formatShiftHistoryTimestamp(payment.createdAt, true)}")
                             if (payment.reference.isNotBlank()) Text(payment.reference)
+                            if (payment.cashMovementId != null) Text("Salida de caja · ${payment.cashMovementId}")
                         }
                     }
                 )
@@ -114,14 +115,23 @@ internal fun SupplierPayablePane(state: PurchasesState, viewModel: PurchasesView
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SupplierPaymentForm(balance: Long, state: PurchasesState, viewModel: PurchasesViewModel, onCancel: () -> Unit) {
+private fun SupplierPaymentForm(
+    balance: Long, state: PurchasesState, viewModel: PurchasesViewModel, cashSessionId: String?, onCancel: () -> Unit
+) {
     val key = remember { purchaseKey() }
     var amount by remember { mutableStateOf("") }
     var method by remember { mutableStateOf(SupplierPaymentMethod.TRANSFER) }
     var reference by remember { mutableStateOf("") }
+    var attemptedSession by remember { mutableStateOf<String?>(null) }
+    val cash = method == SupplierPaymentMethod.CASH
+    val session = if (!cash) null else if (state.awaitingConfirmation) attemptedSession else cashSessionId
     val cents = parsePurchaseDecimal(amount, 2)?.takeIf { it in 1..balance }
     val editable = !state.loading && !state.saving && !state.awaitingConfirmation
-    Text("Registra un pago ya realizado. El registro queda en la cuenta del proveedor.")
+    Text(
+        if (!cash) "Registra un pago ya realizado."
+        else if (session == null) "Necesitas un turno propio abierto y permiso para registrar salidas."
+        else "El abono generará una salida en tu turno de caja."
+    )
     PurchaseField("Importe", amount, { amount = it.take(24) }, enabled = editable, error = amount.isNotBlank() && cents == null)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SupplierPaymentMethod.entries.forEach { option ->
@@ -130,8 +140,9 @@ private fun SupplierPaymentForm(balance: Long, state: PurchasesState, viewModel:
         TextButton({ amount = purchaseDecimal(balance, 2) }, enabled = editable) { Text("Usar saldo completo") }
     }
     PurchaseField("Referencia (opcional)", reference, { reference = it.take(120) }, enabled = editable)
-    PurchaseConfirmation("Guardar pago", state.saving, cents != null, { pin ->
-        cents?.let { viewModel.paySupplier(pin, RecordSupplierPaymentRequest(key, it, method, reference)) }
+    PurchaseConfirmation("Guardar pago", state.saving, cents != null && (!cash || session != null), { pin ->
+        attemptedSession = session
+        cents?.let { viewModel.paySupplier(pin, RecordSupplierPaymentRequest(key, it, method, reference, session)) }
     }, amount = cents)
     TextButton(onCancel, enabled = editable) { Text("Cancelar abono") }
 }

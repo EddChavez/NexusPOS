@@ -46,7 +46,7 @@ internal fun readSupplierPayableDetail(connection: Connection, receiptId: String
                     SupplierPayment(
                         rows.getString("id"), rows.getLong("amount_cents"),
                         SupplierPaymentMethod.valueOf(rows.getString("method")), rows.getString("reference"),
-                        rows.getString("operator_name"), rows.getLong("created_at")
+                        rows.getString("operator_name"), rows.getLong("created_at"), rows.getString("cash_movement_id")
                     )
                 )
             }

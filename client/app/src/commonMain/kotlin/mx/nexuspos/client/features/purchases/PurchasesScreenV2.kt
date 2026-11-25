@@ -24,7 +24,7 @@ import mx.nexuspos.core.Quantity
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PurchasesScreenV2(viewModel: PurchasesViewModel, permissions: Set<String> = emptySet()) {
+fun PurchasesScreenV2(viewModel: PurchasesViewModel, permissions: Set<String> = emptySet(), cashSessionId: String? = null) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(viewModel) { viewModel.refresh() }
     val locked = state.saving || state.awaitingConfirmation
@@ -117,7 +117,7 @@ fun PurchasesScreenV2(viewModel: PurchasesViewModel, permissions: Set<String> = 
                     state.returnDraft?.let { ReturnForm(purchase, it, state, viewModel) }
                 }
                 PurchasesPage.PAYABLES -> SupplierPayablesList(state, viewModel)
-                PurchasesPage.PAYABLE -> SupplierPayablePane(state, viewModel, permissions)
+                PurchasesPage.PAYABLE -> SupplierPayablePane(state, viewModel, permissions, cashSessionId)
             }
         }
     }

@@ -1,7 +1,9 @@
 package mx.nexuspos.server.modules.purchases
 
 import kotlinx.serialization.json.Json
+import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.purchases.*
+import mx.nexuspos.server.modules.cash.CashSessionService
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.ConflictException
 import mx.nexuspos.server.platform.IdempotencyMismatchException
@@ -16,7 +18,7 @@ import java.util.HexFormat
 import java.util.Locale
 import java.util.UUID
 
-class PurchaseService(private val db: DatabaseFactory) {
+class PurchaseService(private val db: DatabaseFactory, private val cashService: CashSessionService = CashSessionService(db)) {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun listSuppliers(): List<SupplierDto> = db.inTransaction { conn ->
@@ -104,16 +106,28 @@ class PurchaseService(private val db: DatabaseFactory) {
         }
     }
 
-    fun recordSupplierPayment(id: String, request: RecordSupplierPaymentRequest, operatorId: String): SupplierPayableDetail {
+    fun recordSupplierPayment(id: String, request: RecordSupplierPaymentRequest, operatorId: String, actorId: String): SupplierPayableDetail {
         val clean = request.copy(reference = optionalText(request.reference, "referencia del pago", 120))
         if (clean.amountCents <= 0) throw ValidationException("Captura un importe mayor a cero.")
-        return once<SupplierPayableDetail>("pay-supplier", clean.idempotencyKey, "$id\n" + json.encodeToString(clean), operatorId) { conn, now ->
+        val cash = clean.method == SupplierPaymentMethod.CASH
+        val sessionId = clean.cashSessionId
+        if (cash && sessionId.isNullOrBlank()) throw ValidationException("Selecciona un turno abierto para registrar el pago en efectivo.")
+        if (!cash && sessionId != null) throw ValidationException("Solo un pago en efectivo genera una salida de caja.")
+        val payload = "$id\n" + json.encodeToString(clean) + if (cash) "\n$actorId" else ""
+        return once<SupplierPayableDetail>("pay-supplier", clean.idempotencyKey, payload, operatorId) { conn, now ->
             lockReceipt(conn, id)
             val account = readSupplierPayable(conn, id)
                 ?: throw NotFoundException("Esta compra no tiene una cuenta por pagar.")
             if (clean.amountCents > account.balanceCents) throw ConflictException("El abono supera el saldo actual de la factura.")
+            val movement = sessionId?.let {
+                cashService.recordMovement(
+                    conn, it,
+                    CashMovementRequest("CASH_OUT", clean.amountCents, "Pago a proveedor · ${account.documentNumber} · ${account.supplierName}".take(256), actorId),
+                    verifyOperator = true, drawerApproval = operatorId
+                )
+            }
             conn.prepareStatement(
-                "INSERT INTO supplier_payments (id, receipt_id, amount_cents, method, reference, paid_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO supplier_payments (id, receipt_id, amount_cents, method, reference, paid_by, created_at, cash_movement_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             ).use {
                 it.setString(1, "sp-" + UUID.randomUUID())
                 it.setString(2, id)
@@ -122,6 +136,7 @@ class PurchaseService(private val db: DatabaseFactory) {
                 it.setString(5, clean.reference)
                 it.setString(6, operatorId)
                 it.setLong(7, now)
+                it.setString(8, movement)
                 it.executeUpdate()
             }
             checkNotNull(readSupplierPayableDetail(conn, id))

@@ -15,6 +15,11 @@ import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.catalog.CreatePresentationRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.cash.CashSessionSummary
+import mx.nexuspos.contracts.cash.OpenSessionRequest
+import mx.nexuspos.contracts.cash.CashMovementHistoryRequest
+import mx.nexuspos.contracts.cash.CashMovementHistoryPage
+import mx.nexuspos.contracts.cash.ReverseCashMovementRequest
 import mx.nexuspos.contracts.identity.LoginRequest
 import mx.nexuspos.contracts.identity.LoginResponse
 import mx.nexuspos.contracts.inventory.ProductLotDto
@@ -67,15 +72,38 @@ class PurchaseModuleTest {
         assertEquals(paid, pay(payment).body<SupplierPayableDetail>())
         assertEquals(HttpStatusCode.Conflict, pay(payment.copy(idempotencyKey = "above-balance", amountCents = 501L)).status)
         assertEquals(3000L, product(client, item.id).currentStockMillis)
+        val shift = client.post("/api/v1/cash-sessions") {
+            contentType(ContentType.Application.Json)
+            setBody(OpenSessionRequest("caja-1", "usr-admin", 1000))
+        }.body<CashSessionSummary>()
+        val cash = RecordSupplierPaymentRequest("cash-abono", 200, SupplierPaymentMethod.CASH)
+        assertEquals(HttpStatusCode.BadRequest, pay(cash).status)
+        val linked = pay(cash.copy(cashSessionId = shift.sessionId))
+            .also { assertEquals(HttpStatusCode.Created, it.status) }.body<SupplierPayableDetail>()
+        val movementId = assertNotNull(linked.payments.first { it.method == SupplierPaymentMethod.CASH }.cashMovementId)
+        assertEquals(linked, pay(cash.copy(cashSessionId = shift.sessionId)).body<SupplierPayableDetail>())
+        val till = client.get("/api/v1/cash-sessions/${shift.sessionId}/summary").body<CashSessionSummary>()
+        assertEquals(200L, till.cashOutCents)
+        assertEquals(800L, till.expectedCashCents)
+        val history = client.post("/api/v1/cash-sessions/${shift.sessionId}/movements/history") {
+            contentType(ContentType.Application.Json)
+            setBody(CashMovementHistoryRequest("1234"))
+        }.body<CashMovementHistoryPage>()
+        assertFalse(history.movements.single().isReversible)
+        assertEquals(movementId, history.movements.single().id)
+        assertEquals(HttpStatusCode.BadRequest, client.post("/api/v1/cash-sessions/${shift.sessionId}/movements/$movementId/reverse") {
+            contentType(ContentType.Application.Json)
+            setBody(ReverseCashMovementRequest("1234", "Prueba"))
+        }.status)
 
         assertEquals(HttpStatusCode.Created, returnStock(client, purchase.summary.id, ReturnPurchaseRequest(
             "supplier-credit", "Devolución posterior al abono", listOf(ReturnPurchaseLine(purchase.lines.single().id, 1000))
         )).status)
         val afterReturn = client.get(path) { bearerAuth(admin) }.body<SupplierPayableDetail>()
         assertEquals(0L, afterReturn.account.balanceCents)
-        assertEquals(500L, afterReturn.account.supplierCreditCents)
-        assertEquals(2500L, afterReturn.account.paidCents)
-        assertEquals(1, afterReturn.payments.size)
+        assertEquals(700L, afterReturn.account.supplierCreditCents)
+        assertEquals(2700L, afterReturn.account.paidCents)
+        assertEquals(2, afterReturn.payments.size)
         assertTrue(client.get(base) { bearerAuth(admin) }.body<List<SupplierPayable>>().isEmpty())
         assertEquals(afterReturn.account, client.get("$base?includeSettled=true") { bearerAuth(admin) }.body<List<SupplierPayable>>().single())
     }

@@ -35,7 +35,7 @@ graph TD
     end
 
     subgraph P2 ["Prioridad Alta (Operación Comercial & Proveedores)"]
-        CXP["Relacionar pagos a proveedores con salidas de caja"]
+        CXP["Órdenes de compra y plazos por proveedor"]
         VOL["Precios Escalonados por Volumen (Mayoreo/Medio Mayoreo)"]
         PROMO["Motor de Promociones y Combos (2x1, Packs)"]
     end
@@ -87,7 +87,7 @@ Compras V2 ya registra proveedores, recepciones y devoluciones. Desde una recepc
 
 - Una devolución reduce el importe pendiente. Si después de una devolución los pagos superan el importe de la factura, se muestra el saldo a favor.
 - Las compras anteriores se pueden incorporar de forma explícita desde su factura. Selecciona solo adeudos que quieras incorporar al módulo.
-- Los pagos registrados son independientes del turno de caja. Queda pendiente vincularlos con las salidas de efectivo, así como incorporar órdenes de compra y plazos de crédito por proveedor.
+- Un abono en efectivo genera una salida en el turno abierto del operador. El abono y la salida se guardan juntos. Las transferencias y los pagos con tarjeta se registran en la cuenta del proveedor. Quedan pendientes las órdenes de compra y los plazos de crédito por proveedor.
 
 #### 2.2. Precios Escalonados por Volumen (Menudeo, Mayoreo y Paquete)
 - **Problema:** En misceláneas y abarroteras es común dar precio especial a partir de cierta cantidad (ej. 3 piezas o caja cerrada).
@@ -159,7 +159,7 @@ Compras V2 ya registra proveedores, recepciones y devoluciones. Desde una recepc
 | **Heartbeat Automático LAN** | Muy Baja | ⭐⭐⭐⭐⭐ (Resiliencia silenciosa) | **1 (Inmediato)** |
 | **Facturación CFDI 4.0 SAT** | Alta | ⭐⭐⭐⭐⭐ (Requisito fiscal México) | **2 (Próximo Bloque)** |
 | **Precios Escalonados (Mayoreo)** | Media | ⭐⭐⭐⭐ (Aumenta ticket promedio) | **3** |
-| **Vincular salidas de caja con pagos a proveedores** | Media | ⭐⭐⭐⭐ (Conciliación de caja) | **4** |
+| **Órdenes de compra y plazos por proveedor** | Media | ⭐⭐⭐⭐ (Planeación de compras) | **4** |
 | **Promociones Dinámicas (Combos)**| Media | ⭐⭐⭐⭐ (Competitividad comercial) | **5** |
 | **Pinpad Integrado (Tarjetas)** | Media-Alta | ⭐⭐⭐ (Cero errores de captura) | **6** |
 | **Dashboard BI y Rotación ABC** | Media | ⭐⭐⭐⭐ (Toma de decisiones) | **7** |
@@ -185,7 +185,7 @@ Para mantener el foco del desarrollo 100% sobre la **Pantalla de Ventas V2**, lo
 - **Configuración de Políticas de Inventario Negativo:** Selector en Ajustes para alternar entre "Permisivo con advertencia", "Estricto con bloqueo" o "Autorización obligatoria por PIN de supervisor".
 
 ### 5.4. Módulo de Compras y Proveedores (CxP)
-- **Conexión de la Entrada de Efectivo / Salida a Proveedores:** Asociar el botón `[Salida Efectivo]` de la pantalla de ventas directamente con el registro de abono a facturas de proveedores en mostrador.
+- **Acceso desde Ventas.** La salida vinculada se registra desde **Compras → Cuentas por pagar**. Queda pendiente un acceso desde **Salida de efectivo** de Ventas para iniciar el abono.
 
 ---
 

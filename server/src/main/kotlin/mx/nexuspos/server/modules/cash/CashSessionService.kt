@@ -144,43 +144,38 @@ class CashSessionService(private val db: DatabaseFactory) {
     }
 
     fun recordMovement(sessionId: String, request: CashMovementRequest, verifyOperator: Boolean = false, drawerApproval: String? = null) {
+        db.inTransaction { connection -> recordMovement(connection, sessionId, request, verifyOperator, drawerApproval) }
+    }
+
+    internal fun recordMovement(
+        connection: Connection,
+        sessionId: String,
+        request: CashMovementRequest,
+        verifyOperator: Boolean,
+        drawerApproval: String? = null
+    ): String {
         if (request.type !in setOf("CASH_IN", "CASH_OUT") || request.amountCents <= 0 || request.concept.trim().length !in 1..256) {
             throw ValidationException("Verifica el tipo, importe y motivo del movimiento de efectivo.")
         }
-        db.inTransaction { conn ->
-            if (verifyOperator) requireOperator(conn, sessionId, request.userId)
-            val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ? FOR UPDATE")
-            sessStmt.setString(1, sessionId)
-            val rs = sessStmt.executeQuery()
-            if (!rs.next()) {
-                rs.close()
-                sessStmt.close()
-                throw NotFoundException("Sesión de caja no encontrada")
-            }
-            if (rs.getString("status") != "OPEN") {
-                rs.close()
-                sessStmt.close()
-                throw SessionClosedException("No se pueden registrar movimientos en una sesión cerrada")
-            }
-            rs.close()
-            sessStmt.close()
-
-            if (request.type == "CASH_IN") enforceDrawerLimit(conn, sessionId, request.amountCents, drawerApproval, request.userId)
-            val movId = "mov-" + UUID.randomUUID().toString().take(8)
-            val insertStmt = conn.prepareStatement(
-                "INSERT INTO cash_movements (id, session_id, type, amount_cents, concept, user_id, created_at, authorized_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-            )
-            insertStmt.setString(1, movId)
-            insertStmt.setString(2, sessionId)
-            insertStmt.setString(3, request.type)
-            insertStmt.setLong(4, request.amountCents)
-            insertStmt.setString(5, request.concept)
-            insertStmt.setString(6, request.userId)
-            insertStmt.setLong(7, System.currentTimeMillis())
-            insertStmt.setString(8, drawerApproval)
-            insertStmt.executeUpdate()
-            insertStmt.close()
+        if (verifyOperator) requireOperator(connection, sessionId, request.userId) else lockOperator(connection, sessionId)
+        if (request.type == "CASH_IN") {
+            enforceDrawerLimit(connection, sessionId, request.amountCents, drawerApproval, request.userId)
         }
+        val id = "mov-" + UUID.randomUUID().toString().take(8)
+        connection.prepareStatement(
+            "INSERT INTO cash_movements (id, session_id, type, amount_cents, concept, user_id, created_at, authorized_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).use {
+            it.setString(1, id)
+            it.setString(2, sessionId)
+            it.setString(3, request.type)
+            it.setLong(4, request.amountCents)
+            it.setString(5, request.concept)
+            it.setString(6, request.userId)
+            it.setLong(7, System.currentTimeMillis())
+            it.setString(8, drawerApproval)
+            it.executeUpdate()
+        }
+        return id
     }
 
     internal fun enforceDrawerLimit(connection: Connection, sessionId: String, additionalCash: Long, approvedBy: String?, actorId: String) {

@@ -134,7 +134,7 @@ fun main() = application {
             inventoryViewModel.refreshAll()
             productsViewModel.loadProducts()
             viewModel.preloadCatalogCache()
-        })
+        }, onCashChanged = { viewModel.loadActiveSession(appConfig.registerId) })
     }
     DisposableEffect(purchasesViewModel) { onDispose(purchasesViewModel::dispose) }
     val supervisorState by authViewModel.supervisorState.collectAsState()
@@ -1106,7 +1106,13 @@ fun main() = application {
                                 }
                                 AppModule.PURCHASES -> {
                                     if (isV2 && canManagePurchases) {
-                                        PurchasesScreenV2(purchasesViewModel, authState.currentUser?.permissions.orEmpty().toSet())
+                                        PurchasesScreenV2(
+                                            purchasesViewModel,
+                                            authState.currentUser?.permissions.orEmpty().toSet(),
+                                            salesState.activeSession?.takeIf {
+                                                it.status == "OPEN" && it.operatorUserId == salesState.activeCashierId
+                                            }?.sessionId
+                                        )
                                     }
                                 }
                                 AppModule.SETTINGS -> {

@@ -55,6 +55,7 @@ import mx.nexuspos.contracts.purchases.PurchaseAuthorization
 import mx.nexuspos.contracts.purchases.ReceivePurchaseRequest
 import mx.nexuspos.contracts.purchases.RecordSupplierPaymentRequest
 import mx.nexuspos.contracts.purchases.RegisterSupplierPayableRequest
+import mx.nexuspos.contracts.purchases.SupplierPaymentMethod
 import mx.nexuspos.contracts.purchases.ReturnPurchaseRequest
 import mx.nexuspos.contracts.purchases.SaveSupplierRequest
 import mx.nexuspos.contracts.reports.SalesAnalysisRequest
@@ -150,7 +151,7 @@ fun Application.nexusModule(
     val parkedSalesService = ParkedSalesService(dbFactory)
     val reportsService = ReportsService(dbFactory)
     val salesAnalysis = SalesAnalysisService(dbFactory)
-    val purchaseService = PurchaseService(dbFactory)
+    val purchaseService = PurchaseService(dbFactory, cashService)
 
     fun requireSupervisor(pin: String, action: String): String {
         if (!pin.matches(Regex("[0-9]{4}([0-9]{2})?"))) throw UnauthorizedException("Captura el PIN de un encargado.")
@@ -946,11 +947,13 @@ fun Application.nexusModule(
                         ))
                     }
                     post("/{id}/payments") {
-                        call.requireDesktopAccess(identityService, roles).require("purchases.payables.pay")
+                        val actor = call.requireDesktopAccess(identityService, roles)
+                        actor.require("purchases.payables.pay")
                         val id = call.parameters["id"] ?: throw ValidationException("Indica la factura.")
                         val req = call.receive<PurchaseAuthorization<RecordSupplierPaymentRequest>>()
+                        if (req.data.method == SupplierPaymentMethod.CASH) actor.require("cash.out")
                         call.respond(HttpStatusCode.Created, purchaseService.recordSupplierPayment(
-                            id, req.data, requireSupervisor(req.pin, "SUPPLIER_PAYMENT")
+                            id, req.data, requireSupervisor(req.pin, "SUPPLIER_PAYMENT"), actor.user.id
                         ))
                     }
                 }

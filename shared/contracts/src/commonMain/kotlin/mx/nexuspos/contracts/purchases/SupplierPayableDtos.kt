@@ -13,7 +13,8 @@ data class RecordSupplierPaymentRequest(
     val idempotencyKey: String,
     val amountCents: Long,
     val method: SupplierPaymentMethod,
-    val reference: String = ""
+    val reference: String = "",
+    val cashSessionId: String? = null
 )
 
 @Serializable
@@ -37,7 +38,8 @@ data class SupplierPayment(
     val method: SupplierPaymentMethod,
     val reference: String,
     val operatorName: String,
-    val createdAt: Long
+    val createdAt: Long,
+    val cashMovementId: String? = null
 )
 
 @Serializable

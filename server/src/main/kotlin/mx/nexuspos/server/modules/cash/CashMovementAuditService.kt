@@ -46,6 +46,9 @@ class CashMovementAuditService(private val db: DatabaseFactory) {
             // El corte Z y los movimientos de caja toman el mismo bloqueo antes de escribir.
             val open = sessionIsOpen(conn, sessionId, lock = true)
             val original = readMovement(conn, sessionId, movementId)
+            if (original.supplierPaymentId != null) {
+                throw ValidationException("Esta salida está vinculada a un abono de proveedor.")
+            }
             val existingId = original.reversedByMovementId
             if (existingId != null) {
                 val existing = readMovement(conn, sessionId, existingId)
@@ -110,18 +113,20 @@ class CashMovementAuditService(private val db: DatabaseFactory) {
         reversesId = getString("reverses_movement_id"),
         reversedByMovementId = getString("reversal_id"),
         authorizedByUserId = getString("authorized_by_user_id"),
-        authorizedByName = getString("supervisor_name")
+        authorizedByName = getString("supervisor_name"),
+        supplierPaymentId = getString("supplier_payment_id")
     )
 
     private companion object {
         const val pageSize = 30
         val movementQuery = """
             SELECT m.*, COALESCE(u.name, m.user_id) AS cashier_name,
-                   supervisor.name AS supervisor_name, reversal.id AS reversal_id
+                   supervisor.name AS supervisor_name, reversal.id AS reversal_id, payment.id AS supplier_payment_id
             FROM cash_movements m
             LEFT JOIN users u ON u.id = m.user_id
             LEFT JOIN users supervisor ON supervisor.id = m.authorized_by_user_id
             LEFT JOIN cash_movements reversal ON reversal.reverses_movement_id = m.id
+            LEFT JOIN supplier_payments payment ON payment.cash_movement_id = m.id
         """.trimIndent()
     }
 }

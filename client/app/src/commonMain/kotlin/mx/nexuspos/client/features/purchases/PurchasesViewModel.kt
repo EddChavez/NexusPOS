@@ -53,7 +53,8 @@ internal const val PURCHASE_HISTORY_PAGE_SIZE = 30
 class PurchasesViewModel(
     private val api: ApiClient,
     private val onInventoryChanged: () -> Unit,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+    private val onCashChanged: () -> Unit = {}
 ) {
     private val mutableState = MutableStateFlow(PurchasesState())
     internal val state = mutableState.asStateFlow()
@@ -100,7 +101,9 @@ class PurchasesViewModel(
         val id = state.value.payable?.account?.receiptId ?: return
         save({ api.recordSupplierPayment(id, pin, request) }, reconcileOnFailure = true) { detail ->
             // The idempotent response may be from an earlier attempt. Reload the current balance and ledger.
-            mutableState.update { it.copy(payable = detail, success = "Pago registrado.") }
+            val cash = request.method == SupplierPaymentMethod.CASH
+            mutableState.update { it.copy(payable = detail, success = if (cash) "Pago y salida de caja registrados." else "Pago registrado.") }
+            if (cash) onCashChanged()
             fetch({ api.getSupplierPayable(id) }) { copy(payable = it ?: detail) }
         }
     }

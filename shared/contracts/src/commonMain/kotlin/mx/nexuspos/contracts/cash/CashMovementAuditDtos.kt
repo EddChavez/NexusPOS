@@ -28,10 +28,11 @@ data class AuditedCashMovement(
     val reversesId: String? = null,
     val reversedByMovementId: String? = null,
     val authorizedByUserId: String? = null,
-    val authorizedByName: String? = null
+    val authorizedByName: String? = null,
+    val supplierPaymentId: String? = null
 ) {
     val isReversible: Boolean
-        get() = reversesId == null && reversedByMovementId == null && amountCents > 0 &&
+        get() = supplierPaymentId == null && reversesId == null && reversedByMovementId == null && amountCents > 0 &&
             (type == "CASH_IN" || type == "CASH_OUT")
 }
 
