@@ -16,7 +16,7 @@ class OfflineCatalogCache(
     }
 
     fun loadFromStorage(): List<ProductDto> {
-        val raw = storage.readText(fileName)
+        val raw = runCatching { storage.readText(fileName) }.getOrNull()
         if (raw.isNullOrBlank()) {
             inMemoryCatalog = emptyList()
             return emptyList()

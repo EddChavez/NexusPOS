@@ -155,6 +155,21 @@ class ParkedSalesService(private val db: DatabaseFactory) {
             rs.close()
             selectStmt.close()
 
+            val pricedItems = conn.prepareStatement(
+                "SELECT price_cents, price_tiers_json FROM product_presentations WHERE id = ? AND is_active = TRUE"
+            ).use { statement ->
+                parsedItems.map { item ->
+                    val presentationId = item.presentationId ?: return@map item
+                    statement.setString(1, presentationId)
+                    statement.executeQuery().use { result ->
+                        if (!result.next()) item else item.copy(
+                            publicPriceCents = result.getLong("price_cents"),
+                            priceTiers = json.decodeFromString(result.getString("price_tiers_json"))
+                        )
+                    }
+                }
+            }
+
             val updateStmt = conn.prepareStatement(
                 """
                 UPDATE parked_sales
@@ -184,7 +199,7 @@ class ParkedSalesService(private val db: DatabaseFactory) {
                 customerName = customerName,
                 totalCents = totalCents,
                 itemsCount = itemsCount,
-                items = parsedItems,
+                items = pricedItems,
                 parkedAt = parkedAt,
                 status = "RETRIEVED",
                 retrievedAt = now,

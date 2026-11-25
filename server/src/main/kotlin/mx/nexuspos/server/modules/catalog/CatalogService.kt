@@ -1,5 +1,7 @@
 package mx.nexuspos.server.modules.catalog
 
+import kotlinx.serialization.json.Json
+import mx.nexuspos.contracts.catalog.PresentationPriceTier
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
 import mx.nexuspos.contracts.catalog.CatalogImportResponse
 import mx.nexuspos.contracts.catalog.CatalogImportRowDto
@@ -11,6 +13,7 @@ import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
 import mx.nexuspos.contracts.catalog.UpdateProductRequest
+import mx.nexuspos.core.ProductUnit
 import mx.nexuspos.server.persistence.DatabaseFactory
 import mx.nexuspos.server.platform.NotFoundException
 import mx.nexuspos.server.platform.ValidationException
@@ -334,9 +337,9 @@ class CatalogService(private val db: DatabaseFactory) {
             // Fetch presentations for found products
             if (products.isNotEmpty()) {
                 val presSql = if (includeInactive) {
-                    "SELECT id, product_id, barcode, name, factor_millis, price_cents FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
+                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
                 } else {
-                    "SELECT id, product_id, barcode, name, factor_millis, price_cents FROM product_presentations WHERE product_id = ? AND is_active = TRUE ORDER BY factor_millis ASC"
+                    "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json FROM product_presentations WHERE product_id = ? AND is_active = TRUE ORDER BY factor_millis ASC"
                 }
                 val presStmt = conn.prepareStatement(presSql)
                 val fullProducts = products.map { prod ->
@@ -351,7 +354,8 @@ class CatalogService(private val db: DatabaseFactory) {
                                 barcode = presRs.getString("barcode"),
                                 name = presRs.getString("name"),
                                 factorMillis = presRs.getLong("factor_millis"),
-                                priceCents = presRs.getLong("price_cents")
+                                priceCents = presRs.getLong("price_cents"),
+                                priceTiers = Json.decodeFromString(presRs.getString("price_tiers_json"))
                             )
                         )
                     }
@@ -504,6 +508,7 @@ class CatalogService(private val db: DatabaseFactory) {
 
     fun updateProduct(id: String, request: UpdateProductRequest): ProductDto {
         return db.inTransaction { conn ->
+            lockProduct(conn, id)
             val existing = fetchProductById(conn, id)
 
             if (request.name.isBlank()) {
@@ -586,7 +591,7 @@ class CatalogService(private val db: DatabaseFactory) {
             delStmt.close()
 
             val presStmt = conn.prepareStatement(
-                "INSERT INTO product_presentations (id, product_id, barcode, name, factor_millis, price_cents, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO product_presentations (id, product_id, barcode, name, factor_millis, price_cents, is_active, price_tiers_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
             var pIdx = 1
             for (pres in request.presentations) {
@@ -598,12 +603,61 @@ class CatalogService(private val db: DatabaseFactory) {
                 presStmt.setLong(5, if (pres.factorMillis <= 0) 1000L else pres.factorMillis)
                 presStmt.setLong(6, pres.priceCents.coerceAtLeast(0L))
                 presStmt.setBoolean(7, request.isActive)
+                val previous = existing.presentations.firstOrNull { it.id == pres.id }
+                    ?: existing.presentations.firstOrNull { it.barcode == pres.barcode.trim() }
+                presStmt.setString(8, Json.encodeToString(previous?.priceTiers.orEmpty()))
                 presStmt.executeUpdate()
                 pIdx++
             }
             presStmt.close()
 
             fetchProductById(conn, id)
+        }
+    }
+
+    fun updatePresentationPrices(
+        productId: String,
+        presentationId: String,
+        tiers: List<PresentationPriceTier>
+    ): ProductDto = db.inTransaction { conn ->
+        lockProduct(conn, productId)
+        val product = fetchProductById(conn, productId)
+        val presentation = product.presentations.firstOrNull { it.id == presentationId }
+            ?: throw NotFoundException("No se encontró la presentación del producto.")
+        val sorted = tiers.sortedBy { it.minimumQuantityMillis }
+        val isPiece = ProductUnit.fromCode(product.baseUnit) == ProductUnit.PIECE
+        var previousQuantity = 0L
+        var previousPrice = presentation.priceCents
+        for (tier in sorted) {
+            if (tier.minimumQuantityMillis <= previousQuantity ||
+                (isPiece && (tier.minimumQuantityMillis < 2000 || tier.minimumQuantityMillis % 1000 != 0L))
+            ) throw ValidationException("Usa cantidades mínimas positivas, distintas y enteras desde 2 para piezas.")
+            if (tier.unitPriceCents <= 0 || tier.unitPriceCents >= previousPrice) {
+                throw ValidationException("Cada tarifa debe ser positiva y menor al precio del umbral anterior.")
+            }
+            previousQuantity = tier.minimumQuantityMillis
+            previousPrice = tier.unitPriceCents
+        }
+        conn.prepareStatement("UPDATE product_presentations SET price_tiers_json = ? WHERE id = ? AND product_id = ?").use {
+            it.setString(1, Json.encodeToString(sorted))
+            it.setString(2, presentationId)
+            it.setString(3, productId)
+            it.executeUpdate()
+        }
+        conn.prepareStatement("UPDATE products SET updated_at = ? WHERE id = ?").use {
+            it.setLong(1, System.currentTimeMillis())
+            it.setString(2, productId)
+            it.executeUpdate()
+        }
+        fetchProductById(conn, productId)
+    }
+
+    private fun lockProduct(conn: java.sql.Connection, productId: String) {
+        conn.prepareStatement("SELECT id FROM products WHERE id = ? FOR UPDATE").use {
+            it.setString(1, productId)
+            it.executeQuery().use { result ->
+                if (!result.next()) throw NotFoundException("Producto no encontrado")
+            }
         }
     }
 
@@ -688,7 +742,7 @@ class CatalogService(private val db: DatabaseFactory) {
         stmt.close()
 
         val presStmt = conn.prepareStatement(
-            "SELECT id, product_id, barcode, name, factor_millis, price_cents FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
+            "SELECT id, product_id, barcode, name, factor_millis, price_cents, price_tiers_json FROM product_presentations WHERE product_id = ? ORDER BY factor_millis ASC"
         )
         presStmt.setString(1, id)
         val presRs = presStmt.executeQuery()
@@ -701,7 +755,8 @@ class CatalogService(private val db: DatabaseFactory) {
                     barcode = presRs.getString("barcode"),
                     name = presRs.getString("name"),
                     factorMillis = presRs.getLong("factor_millis"),
-                    priceCents = presRs.getLong("price_cents")
+                    priceCents = presRs.getLong("price_cents"),
+                    priceTiers = Json.decodeFromString(presRs.getString("price_tiers_json"))
                 )
             )
         }

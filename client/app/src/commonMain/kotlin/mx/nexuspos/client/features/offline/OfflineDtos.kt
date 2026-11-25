@@ -19,8 +19,12 @@ data class QueuedOfflineSale(
     val syncedFolio: Long? = null,
     val syncedSaleId: String? = null,
     val lastError: String? = null,
-    val attempts: Int = 0
-)
+    val attempts: Int = 0,
+    val automaticRetry: Boolean = true,
+    val serverUrl: String? = null
+) {
+    fun belongsTo(endpoint: String): Boolean = serverUrl == null || serverUrl.trimEnd('/') == endpoint.trimEnd('/')
+}
 
 @Serializable
 data class OfflineSyncSummary(

@@ -7,6 +7,7 @@ import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.offline.*
 import mx.nexuspos.client.features.sales.SalesViewModel
+import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
 import mx.nexuspos.contracts.sales.*
@@ -58,6 +59,108 @@ class OfflineContingencyFeatureTest {
             ),
             expectedTotalCents = totalCents
         )
+    }
+
+    @Test
+    fun queuedSaleIsNeverSentToADifferentServer() = runBlocking {
+        val queue = OfflineSaleQueue(InMemoryPersistenceProvider())
+        queue.enqueue(sampleSaleRequest(), serverUrl = "http://tienda-a:8080")
+        val otherServer = object : ApiClient(baseUrl = "http://tienda-b:8080") {
+            override suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> =
+                error("No debe enviar ventas de otra tienda")
+        }
+        val sync = OfflineSyncManager(otherServer, queue, this)
+        assertEquals(0, sync.syncPendingSales().totalProcessed)
+        assertEquals(1, queue.pendingCount())
+    }
+
+    @Test
+    fun interruptedOnlineSubmissionReplaysAfterRestartWithOriginalKey() = runBlocking {
+        val storage = InMemoryPersistenceProvider()
+        val request = sampleSaleRequest()
+        val liveQueue = OfflineSaleQueue(storage)
+        val submission = liveQueue.stageOnline(request)
+        assertTrue(liveQueue.getPending().isEmpty(), "La sincronización no debe enviar un cobro que sigue en curso")
+
+        val recovered = OfflineSaleQueue(storage)
+        assertEquals(request, recovered.getPending().single().request)
+        val api = object : ApiClient() {
+            override suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> {
+                assertEquals(request, req)
+                return Result.success(SaleResponse(
+                    "sale-central", 2041, req.cashSessionId, "Cajero", status = "COMPLETED",
+                    subtotalCents = 1800, taxCents = 0, totalCents = 1800,
+                    lines = emptyList(), payments = emptyList(), createdAt = 1
+                ))
+            }
+        }
+        assertEquals(1, OfflineSyncManager(api, recovered, this).syncPendingSales(automatic = true).succeeded)
+        val synced = OfflineSaleQueue(storage).getAll().single()
+        assertEquals(submission.localFolio, synced.localFolio)
+        assertEquals(2041L, synced.syncedFolio)
+        assertEquals(0, OfflineSaleQueue(storage).pendingCount())
+    }
+
+    @Test
+    fun lostCheckoutResponseRetainsSameRequestWithoutCompletingTheTicketTwice() = runBlocking {
+        val storage = InMemoryPersistenceProvider()
+        val session = CashSessionSummary(
+            sessionId = "sess-1", registerId = "caja-prueba", cashierId = "usr-cajero",
+            cashierName = "Cajero", openedAt = 1, initialFundCents = 0, status = "OPEN",
+            salesCashCents = 0, creditPaymentsCashCents = 0, cashInCents = 0, cashOutCents = 0,
+            refundsCashCents = 0, expectedCashCents = 0
+        )
+        val attempts = mutableListOf<CreateSaleRequest>()
+        val api = object : ApiClient() {
+            override suspend fun checkHealth() = true
+            override suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> =
+                Result.success(session)
+            override suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> {
+                attempts.add(req)
+                return Result.failure(IOException("Se perdió la respuesta"))
+            }
+        }
+        val vm = SalesViewModel(api, CoroutineScope(Dispatchers.Unconfined), storage)
+        vm.addProductPresentation(sampleProduct, sampleProduct.presentations.single(), Quantity.ONE)
+
+        vm.checkoutCash(2000)
+
+        assertEquals(attempts.single(), OfflineSaleQueue(storage).getPending().single().request)
+        assertEquals(1, vm.uiState.value.offlinePendingSalesCount)
+        assertNull(vm.uiState.value.lastCompletedSale)
+        assertTrue(vm.uiState.value.cartLines.isEmpty())
+        assertContains(vm.uiState.value.errorMessage.orEmpty(), "pendiente de confirmación")
+    }
+
+    @Test
+    fun unsuccessfulQueueWriteDoesNotAcceptOrReplaceASale() {
+        val storage = object : LocalPersistenceProvider by InMemoryPersistenceProvider() {
+            override fun writeText(fileName: String, content: String) {
+                throw IOException("Disco lleno")
+            }
+        }
+        val queue = OfflineSaleQueue(storage)
+        assertFailsWith<IOException> { queue.stageOnline(sampleSaleRequest()) }
+        assertTrue(queue.getAll().isEmpty())
+    }
+
+    @Test
+    fun permanentConflictsRemainVisibleWithoutAutomaticRetries() = runBlocking {
+        val queue = OfflineSaleQueue(InMemoryPersistenceProvider())
+        queue.enqueue(sampleSaleRequest())
+        var attempts = 0
+        val api = object : ApiClient() {
+            override suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> {
+                attempts++
+                return Result.failure(IllegalArgumentException("La sesión ya cerró"))
+            }
+        }
+        val manager = OfflineSyncManager(api, queue, this)
+        assertEquals(1, manager.syncPendingSales(automatic = true).failed)
+        assertEquals(0, manager.syncPendingSales(automatic = true).totalProcessed)
+        assertEquals(1, attempts)
+        assertEquals(1, queue.pendingCount())
+        assertEquals("La sesión ya cerró", queue.getAll().single().lastError)
     }
 
     // ==========================================
@@ -285,6 +388,13 @@ class OfflineContingencyFeatureTest {
         val memoryStorage = InMemoryPersistenceProvider()
         val mockApi = object : ApiClient() {
             override suspend fun checkHealth(): Boolean = false
+            override suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> =
+                Result.success(CashSessionSummary(
+                    sessionId = "sess-1", registerId = registerId, cashierId = "usr-cajero",
+                    cashierName = "Cajero", openedAt = 1, initialFundCents = 0, status = "OPEN",
+                    salesCashCents = 0, creditPaymentsCashCents = 0, cashInCents = 0, cashOutCents = 0,
+                    refundsCashCents = 0, expectedCashCents = 0
+                ))
         }
 
         val scope = CoroutineScope(Dispatchers.Unconfined)
@@ -305,10 +415,28 @@ class OfflineContingencyFeatureTest {
         val state = viewModel.uiState.value
         assertEquals(0, state.cartLines.size, "El carrito debe vaciarse al completar la venta en contingencia")
         assertEquals(1, state.offlinePendingSalesCount, "Debe registrar 1 venta pendiente en cola de contingencia")
+        assertTrue(viewModel.hasUnconfirmedSales("sess-1"))
+        assertFalse(viewModel.hasUnconfirmedSales("other-session"))
         assertNotNull(state.lastCompletedSale)
         assertTrue(state.lastCompletedSale!!.id.startsWith("offline-OFF-0001"))
         assertTrue(state.successMessage?.contains("Modo Contingencia") == true)
         assertTrue(state.successMessage?.contains("Cambio: $2.0") == true)
+    }
+
+    @Test
+    fun offlineCashCheckoutRequiresAKnownOpenShift() {
+        val api = object : ApiClient() {
+            override suspend fun checkHealth(): Boolean = false
+            override suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> = Result.success(null)
+        }
+        val viewModel = SalesViewModel(api, CoroutineScope(Dispatchers.Unconfined), InMemoryPersistenceProvider())
+        viewModel.addProductPresentation(sampleProduct, sampleProduct.presentations.single(), Quantity.ONE)
+
+        viewModel.checkoutCash(2000)
+
+        assertEquals(1, viewModel.uiState.value.cartLines.size)
+        assertEquals(0, viewModel.saleQueue.pendingCount())
+        assertContains(viewModel.uiState.value.checkoutErrorMessage.orEmpty(), "turno abierto")
     }
 
     @Test

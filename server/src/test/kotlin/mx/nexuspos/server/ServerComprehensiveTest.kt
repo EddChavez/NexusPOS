@@ -7,11 +7,17 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.testing.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
+import mx.nexuspos.contracts.catalog.CreatePresentationRequest
+import mx.nexuspos.contracts.catalog.CreateProductRequest
+import mx.nexuspos.contracts.catalog.PresentationPriceTier
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
 import mx.nexuspos.contracts.credit.CreditMovementDto
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.credit.RegisterCreditPaymentRequest
@@ -181,25 +187,30 @@ class ServerComprehensiveTest {
             expectedTotalCents = 3700L
         )
 
-        val saleRes = client.post("/api/v1/sales") {
+        suspend fun submit(request: CreateSaleRequest) = client.post("/api/v1/sales") {
             contentType(ContentType.Application.Json)
-            setBody(saleReq)
+            setBody(request)
+        }
+        val (saleRes, duplicateRes) = coroutineScope {
+            val first = async { submit(saleReq) }
+            val second = async { submit(saleReq) }
+            first.await() to second.await()
         }
         assertEquals(HttpStatusCode.Created, saleRes.status)
         val sale = saleRes.body<SaleResponse>()
         assertEquals(3700L, sale.totalCents)
-        assertEquals(1300L, sale.payments.first().changeCents) // $13.00 change
+        assertEquals(1300L, sale.payments.first().changeCents)
         assertTrue(sale.folio >= 1000L)
 
-        // 4. Test Idempotency: Repeating same request returns same folio without double charging
-        val duplicateRes = client.post("/api/v1/sales") {
-            contentType(ContentType.Application.Json)
-            setBody(saleReq)
-        }
         assertEquals(HttpStatusCode.Created, duplicateRes.status)
         val duplicateSale = duplicateRes.body<SaleResponse>()
         assertEquals(sale.folio, duplicateSale.folio)
         assertEquals(sale.id, duplicateSale.id)
+
+        val changedPayment = saleReq.payments.single().copy(receivedCents = 6000L)
+        assertEquals(HttpStatusCode.Conflict, submit(saleReq.copy(payments = listOf(changedPayment))).status)
+        val stock = client.get("/api/v1/products/${cokeProd.id}").body<ProductDto>().currentStockMillis
+        assertEquals(cokeProd.currentStockMillis - 2000L, stock)
 
         // 5. Check Cash Session Summary
         val summaryRes = client.get("/api/v1/cash-sessions/${session.sessionId}/summary")
@@ -217,6 +228,68 @@ class ServerComprehensiveTest {
         val closedSession = closeRes.body<CashSessionSummary>()
         assertEquals("CLOSED", closedSession.status)
         assertEquals(0L, closedSession.differenceCents)
+    }
+
+    @Test
+    fun volumePricesAreStoredPerPresentationAndRecalculatedAtCheckout() = testApplication {
+        application { nexusModule(createTestDb()) }
+        val client = createClient {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        val product = client.post("/api/v1/products") {
+            contentType(ContentType.Application.Json)
+            setBody(CreateProductRequest(
+                sku = "PRUEBA-MAYOREO",
+                name = "Galletas para pruebas de mayoreo",
+                initialStockMillis = 50000,
+                presentations = listOf(
+                    CreatePresentationRequest(barcode = "P-UNIT", name = "Pieza", priceCents = 300),
+                    CreatePresentationRequest(barcode = "P-PACK", name = "Caja", factorMillis = 6000, priceCents = 1500)
+                )
+            ))
+        }.body<ProductDto>()
+        val pack = product.presentations.single { it.barcode == "P-PACK" }
+        val tiers = listOf(PresentationPriceTier(2000, 1200), PresentationPriceTier(4000, 1000))
+        suspend fun savePrices(values: List<PresentationPriceTier>) =
+            client.put("/api/v1/products/${product.id}/presentations/${pack.id}/prices") {
+                contentType(ContentType.Application.Json)
+                setBody(UpdatePresentationPricesRequest(values))
+            }
+        assertEquals(HttpStatusCode.BadRequest, savePrices(listOf(tiers[0], tiers[0])).status)
+        assertEquals(HttpStatusCode.BadRequest, savePrices(listOf(PresentationPriceTier(2000, 1600))).status)
+        assertEquals(HttpStatusCode.OK, savePrices(tiers.reversed()).status)
+        val fromBarcode = client.get("/api/v1/products?barcode=P-PACK").body<List<ProductDto>>().single()
+        assertEquals(tiers, fromBarcode.presentations.single { it.id == pack.id }.priceTiers)
+        assertTrue(fromBarcode.presentations.single { it.barcode == "P-UNIT" }.priceTiers.isEmpty())
+
+        val session = client.post("/api/v1/cash-sessions") {
+            contentType(ContentType.Application.Json)
+            setBody(OpenSessionRequest(registerId = "caja-1", userId = "usr-cajero", initialFundCents = 10000L))
+        }.body<CashSessionSummary>()
+        suspend fun sell(price: Long, total: Long) = client.post("/api/v1/sales") {
+            contentType(ContentType.Application.Json)
+            setBody(CreateSaleRequest(
+                idempotencyKey = UUID.randomUUID().toString(),
+                cashSessionId = session.sessionId,
+                cashierUserId = "usr-cajero",
+                lines = listOf(SaleLineItemRequest(
+                    productId = product.id, presentationId = pack.id, description = "Caja",
+                    quantityMillis = 4000, expectedUnitPriceCents = price, expectedTotalCents = total,
+                    taxRate = 0.0, discountPercent = 10.0
+                )),
+                payments = listOf(SalePaymentRequest("CASH", total, total)),
+                expectedTotalCents = total
+            ))
+        }
+        assertEquals(HttpStatusCode.Conflict, sell(1200, 4320).status)
+        val result = sell(1000, 3600)
+        assertEquals(HttpStatusCode.Created, result.status)
+        assertEquals(1000L, result.body<SaleResponse>().lines.single().unitPriceCents)
+        assertEquals(26000L, client.get("/api/v1/products/${product.id}").body<ProductDto>().currentStockMillis)
+
+        assertEquals(HttpStatusCode.OK, savePrices(emptyList()).status)
+        val snapshot = client.get("/api/v1/products/${product.id}").body<ProductDto>()
+        assertTrue(snapshot.presentations.single { it.id == pack.id }.priceTiers.isEmpty())
     }
 
     @Test

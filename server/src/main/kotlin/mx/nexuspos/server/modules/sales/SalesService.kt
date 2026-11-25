@@ -2,6 +2,7 @@ package mx.nexuspos.server.modules.sales
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import mx.nexuspos.contracts.catalog.resolvePresentationPrice
 import mx.nexuspos.contracts.loyalty.SaleLoyaltyRewardDto
 import mx.nexuspos.contracts.sales.*
 import mx.nexuspos.core.Money
@@ -25,18 +26,32 @@ class SalesService(
 
     fun completeSale(request: CreateSaleRequest): SaleResponse {
         return db.inTransaction { conn ->
-            // 1. Idempotency Check
-            val idemStmt = conn.prepareStatement("SELECT response_body FROM idempotency_keys WHERE key_id = ?")
-            idemStmt.setString(1, request.idempotencyKey)
-            val idemRs = idemStmt.executeQuery()
-            if (idemRs.next()) {
-                val cachedJson = idemRs.getString("response_body")
-                idemRs.close()
-                idemStmt.close()
-                return@inTransaction json.decodeFromString<SaleResponse>(cachedJson)
+            val requestHash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(json.encodeToString(request).toByteArray())
+                .let(java.util.HexFormat.of()::formatHex)
+            val claimed = conn.prepareStatement(
+                "INSERT INTO idempotency_keys (key_id, request_hash, response_body, created_at) VALUES (?, ?, '', ?) ON CONFLICT DO NOTHING"
+            ).use { statement ->
+                statement.setString(1, request.idempotencyKey)
+                statement.setString(2, requestHash)
+                statement.setLong(3, System.currentTimeMillis())
+                statement.executeUpdate() == 1
             }
-            idemRs.close()
-            idemStmt.close()
+            if (!claimed) {
+                return@inTransaction conn.prepareStatement(
+                    "SELECT request_hash, response_body FROM idempotency_keys WHERE key_id = ?"
+                ).use { statement ->
+                    statement.setString(1, request.idempotencyKey)
+                    statement.executeQuery().use { result ->
+                        check(result.next()) { "No se encontró el resultado del cobro previo." }
+                        val savedHash = result.getString("request_hash")
+                        if (savedHash != "hash" && savedHash != requestHash) {
+                            throw IdempotencyMismatchException("La clave de este cobro ya se usó con otros datos.")
+                        }
+                        json.decodeFromString<SaleResponse>(result.getString("response_body"))
+                    }
+                }
+            }
 
             // 2. Validate Session is OPEN
             val sessStmt = conn.prepareStatement("SELECT status FROM cash_sessions WHERE id = ?")
@@ -88,7 +103,7 @@ class SalesService(
                 if (!line.presentationId.isNullOrBlank()) {
                     val presStmt = conn.prepareStatement(
                         """
-                        SELECT pp.price_cents, pp.factor_millis, pp.product_id, p.tax_rate, p.uses_inventory, p.name as prod_name
+                        SELECT pp.price_cents, pp.price_tiers_json, pp.factor_millis, pp.product_id, p.tax_rate, p.uses_inventory, p.name as prod_name
                         FROM product_presentations pp
                         JOIN products p ON pp.product_id = p.id
                         WHERE pp.id = ?
@@ -97,11 +112,19 @@ class SalesService(
                     presStmt.setString(1, line.presentationId)
                     val presRs = presStmt.executeQuery()
                     if (presRs.next()) {
-                        currentPriceCents = presRs.getLong("price_cents")
+                        currentPriceCents = resolvePresentationPrice(
+                            presRs.getLong("price_cents"),
+                            json.decodeFromString(presRs.getString("price_tiers_json")),
+                            line.quantityMillis
+                        )
                         factorMillis = presRs.getLong("factor_millis")
                         resolvedProdId = presRs.getString("product_id")
                         taxRate = presRs.getDouble("tax_rate")
                         usesInventory = presRs.getBoolean("uses_inventory")
+                    } else {
+                        presRs.close()
+                        presStmt.close()
+                        throw NotFoundException("No se encontró la presentación de '${line.description}'.")
                     }
                     presRs.close()
                     presStmt.close()
@@ -596,16 +619,11 @@ class SalesService(
                 loyaltyReward = loyaltyReward
             )
 
-            // 12. Save Idempotency Key
-            val saveIdemStmt = conn.prepareStatement(
-                "INSERT INTO idempotency_keys (key_id, request_hash, response_body, created_at) VALUES (?, ?, ?, ?)"
-            )
-            saveIdemStmt.setString(1, request.idempotencyKey)
-            saveIdemStmt.setString(2, "hash")
-            saveIdemStmt.setString(3, json.encodeToString(response))
-            saveIdemStmt.setLong(4, now)
-            saveIdemStmt.executeUpdate()
-            saveIdemStmt.close()
+            conn.prepareStatement("UPDATE idempotency_keys SET response_body = ? WHERE key_id = ?").use { statement ->
+                statement.setString(1, json.encodeToString(response))
+                statement.setString(2, request.idempotencyKey)
+                statement.executeUpdate()
+            }
 
             response
         }

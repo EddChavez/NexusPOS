@@ -12,9 +12,11 @@ import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.desktop.hardware.EscPosReceiptPrinter
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CashCutFeatureTest {
@@ -217,6 +219,27 @@ class CashCutFeatureTest {
         assertTrue(vm.uiState.value.isSessionClosedJustNow)
         assertTrue(vm.uiState.value.ticketPreviewTitle.contains("Corte Z"))
         assertTrue(vm.uiState.value.ticketPreviewText?.contains("CORTE Z") == true)
+
+        var reprintedId: String? = null
+        vm.onPrintCashCut = { printedSession, isFinal ->
+            assertTrue(isFinal)
+            reprintedId = printedSession.sessionId
+        }
+        vm.loadCurrentSession()
+        vm.reprintPreview()
+        assertEquals(session.sessionId, reprintedId)
+    }
+
+    @Test
+    fun corteZWaitsUntilLocalSalesAreReconciled() {
+        val session = sampleOpenSession()
+        val api = FakeCashApiClient(activeSession = session)
+        val vm = CashCutViewModel(api, CoroutineScope(Dispatchers.Unconfined))
+        vm.hasUnconfirmedSales = { it == session.sessionId }
+        vm.performCorteZ()
+        assertNull(api.closedSessionRequest)
+        assertEquals("OPEN", vm.uiState.value.activeSession?.status)
+        assertContains(vm.uiState.value.errorMessage.orEmpty(), "ventas pendientes")
     }
 
     @Test

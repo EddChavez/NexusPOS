@@ -20,8 +20,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.cash.CashSessionSummary
@@ -39,18 +37,22 @@ fun CashCutScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var showConfirmCloseDialog by remember { mutableStateOf(false) }
+    val preview = state.ticketPreviewText
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(NexusTheme.colors.bgCanvas)
+            .background(MaterialTheme.colorScheme.background)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Toolbar superior
         CashCutTopToolbar(
             activeTab = state.activeTab,
-            onTabSelected = viewModel::selectTab,
+            onTabSelected = {
+                viewModel.closePreview()
+                viewModel.selectTab(it)
+            },
             onBackToSales = onBackToSales
         )
 
@@ -64,12 +66,19 @@ fun CashCutScreen(
 
         // Contenido según la pestaña seleccionada
         Surface(
-            color = NexusTheme.colors.bgSurface,
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
+            color = MaterialTheme.colorScheme.surface,
+            shape = MaterialTheme.shapes.large,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth().weight(1f)
         ) {
-            when (state.activeTab) {
+            if (preview != null) {
+                CashCutReceiptPane(
+                    title = state.ticketPreviewTitle,
+                    receipt = preview,
+                    onBack = viewModel::closePreview,
+                    onPrint = viewModel::reprintPreview
+                )
+            } else when (state.activeTab) {
                 CashCutTab.SHIFT_CUT -> {
                     ShiftCutView(
                         state = state,
@@ -100,28 +109,14 @@ fun CashCutScreen(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("¿Está seguro de que desea cerrar definitivamente el turno de caja?")
-                    Text(
-                        "Efectivo Esperado: ${Money(state.activeSession?.expectedCashCents ?: 0L).format()}",
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        "Efectivo Contado: ${Money(state.countedCashCents).format()}",
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    if (diff != 0L) {
-                        val diffStr = if (diff > 0) "+${Money(diff).format()} (Sobrante)" else "-${Money(-diff).format()} (Faltante)"
-                        Text(
-                            "Diferencia de Arqueo: $diffStr",
-                            fontWeight = FontWeight.Bold,
-                            color = if (diff > 0) Color(0xFF1565C0) else MaterialTheme.colorScheme.error
-                        )
+                    Text("Se cerrará el turno y se guardará el arqueo.")
+                    Text("Efectivo contado · ${Money(state.countedCashCents).format()}")
+                    if (state.isBlindCashCountEnabled) {
+                        Text("La diferencia se mostrará después del cierre.")
+                    } else {
+                        Text("Efectivo esperado · ${Money(state.activeSession?.expectedCashCents ?: 0L).format()}")
+                        Text("Diferencia · ${Money(diff).format()}")
                     }
-                    Text(
-                        "Al confirmar, se imprimirá el ticket oficial de Corte Z y la caja quedará cerrada.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NexusTheme.colors.textSecondary
-                    )
                 }
             },
             confirmButton = {
@@ -154,91 +149,28 @@ fun CashCutScreen(
         )
     }
 
-    // Previsualizador de Ticket Térmico en pantalla
-    state.ticketPreviewText?.let { receiptText ->
-        Dialog(
-            onDismissRequest = viewModel::closePreview,
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+}
+
+@Composable
+private fun CashCutReceiptPane(title: String, receipt: String, onBack: () -> Unit, onPrint: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            TextButton(onClick = onBack) { Text("Volver") }
+        }
+        Surface(
+            Modifier.fillMaxWidth().weight(1f),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = NexusTheme.colors.bgSurface),
-                border = BorderStroke(1.dp, NexusTheme.colors.borderPrimary),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.widthIn(max = 440.dp).padding(20.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.Print, contentDescription = null, tint = NexusTheme.colors.accent)
-                            Text(
-                                text = state.ticketPreviewTitle,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        IconButton(onClick = viewModel::closePreview) {
-                            Icon(Icons.Default.Close, contentDescription = "Cerrar")
-                        }
-                    }
-
-                    Surface(
-                        color = Color(0xFFFAFAFA),
-                        border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 400.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)
-                        ) {
-                            Text(
-                                text = receiptText,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp,
-                                color = Color(0xFF1F2937)
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = viewModel::closePreview,
-                            modifier = Modifier.weight(1f).height(42.dp),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Cerrar")
-                        }
-                        Button(
-                            onClick = {
-                                if (state.activeTab == CashCutTab.DAILY_REPORT) {
-                                    viewModel.printDailyReportTicket()
-                                } else {
-                                    state.activeSession?.let {
-                                        viewModel.onPrintCashCut?.invoke(it, it.status == "CLOSED")
-                                    }
-                                }
-                                viewModel.closePreview()
-                            },
-                            modifier = Modifier.weight(1f).height(42.dp),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Imprimir Físico", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+                Text(receipt, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
             }
+        }
+        Button(onClick = onPrint, modifier = Modifier.align(Alignment.End)) {
+            Icon(Icons.Default.Print, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Reimprimir")
         }
     }
 }

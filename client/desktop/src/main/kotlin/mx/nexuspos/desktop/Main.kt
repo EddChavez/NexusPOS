@@ -25,6 +25,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mx.nexuspos.client.features.auth.AuthViewModel
@@ -56,6 +57,7 @@ import mx.nexuspos.client.features.header.TopHeader
 import mx.nexuspos.client.features.header.TopHeaderUiState
 import mx.nexuspos.client.features.sales.SalesScreen
 import mx.nexuspos.client.features.sales.v2.SalesScreenV2
+import mx.nexuspos.client.features.sales.v2.components.SalesNavigationRail
 import mx.nexuspos.client.features.sales.SalesViewModel
 import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.client.features.scale.ScaleConfig
@@ -80,7 +82,9 @@ fun main() = application {
     var appConfig by remember { mutableStateOf(appConfigRepo.load()) }
     var isShowingServerDialog by remember { mutableStateOf(false) }
 
-    val viewModel = remember { SalesViewModel() }
+    val viewModel = remember {
+        SalesViewModel(apiClient = ApiClient(baseUrl = appConfig.baseUrl), initialRegisterId = appConfig.registerId)
+    }
     val authViewModel = remember { AuthViewModel(viewModel.apiClient) }
     val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
     val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
@@ -99,8 +103,16 @@ fun main() = application {
     var activeModule by remember { mutableStateOf(AppModule.SALES) }
     var scaleReading by remember { mutableStateOf(scaleManager.getCurrentReading()) }
 
+    LaunchedEffect(appConfig.baseUrl) {
+        while (true) {
+            delay(15_000)
+            viewModel.refreshServerConnection()
+        }
+    }
+
     // Wire auth and hardware printer callbacks
     LaunchedEffect(Unit) {
+        cashCutViewModel.hasUnconfirmedSales = viewModel::hasUnconfirmedSales
         // 0. Base URL and server health check
         viewModel.apiClient.baseUrl = appConfig.baseUrl
         val isHealthy = viewModel.apiClient.checkHealth()
@@ -602,7 +614,7 @@ fun main() = application {
                     }
 
                     Key.F11 -> {
-                        if (activeModule == AppModule.SALES) {
+                        if (activeModule == AppModule.SALES && appConfig.salesUiVersion != "V2") {
                             viewModel.onApplyWholesalePrice()
                             true
                         } else false
@@ -715,27 +727,29 @@ fun main() = application {
                     onConfigureServerConnection = { isShowingServerDialog = true }
                 )
             } else {
-                val isV2SalesActive = appConfig.salesUiVersion == "V2" && activeModule == AppModule.SALES
-
+                val isV2 = appConfig.salesUiVersion == "V2"
+                val selectModule: (AppModule) -> Unit = { selected ->
+                    if (selected == AppModule.SETTINGS && salesState.activeCashierRole == "CASHIER") {
+                        authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
+                    } else {
+                        activeModule = selected
+                        if (selected == AppModule.CASH_CUT) cashCutViewModel.loadCurrentSession()
+                    }
+                }
+                val openSync = {
+                    activeModule = AppModule.SALES
+                    viewModel.openOfflineSyncDialog()
+                }
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
                     topBar = {
-                        if (!isV2SalesActive) {
+                        if (!isV2) {
                             TopHeader(
                                 state = headerState,
-                                onModuleSelected = { selected ->
-                                    if (selected == AppModule.SETTINGS && salesState.activeCashierRole == "CASHIER") {
-                                        authViewModel.requestSupervisorElevation(SupervisorAction.AccessSettings)
-                                    } else {
-                                        activeModule = selected
-                                        if (selected == AppModule.CASH_CUT) {
-                                            cashCutViewModel.loadCurrentSession()
-                                        }
-                                    }
-                                },
+                                onModuleSelected = selectModule,
                                 onLogout = { authViewModel.lockTerminal() },
                                 onSwitchCashier = { authViewModel.lockTerminal() },
-                                onSyncOffline = { viewModel.openOfflineSyncDialog() }
+                                onSyncOffline = openSync
                             )
                         }
                     },
@@ -745,175 +759,182 @@ fun main() = application {
                             offlinePendingCount = salesState.offlinePendingSalesCount,
                             scaleReading = scaleReading,
                             versionText = "NexusPOS v2.4 Desktop • © 2026",
-                            onSyncClick = { viewModel.openOfflineSyncDialog() }
+                            onSyncClick = openSync
                         )
                     }
                 ) { innerPadding ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                            .background(MaterialTheme.colorScheme.background)
-                    ) {
-                        when (activeModule) {
-                            AppModule.SALES -> {
-                                if (appConfig.salesUiVersion == "V2") {
-                                    SalesScreenV2(
-                                        viewModel = viewModel,
-                                        scaleReading = scaleReading,
-                                        onPrintShiftReceipt = { sale ->
-                                            if (printerConfig.connectionType == PrinterConnectionType.NONE) {
-                                                Result.failure(IllegalStateException("Configura una impresora para reimprimir el ticket."))
-                                            } else {
-                                                withContext(Dispatchers.IO) {
-                                                    printerDispatcher.printSaleReceipt(sale, null, printerConfig, isReprint = true)
+                    Row(Modifier.fillMaxSize().padding(innerPadding).background(MaterialTheme.colorScheme.background)) {
+                        if (isV2 && activeModule != AppModule.SALES) {
+                            SalesNavigationRail(
+                                activeModule = activeModule,
+                                onModuleSelected = selectModule,
+                                cashierName = salesState.activeCashierName,
+                                cashierRole = salesState.activeCashierRole,
+                                onLockTerminal = authViewModel::lockTerminal
+                            )
+                        }
+                        Box(Modifier.weight(1f).fillMaxHeight()) {
+                            when (activeModule) {
+                                AppModule.SALES -> {
+                                    if (appConfig.salesUiVersion == "V2") {
+                                        SalesScreenV2(
+                                            viewModel = viewModel,
+                                            scaleReading = scaleReading,
+                                            onPrintShiftReceipt = { sale ->
+                                                if (printerConfig.connectionType == PrinterConnectionType.NONE) {
+                                                    Result.failure(IllegalStateException("Configura una impresora para reimprimir el ticket."))
+                                                } else {
+                                                    withContext(Dispatchers.IO) {
+                                                        printerDispatcher.printSaleReceipt(sale, null, printerConfig, isReprint = true)
+                                                    }
+                                                }
+                                            },
+                                            onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
+                                            onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
+                                            onNavigateToModule = selectModule,
+                                            onLockTerminal = { authViewModel.lockTerminal() },
+                                            onOpenCashDrawerHardware = {
+                                                if (printerConfig.connectionType != PrinterConnectionType.NONE) {
+                                                    printerDispatcher.openCashDrawer(printerConfig)
                                                 }
                                             }
-                                        },
-                                        onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
-                                        onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
-                                        onNavigateToModule = { activeModule = it },
-                                        onLockTerminal = { authViewModel.lockTerminal() },
-                                        onOpenCashDrawerHardware = {
-                                            if (printerConfig.connectionType != PrinterConnectionType.NONE) {
-                                                printerDispatcher.openCashDrawer(printerConfig)
-                                            }
-                                        }
-                                    )
-                                } else {
-                                    SalesScreen(
-                                        viewModel = viewModel,
-                                        scaleReading = scaleReading,
-                                        onRequestCancelSale = { sale, reason ->
-                                            if (salesState.activeCashierRole == "CASHIER") {
-                                                authViewModel.requestSupervisorElevation(
-                                                    SupervisorAction.CancelSale(sale.id, sale.folio, reason)
-                                                )
-                                            } else {
-                                                viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
-                                            }
-                                        },
-                                        onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
-                                        onCopyText = { WhatsAppDispatcher.copyToClipboard(it) }
+                                        )
+                                    } else {
+                                        SalesScreen(
+                                            viewModel = viewModel,
+                                            scaleReading = scaleReading,
+                                            onRequestCancelSale = { sale, reason ->
+                                                if (salesState.activeCashierRole == "CASHIER") {
+                                                    authViewModel.requestSupervisorElevation(
+                                                        SupervisorAction.CancelSale(sale.id, sale.folio, reason)
+                                                    )
+                                                } else {
+                                                    viewModel.executeCancelSale(sale.id, reason, supervisorUserId = null)
+                                                }
+                                            },
+                                            onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
+                                            onCopyText = { WhatsAppDispatcher.copyToClipboard(it) }
+                                        )
+                                    }
+                                }
+                                AppModule.CASH_CUT -> {
+                                    CashCutScreen(
+                                        viewModel = cashCutViewModel,
+                                        onBackToSales = { activeModule = AppModule.SALES },
+                                        activeCashierUserId = salesState.activeCashierId
                                     )
                                 }
-                            }
-                            AppModule.CASH_CUT -> {
-                                CashCutScreen(
-                                    viewModel = cashCutViewModel,
-                                    onBackToSales = { activeModule = AppModule.SALES },
-                                    activeCashierUserId = salesState.activeCashierId
-                                )
-                            }
-                            AppModule.CUSTOMERS -> {
-                                CustomersScreen(
-                                    viewModel = customersViewModel,
-                                    cashSessionId = salesState.activeSession?.sessionId ?: "caja-1",
-                                    cashierUserId = salesState.activeCashierId,
-                                    onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
-                                    onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
-                                    onBackToSales = { activeModule = AppModule.SALES }
-                                )
-                            }
-                            AppModule.PRODUCTS -> {
-                                ProductsScreen(
-                                    viewModel = productsViewModel,
-                                    onBackToSales = { activeModule = AppModule.SALES },
-                                    onPrintShelfLabel = { prod, copies ->
-                                        CoroutineScope(Dispatchers.IO).launch {
-                                            if (printerConfig.connectionType != PrinterConnectionType.NONE) {
-                                                val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
-                                                val pres = prod.presentations.firstOrNull()
-                                                val barcode = pres?.barcode?.ifBlank { prod.sku } ?: prod.sku
-                                                val price = pres?.priceCents ?: 0L
-                                                repeat(copies) {
-                                                    val bytes = printer.generateShelfLabelBytes(
-                                                        productName = prod.name,
-                                                        barcode = barcode,
-                                                        priceCents = price,
-                                                        presentationName = prod.baseUnit,
-                                                        storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
-                                                    )
-                                                    printerDispatcher.printBytes(bytes, printerConfig)
+                                AppModule.CUSTOMERS -> {
+                                    CustomersScreen(
+                                        viewModel = customersViewModel,
+                                        cashSessionId = salesState.activeSession?.sessionId ?: "caja-1",
+                                        cashierUserId = salesState.activeCashierId,
+                                        onOpenWhatsApp = { WhatsAppDispatcher.openWhatsApp(it) },
+                                        onCopyText = { WhatsAppDispatcher.copyToClipboard(it) },
+                                        onBackToSales = { activeModule = AppModule.SALES }
+                                    )
+                                }
+                                AppModule.PRODUCTS -> {
+                                    ProductsScreen(
+                                        viewModel = productsViewModel,
+                                        onPricesChanged = viewModel::preloadCatalogCache,
+                                        onBackToSales = { activeModule = AppModule.SALES },
+                                        onPrintShelfLabel = { prod, copies ->
+                                            CoroutineScope(Dispatchers.IO).launch {
+                                                if (printerConfig.connectionType != PrinterConnectionType.NONE) {
+                                                    val printer = EscPosReceiptPrinter(printerConfig.paperWidth)
+                                                    val pres = prod.presentations.firstOrNull()
+                                                    val barcode = pres?.barcode?.ifBlank { prod.sku } ?: prod.sku
+                                                    val price = pres?.priceCents ?: 0L
+                                                    repeat(copies) {
+                                                        val bytes = printer.generateShelfLabelBytes(
+                                                            productName = prod.name,
+                                                            barcode = barcode,
+                                                            priceCents = price,
+                                                            presentationName = prod.baseUnit,
+                                                            storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
+                                                        )
+                                                        printerDispatcher.printBytes(bytes, printerConfig)
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                )
-                            }
-                            AppModule.INVENTORY -> {
-                                InventoryScreen(
-                                    viewModel = inventoryViewModel,
-                                    onRequestAdjustStock = { product ->
-                                        if (salesState.activeCashierRole == "CASHIER") {
-                                            authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(product))
-                                        } else {
-                                            inventoryViewModel.openMovementDialog(product)
-                                        }
-                                    },
-                                    onExportReorderCsv = { items ->
-                                        val csv = ReorderExportHelper.generateCsvContent(items)
-                                        try {
-                                            val file = java.io.File(System.getProperty("user.home"), "pedido_sugerido_${System.currentTimeMillis()}.csv")
-                                            file.writeText(csv)
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                        }
-                                    },
-                                    onCopyReorderWhatsApp = { items ->
-                                        val text = ReorderExportHelper.generateWhatsAppText(
-                                            items = items,
-                                            storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
-                                        )
-                                        try {
-                                            val selection = java.awt.datatransfer.StringSelection(text)
-                                            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                        }
-                                    },
-                                    onPrintReorderTicket = { items ->
-                                        CoroutineScope(Dispatchers.IO).launch {
-                                            printerDispatcher.printReorderList(
+                                    )
+                                }
+                                AppModule.INVENTORY -> {
+                                    InventoryScreen(
+                                        viewModel = inventoryViewModel,
+                                        onRequestAdjustStock = { product ->
+                                            if (salesState.activeCashierRole == "CASHIER") {
+                                                authViewModel.requestSupervisorElevation(SupervisorAction.AdjustInventory(product))
+                                            } else {
+                                                inventoryViewModel.openMovementDialog(product)
+                                            }
+                                        },
+                                        onExportReorderCsv = { items ->
+                                            val csv = ReorderExportHelper.generateCsvContent(items)
+                                            try {
+                                                val file = java.io.File(System.getProperty("user.home"), "pedido_sugerido_${System.currentTimeMillis()}.csv")
+                                                file.writeText(csv)
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        },
+                                        onCopyReorderWhatsApp = { items ->
+                                            val text = ReorderExportHelper.generateWhatsAppText(
                                                 items = items,
-                                                settings = null,
-                                                departmentName = null,
-                                                config = printerConfig
+                                                storeName = settingsViewModel.uiState.value.storeName.ifBlank { "NEXUS POS" }
                                             )
-                                        }
-                                    },
-                                    onPrintLotsReport = {
-                                        val rep = inventoryViewModel.uiState.value.lotsReport
-                                        if (rep != null) {
+                                            try {
+                                                val selection = java.awt.datatransfer.StringSelection(text)
+                                                java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        },
+                                        onPrintReorderTicket = { items ->
                                             CoroutineScope(Dispatchers.IO).launch {
-                                                printerDispatcher.printExpirationsReport(
-                                                    report = rep,
+                                                printerDispatcher.printReorderList(
+                                                    items = items,
                                                     settings = null,
+                                                    departmentName = null,
                                                     config = printerConfig
                                                 )
                                             }
-                                        }
-                                    },
-                                    onBackToSales = { activeModule = AppModule.SALES }
-                                )
+                                        },
+                                        onPrintLotsReport = {
+                                            val rep = inventoryViewModel.uiState.value.lotsReport
+                                            if (rep != null) {
+                                                CoroutineScope(Dispatchers.IO).launch {
+                                                    printerDispatcher.printExpirationsReport(
+                                                        report = rep,
+                                                        settings = null,
+                                                        config = printerConfig
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onBackToSales = { activeModule = AppModule.SALES }
+                                    )
+                                }
+                                AppModule.SETTINGS -> {
+                                    SettingsScreen(
+                                        viewModel = settingsViewModel,
+                                        onBackToSales = { activeModule = AppModule.SALES }
+                                    )
+                                }
                             }
-                            AppModule.SETTINGS -> {
-                                SettingsScreen(
-                                    viewModel = settingsViewModel,
-                                    onBackToSales = { activeModule = AppModule.SALES }
-                                )
-                            }
-                        }
 
-                        // Supervisor authorization modal when needed
-                        if (supervisorState.isVisible) {
-                            SupervisorAuthDialog(
-                                state = supervisorState,
-                                onDigit = { authViewModel.onSupervisorDigit(it) },
-                                onBackspace = { authViewModel.onSupervisorBackspace() },
-                                onSubmit = { authViewModel.submitSupervisorElevation() },
-                                onDismiss = { authViewModel.cancelSupervisorElevation() }
-                            )
+                            // Supervisor authorization modal when needed
+                            if (supervisorState.isVisible) {
+                                SupervisorAuthDialog(
+                                    state = supervisorState,
+                                    onDigit = { authViewModel.onSupervisorDigit(it) },
+                                    onBackspace = { authViewModel.onSupervisorBackspace() },
+                                    onSubmit = { authViewModel.submitSupervisorElevation() },
+                                    onDismiss = { authViewModel.cancelSupervisorElevation() }
+                                )
+                            }
                         }
                     }
                 }

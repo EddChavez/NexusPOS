@@ -39,3 +39,8 @@ internal fun formatCheckoutSummary(lines: List<CartLine>): String {
         }
     }.joinToString(" · ")
 }
+
+
+internal fun volumeQuantityLabel(millis: Long, unit: ProductUnit): String =
+    if (unit == ProductUnit.PIECE) Quantity(millis).format().substringBefore(' ') + " presentaciones"
+    else Quantity(millis).format(unit)

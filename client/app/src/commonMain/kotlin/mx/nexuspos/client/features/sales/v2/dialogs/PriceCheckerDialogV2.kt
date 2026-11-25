@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.features.sales.v2.components.ProductThumbnail
 import mx.nexuspos.client.features.sales.v2.components.symbol
+import mx.nexuspos.client.features.sales.v2.components.volumeQuantityLabel
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.ProductUnit
@@ -225,7 +226,7 @@ private fun CheckedProduct(product: ProductDto, query: String) {
                 }
             }
 
-            if (price != null && unitLabel != null) {
+            if (presentation != null && price != null && unitLabel != null) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.medium,
@@ -242,8 +243,13 @@ private fun CheckedProduct(product: ProductDto, query: String) {
                         Text("Por $unitLabel", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                val wholesale = Money.pesos(price.pesos * 0.90)
-                Text("Mayoreo estimado (−10 %) · ${wholesale.format()}", style = MaterialTheme.typography.bodyMedium)
+                presentation.priceTiers.sortedBy { it.minimumQuantityMillis }.forEach { tier ->
+                    Text(
+                        "Desde ${volumeQuantityLabel(tier.minimumQuantityMillis, unit)} · " +
+                            "${Money(presentation.priceFor(tier.minimumQuantityMillis)).format()} por $unitLabel",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             } else {
                 Text("Sin precio disponible", style = MaterialTheme.typography.bodyMedium)
             }

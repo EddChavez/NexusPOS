@@ -27,6 +27,8 @@ class CashCutViewModel(
     var onOpenCashDrawer: (() -> Unit)? = null
     var cashCutFormatter: ((session: CashSessionSummary, isFinalZCut: Boolean) -> String)? = null
     var dailyReportFormatter: ((report: DailyFinancialReportDto) -> String)? = null
+    private var printPreview: (() -> Unit)? = null
+    var hasUnconfirmedSales: (String) -> Boolean = { false }
     var onSessionClosedCallback: (() -> Unit)? = null
 
     init {
@@ -148,8 +150,8 @@ class CashCutViewModel(
         val formatted = cashCutFormatter?.invoke(session, false)
             ?: defaultFormatCashCut(session, isFinalZCut = false)
 
-        // Trigger physical print
-        onPrintCashCut?.invoke(session, false)
+        printPreview = { onPrintCashCut?.invoke(session, false) }
+        reprintPreview()
 
         _uiState.update {
             it.copy(
@@ -167,6 +169,11 @@ class CashCutViewModel(
             return
         }
 
+        if (hasUnconfirmedSales(session.sessionId)) {
+            _uiState.update { it.copy(errorMessage = "Sincroniza las ventas pendientes de este turno antes de cerrarlo.") }
+            return
+        }
+
         val state = _uiState.value
         _uiState.update { it.copy(isClosingSession = true, errorMessage = null) }
 
@@ -181,8 +188,8 @@ class CashCutViewModel(
                 // Physical drawer kick
                 onOpenCashDrawer?.invoke()
 
-                // Trigger physical printer
-                onPrintCashCut?.invoke(closedSession, true)
+                printPreview = { onPrintCashCut?.invoke(closedSession, true) }
+                reprintPreview()
 
                 // Format receipt preview
                 val formatted = cashCutFormatter?.invoke(closedSession, true)
@@ -285,7 +292,8 @@ class CashCutViewModel(
         val formatted = dailyReportFormatter?.invoke(report)
             ?: defaultFormatDailyReport(report)
 
-        onPrintDailyReport?.invoke(report)
+        printPreview = { onPrintDailyReport?.invoke(report) }
+        reprintPreview()
 
         _uiState.update {
             it.copy(
@@ -296,7 +304,12 @@ class CashCutViewModel(
         }
     }
 
+    fun reprintPreview() {
+        printPreview?.invoke()
+    }
+
     fun closePreview() {
+        printPreview = null
         _uiState.update { it.copy(ticketPreviewText = null) }
     }
 

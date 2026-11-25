@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
 import mx.nexuspos.client.core.ServerConnectionState
+import mx.nexuspos.client.core.saleOutcomeIsUncertain
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
 import mx.nexuspos.client.features.auth.SupervisorAction
 import mx.nexuspos.client.features.header.ScaleReading
 import mx.nexuspos.client.features.offline.LocalPersistenceProvider
@@ -22,6 +25,7 @@ import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
+import mx.nexuspos.contracts.catalog.resolvePresentationPrice
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.contracts.sales.CreateSaleRefundRequest
 import mx.nexuspos.contracts.sales.CreateSaleRequest
@@ -45,7 +49,8 @@ import java.util.UUID
 class SalesViewModel(
     val apiClient: ApiClient = ApiClient(),
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main),
-    val persistenceProvider: LocalPersistenceProvider = getDefaultPersistenceProvider()
+    val persistenceProvider: LocalPersistenceProvider = getDefaultPersistenceProvider(),
+    initialRegisterId: String = "caja-1"
 ) {
     val catalogCache = OfflineCatalogCache(persistenceProvider)
     val saleQueue = OfflineSaleQueue(persistenceProvider)
@@ -53,6 +58,10 @@ class SalesViewModel(
 
     private val _uiState = MutableStateFlow(SalesUiState())
     val uiState: StateFlow<SalesUiState> = _uiState.asStateFlow()
+
+    private var activeRegisterId = initialRegisterId
+    private var activeSessionServer = apiClient.baseUrl
+    private val connectionCheck = Mutex()
 
     var currentSettings: SettingsDto? = null
 
@@ -109,10 +118,10 @@ class SalesViewModel(
         _uiState.update { it.copy(isShowingOfflineSyncDialog = false) }
     }
 
-    fun triggerOfflineSync() {
+    fun triggerOfflineSync(automatic: Boolean = false) {
         if (_uiState.value.isSyncingOfflineSales) return
         _uiState.update { it.copy(isSyncingOfflineSales = true, offlineSyncMessage = "Sincronizando...") }
-        syncManager.triggerSync { result ->
+        syncManager.triggerSync(automatic) { result ->
             _uiState.update {
                 it.copy(
                     isSyncingOfflineSales = false,
@@ -135,31 +144,49 @@ class SalesViewModel(
     }
 
     fun clearSyncedOfflineSales() {
-        saleQueue.clearSynced()
+        runCatching { saleQueue.clearSynced() }.onFailure { error ->
+            _uiState.update { it.copy(offlineSyncMessage = error.message ?: "No se pudo actualizar la cola local.") }
+        }
         _uiState.update { it.copy(offlinePendingSalesCount = saleQueue.pendingCount()) }
     }
 
     fun checkServerConnection() {
-        scope.launch {
+        scope.launch { refreshServerConnection() }
+    }
+
+    suspend fun refreshServerConnection() {
+        if (!connectionCheck.tryLock()) return
+        try {
+            val server = apiClient.baseUrl
             val isHealthy = apiClient.checkHealth()
+            if (apiClient.baseUrl != server) return
             val wasOffline = _uiState.value.connectionState == ServerConnectionState.NO_SERVER
             _uiState.update {
-                it.copy(
-                    connectionState = if (isHealthy) ServerConnectionState.CONNECTED else ServerConnectionState.NO_SERVER
-                )
+                it.copy(connectionState = if (isHealthy) ServerConnectionState.CONNECTED else ServerConnectionState.NO_SERVER)
             }
-            if (isHealthy && (wasOffline || saleQueue.pendingCount() > 0)) {
+            if (!isHealthy) return
+            if (wasOffline) {
                 preloadCatalogCache()
-                if (saleQueue.pendingCount() > 0) {
-                    triggerOfflineSync()
-                }
+                loadActiveSession()
             }
+            if (saleQueue.getPending(automatic = true).any { it.belongsTo(server) }) {
+                triggerOfflineSync(automatic = true)
+            }
+        } finally {
+            connectionCheck.unlock()
         }
     }
 
-    fun loadActiveSession(registerId: String = "caja-1") {
+    fun loadActiveSession(registerId: String = activeRegisterId) {
+        val server = apiClient.baseUrl
+        if (activeRegisterId != registerId || activeSessionServer != server) {
+            activeRegisterId = registerId
+            activeSessionServer = server
+            _uiState.update { it.copy(activeSession = null) }
+        }
         scope.launch {
             val res = apiClient.getCurrentSession(registerId)
+            if (activeRegisterId != registerId || server != apiClient.baseUrl) return@launch
             res.onSuccess { session ->
                 _uiState.update { it.copy(activeSession = session) }
             }.onFailure {
@@ -336,7 +363,7 @@ class SalesViewModel(
 
     fun addProductPresentation(prod: ProductDto, pres: ProductPresentationDto, qty: Quantity) {
         val unit = ProductUnit.fromCode(prod.baseUnit)
-        val unitPrice = Money.fromCents(pres.priceCents)
+        val unitPrice = Money.fromCents(pres.priceFor(qty.millis))
         val lineTotal = PricingRules.calculateLineTotal(unitPrice, qty)
 
         val itemDescription = if (
@@ -357,8 +384,8 @@ class SalesViewModel(
                 state.cartLines.mapIndexed { idx, line ->
                     if (idx == existingIndex) {
                         val newQty = line.quantity + qty
-                        val newTotal = PricingRules.calculateLineTotal(line.unitPrice, newQty)
-                        line.copy(quantity = newQty, total = newTotal)
+                        line.copy(publicPriceCents = pres.priceCents, priceTiers = pres.priceTiers)
+                            .pricedAt(newQty, fixedDiscount = line.fixedDiscount())
                     } else line
                 }
             } else {
@@ -375,7 +402,9 @@ class SalesViewModel(
                     taxRate = prod.taxRate,
                     total = lineTotal,
                     currentStockMillis = if (prod.usesInventory) prod.currentStockMillis else null,
-                    isWeighed = unit == ProductUnit.KILOGRAM
+                    isWeighed = unit == ProductUnit.KILOGRAM,
+                    publicPriceCents = pres.priceCents,
+                    priceTiers = pres.priceTiers
                 )
             }
             recalculateTotals(state.copy(cartLines = updatedLines))
@@ -412,21 +441,7 @@ class SalesViewModel(
                         }
                         stockWarning = "Atención: La cantidad excede la existencia disponible ($stockUnits) para '${line.name}'."
                     }
-                    val (newTotal, totalDisc) = if (line.discountPercent > 0.0 || line.discountCents > 0L) {
-                        PricingRules.calculateLineTotalWithDiscount(
-                            line.unitPrice,
-                            newQuantity,
-                            line.discountPercent,
-                            line.discountCents
-                        )
-                    } else {
-                        Pair(PricingRules.calculateLineTotal(line.unitPrice, newQuantity), Money(line.discountCents))
-                    }
-                    line.copy(
-                        quantity = newQuantity,
-                        total = newTotal,
-                        discountCents = totalDisc.cents
-                    )
+                    line.pricedAt(newQuantity)
                 } else line
             }
             recalculateTotals(
@@ -436,6 +451,16 @@ class SalesViewModel(
                 )
             )
         }
+    }
+
+    private fun CartLine.fixedDiscount(): Long = fixedDiscountCents ?: (
+        discountCents - PricingRules.calculateLineTotalWithDiscount(unitPrice, quantity, discountPercent).second.cents
+    ).coerceAtLeast(0)
+
+    private fun CartLine.pricedAt(newQuantity: Quantity, fixedDiscount: Long = fixedDiscount()): CartLine {
+        val price = Money(resolvePresentationPrice(publicPriceCents ?: unitPrice.cents, priceTiers, newQuantity.millis))
+        val (total, discount) = PricingRules.calculateLineTotalWithDiscount(price, newQuantity, discountPercent, fixedDiscount)
+        return copy(quantity = newQuantity, unitPrice = price, total = total, discountCents = discount.cents, fixedDiscountCents = fixedDiscount)
     }
 
     fun removeCartLine(lineId: String) {
@@ -601,7 +626,8 @@ class SalesViewModel(
                 barcode = line.barcode,
                 name = line.name,
                 factorMillis = 1000L,
-                priceCents = line.unitPrice.cents
+                priceCents = line.publicPriceCents ?: line.unitPrice.cents,
+                priceTiers = line.priceTiers
             )
             _uiState.update {
                 it.copy(
@@ -724,7 +750,8 @@ class SalesViewModel(
                 totalCents = line.total.cents,
                 isWeighed = line.isWeighed,
                 discountCents = line.discountCents,
-                discountPercent = line.discountPercent
+                discountPercent = line.discountPercent,
+                fixedDiscountCents = line.fixedDiscount()
             )
         }
 
@@ -732,7 +759,7 @@ class SalesViewModel(
             customLabel = effectiveLabel,
             cashierUserId = state.activeCashierId,
             cashierName = state.activeCashierName,
-            registerId = state.activeSession?.registerId ?: "caja-1",
+            registerId = state.activeSession?.registerId ?: activeRegisterId,
             customerId = state.selectedCustomer?.id,
             customerName = state.selectedCustomer?.name,
             items = itemsDto,
@@ -766,7 +793,7 @@ class SalesViewModel(
         val state = _uiState.value
         val req = RetrieveParkedSaleRequest(
             retrievedByUserId = state.activeCashierId,
-            registerId = state.activeSession?.registerId ?: "caja-1"
+            registerId = state.activeSession?.registerId ?: activeRegisterId
         )
 
         scope.launch {
@@ -785,8 +812,11 @@ class SalesViewModel(
                         total = Money.fromCents(item.totalCents),
                         isWeighed = item.isWeighed,
                         discountCents = item.discountCents,
-                        discountPercent = item.discountPercent
-                    )
+                        discountPercent = item.discountPercent,
+                        publicPriceCents = item.publicPriceCents,
+                        priceTiers = item.priceTiers,
+                        fixedDiscountCents = item.fixedDiscountCents
+                    ).let { line -> if (line.publicPriceCents == null) line else line.pricedAt(line.quantity) }
                 }
 
                 val customerResult = retrieved.customerId?.let { apiClient.getCustomer(it) }
@@ -1252,7 +1282,7 @@ class SalesViewModel(
     fun openCashSession(fundCents: Long) {
         scope.launch {
             val req = OpenSessionRequest(
-                registerId = "caja-1",
+                registerId = activeRegisterId,
                 userId = _uiState.value.activeCashierId,
                 initialFundCents = fundCents
             )
@@ -1272,6 +1302,10 @@ class SalesViewModel(
 
     fun closeCashSession(countedCashCents: Long, notes: String = "") {
         val sess = _uiState.value.activeSession ?: return
+        if (hasUnconfirmedSales(sess.sessionId)) {
+            setErrorMessage("Sincroniza las ventas pendientes de este turno antes de cerrarlo.")
+            return
+        }
         scope.launch {
             val req = CloseSessionRequest(countedCashCents = countedCashCents, notes = notes)
             apiClient.closeSession(sess.sessionId, req).onSuccess { closed ->
@@ -1287,6 +1321,9 @@ class SalesViewModel(
             }
         }
     }
+
+    fun hasUnconfirmedSales(sessionId: String): Boolean =
+        _uiState.value.isCheckoutInProgress || saleQueue.getPending().any { it.request.cashSessionId == sessionId }
 
     fun checkoutCash(receivedCents: Long) {
         val state = _uiState.value
@@ -1330,11 +1367,14 @@ class SalesViewModel(
         if (state.isCheckoutInProgress) return
 
         val isOffline = state.connectionState == ServerConnectionState.NO_SERVER
+        val server = activeSessionServer
         val validationError = when {
             payments.isEmpty() -> "Debe especificar al menos una forma de pago."
             isOffline && payments.any { it.method == "CREDIT" || it.method == "LOYALTY" } ->
                 "En Modo Contingencia (sin servidor LAN) solo se permiten pagos en Efectivo o Tarjeta."
-            !isOffline && state.activeSession?.status != "OPEN" -> "Debe abrir una sesión de caja antes de realizar ventas."
+            state.activeSession?.status != "OPEN" || server != apiClient.baseUrl -> if (isOffline) {
+                "Conéctate al servidor para confirmar un turno abierto antes de cobrar sin red."
+            } else "Debe abrir una sesión de caja antes de realizar ventas."
             payments.any { it.method == "CREDIT" } && state.selectedCustomer == null ->
                 "Debe seleccionar un cliente para registrar pago a crédito (fiado)."
             else -> null
@@ -1345,6 +1385,10 @@ class SalesViewModel(
         }
 
         scope.launch {
+            if (server != apiClient.baseUrl) {
+                reportCheckoutError("Cambió el servidor durante el cobro. Confirma el turno antes de continuar.")
+                return@launch
+            }
             val linesReq = state.cartLines.map { line ->
                 SaleLineItemRequest(
                     productId = line.productId,
@@ -1354,13 +1398,13 @@ class SalesViewModel(
                     expectedUnitPriceCents = line.unitPrice.cents,
                     expectedTotalCents = line.total.cents,
                     taxRate = line.taxRate,
-                    discountCents = line.discountCents,
+                    discountCents = line.fixedDiscount(),
                     discountPercent = line.discountPercent
                 )
             }
 
             val totalDiscountCents = state.cartLines.sumOf { it.discountCents }
-            val sessionId = state.activeSession?.sessionId ?: "contingency-session"
+            val sessionId = checkNotNull(state.activeSession).sessionId
 
             val saleReq = CreateSaleRequest(
                 idempotencyKey = UUID.randomUUID().toString(),
@@ -1375,7 +1419,7 @@ class SalesViewModel(
 
             if (isOffline) {
                 val queuedSale = try {
-                    saleQueue.enqueue(saleReq)
+                    saleQueue.enqueue(saleReq, serverUrl = server)
                 } catch (error: Exception) {
                     reportCheckoutError(error.message ?: "No se pudo guardar la venta en contingencia.")
                     return@launch
@@ -1411,7 +1455,7 @@ class SalesViewModel(
                             taxRate = l.taxRate,
                             taxCents = ((l.expectedTotalCents * l.taxRate) / (1 + l.taxRate)).toLong(),
                             totalCents = l.expectedTotalCents,
-                            discountCents = l.discountCents,
+                            discountCents = state.cartLines[idx].discountCents,
                             discountPercent = l.discountPercent
                         )
                     },
@@ -1445,7 +1489,21 @@ class SalesViewModel(
                 return@launch
             }
 
-            apiClient.completeSale(saleReq).onSuccess { sale ->
+            val submission = try {
+                saleQueue.stageOnline(saleReq, serverUrl = server)
+            } catch (error: Exception) {
+                reportCheckoutError(error.message ?: "No se pudo guardar el intento de cobro.")
+                return@launch
+            }
+            val response = try {
+                apiClient.completeSale(saleReq)
+            } catch (error: CancellationException) {
+                throw error
+            } finally {
+                saleQueue.releaseOnline(submission.localFolio)
+            }
+            response.onSuccess { sale ->
+                runCatching { saleQueue.removeOnline(submission.localFolio) }
                 _uiState.update { current ->
                     val cashPay = sale.payments.firstOrNull { it.method == "CASH" }
                     val changeMsg = if (cashPay != null && cashPay.changeCents > 0L) {
@@ -1470,13 +1528,29 @@ class SalesViewModel(
                         isCheckoutInProgress = false,
                         checkoutErrorMessage = null,
                         lastCompletedSale = sale,
+                        offlinePendingSalesCount = saleQueue.pendingCount(),
                         successMessage = "Venta folio #${sale.folio} completada con éxito$changeMsg$creditMsg$loyaltyMsg",
                         errorMessage = null
                     )
                 }
                 onSaleCompleted?.invoke(sale)
             }.onFailure { error ->
-                reportCheckoutError(error.message ?: "No se pudo completar el cobro.")
+                if (error.saleOutcomeIsUncertain()) {
+                    _uiState.update { current ->
+                        resetCheckedOutTicket(current, state.activeTicketId).copy(
+                            isShowingCashPayment = false,
+                            isCheckoutInProgress = false,
+                            offlinePendingSalesCount = saleQueue.pendingCount(),
+                            errorMessage = "El cobro quedó pendiente de confirmación. Consulta la cola de ventas antes de volver a cobrar."
+                        )
+                    }
+                } else {
+                    runCatching { saleQueue.removeOnline(submission.localFolio) }.onFailure {
+                        runCatching { saleQueue.markFailed(submission.localFolio, error.message.orEmpty(), automaticRetry = false) }
+                    }
+                    _uiState.update { it.copy(offlinePendingSalesCount = saleQueue.pendingCount()) }
+                    reportCheckoutError(error.message ?: "No se pudo completar el cobro.")
+                }
             }
         }
     }
@@ -1541,7 +1615,8 @@ class SalesViewModel(
                     line.copy(
                         total = newTotal,
                         discountCents = totalDisc.cents,
-                        discountPercent = discountPercent
+                        discountPercent = discountPercent,
+                        fixedDiscountCents = discountCents
                     )
                 } else line
             }
@@ -1567,7 +1642,8 @@ class SalesViewModel(
                 line.copy(
                     total = newTotal,
                     discountCents = totalDisc.cents,
-                    discountPercent = discountPercent
+                    discountPercent = discountPercent,
+                    fixedDiscountCents = discountCents
                 )
             }
             _uiState.update {

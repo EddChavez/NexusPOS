@@ -7,6 +7,7 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.CashSessionSummary
@@ -21,6 +22,7 @@ import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
 import mx.nexuspos.contracts.catalog.UpdateProductRequest
+import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
 import mx.nexuspos.contracts.credit.CreateCustomerRequest
 import mx.nexuspos.contracts.credit.CreditMovementDto
 import mx.nexuspos.contracts.credit.CustomerDto
@@ -75,6 +77,8 @@ open class ApiClient(
         return try {
             val res = http.get("$baseUrl/health")
             res.status.isSuccess()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -167,6 +171,23 @@ open class ApiClient(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun updatePresentationPrices(
+        productId: String,
+        presentationId: String,
+        request: UpdatePresentationPricesRequest
+    ): Result<ProductDto> = try {
+        val response = http.put("$baseUrl/api/v1/products/$productId/presentations/$presentationId/prices") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+        if (response.status.isSuccess()) Result.success(response.body())
+        else Result.failure(Exception(parseError(response).message))
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Result.failure(error)
     }
 
     suspend fun updateProduct(id: String, req: UpdateProductRequest): Result<ProductDto> {
@@ -681,10 +702,12 @@ open class ApiClient(
                 Result.success(res.body())
             } else {
                 val err = parseError(res)
-                Result.failure(Exception(err.message))
+                Result.failure(SaleSubmissionRejected(err.message, res.status.value))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(SaleSubmissionUncertain(e))
         }
     }
 
@@ -988,4 +1011,15 @@ open class ApiClient(
             ApiError("HTTP_ERROR", "Error del servidor (${response.status.value})")
         }
     }
+}
+
+internal class SaleSubmissionRejected(message: String, val status: Int) : Exception(message)
+
+internal class SaleSubmissionUncertain(cause: Throwable) : Exception(cause.message, cause)
+
+internal fun Throwable.saleOutcomeIsUncertain(): Boolean = when (this) {
+    is SaleSubmissionRejected -> status >= 500 || status == 408 || status == 429
+    is SaleSubmissionUncertain -> true
+    is io.ktor.utils.io.errors.IOException -> true
+    else -> false
 }

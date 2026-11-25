@@ -31,9 +31,25 @@ import mx.nexuspos.core.Money
 fun ProductsScreen(
     viewModel: ProductsViewModel,
     onBackToSales: () -> Unit = {},
-    onPrintShelfLabel: ((ProductDto, Int) -> Unit)? = null
+    onPrintShelfLabel: ((ProductDto, Int) -> Unit)? = null,
+    onPricesChanged: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    var pricingTarget by remember { mutableStateOf<ProductDto?>(null) }
+    pricingTarget?.let { product ->
+        PresentationPricingDialogV2(
+            product = product,
+            onSave = { presentation, tiers ->
+                viewModel.savePresentationPrices(product.id, presentation, tiers)
+                    .onSuccess {
+                        pricingTarget = it
+                        onPricesChanged()
+                    }
+            },
+            onDismiss = { pricingTarget = null }
+        )
+    }
 
     // Form Dialog (Crear / Editar)
     if (state.showFormDialog) {
@@ -135,6 +151,12 @@ fun ProductsScreen(
             onDismissError = viewModel::dismissMessages,
             onDismissSuccess = viewModel::dismissMessages
         )
+
+        state.selectedProduct?.takeIf { it.presentations.isNotEmpty() }?.let { product ->
+            FilledTonalButton(onClick = { pricingTarget = product }, enabled = !state.isLoading) {
+                Text("Precios por cantidad · ${product.name}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
 
         // TABLA PRINCIPAL DE PRODUCTOS
         ProductsTablePanel(

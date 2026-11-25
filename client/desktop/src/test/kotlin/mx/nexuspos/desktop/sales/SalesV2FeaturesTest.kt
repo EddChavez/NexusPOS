@@ -7,6 +7,7 @@ import mx.nexuspos.client.features.sales.v2.shortcuts.HostOs
 import mx.nexuspos.client.features.sales.v2.shortcuts.PosAction
 import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.catalog.ProductPresentationDto
+import mx.nexuspos.contracts.catalog.PresentationPriceTier
 import mx.nexuspos.contracts.credit.CustomerDto
 import mx.nexuspos.core.Money
 import mx.nexuspos.core.Quantity
@@ -75,6 +76,25 @@ class SalesV2FeaturesTest {
         // 1.5 * 144.00 = 216.00
         assertEquals(Money.fromCents(21600L), updatedLine.total)
         assertEquals(Money.fromCents(21600L), vm.uiState.value.total)
+    }
+
+    @Test
+    fun catalogTierIsAppliedAndReversedAsTheQuantityChanges() {
+        val vm = SalesViewModel()
+        val product = ProductDto("prod", "SKU", "Galletas")
+        val presentation = ProductPresentationDto(
+            "pack", product.id, "123", "Caja", 12000, 2000,
+            priceTiers = listOf(PresentationPriceTier(2000, 1800), PresentationPriceTier(5000, 1600))
+        )
+        vm.addProductPresentation(product, presentation, Quantity.ONE)
+        vm.addProductPresentation(product, presentation, Quantity.ONE)
+        val lineId = vm.uiState.value.cartLines.single().id
+        assertEquals(Money(3600), vm.uiState.value.total)
+
+        vm.updateCartLineQuantity(lineId, Quantity.pieces(5))
+        assertEquals(Money(8000), vm.uiState.value.total)
+        vm.updateCartLineQuantity(lineId, Quantity.ONE)
+        assertEquals(Money(2000), vm.uiState.value.total)
     }
 
     @Test

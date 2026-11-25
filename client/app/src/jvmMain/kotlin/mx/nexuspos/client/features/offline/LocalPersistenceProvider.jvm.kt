@@ -1,6 +1,8 @@
 package mx.nexuspos.client.features.offline
 
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 class FilePersistenceProvider(
     private val baseDir: File = defaultStorageDir()
@@ -19,26 +21,21 @@ class FilePersistenceProvider(
 
     override fun readText(fileName: String): String? {
         val file = File(baseDir, fileName)
-        return if (file.exists()) {
-            try {
-                file.readText(Charsets.UTF_8)
-            } catch (e: Exception) {
-                null
-            }
-        } else {
-            null
-        }
+        return if (file.exists()) file.readText(Charsets.UTF_8) else null
     }
 
     override fun writeText(fileName: String, content: String) {
+        Files.createDirectories(baseDir.toPath())
+        val target = File(baseDir, fileName).toPath()
+        val temporary = Files.createTempFile(baseDir.toPath(), ".nexuspos-", ".tmp")
         try {
-            if (!baseDir.exists()) {
-                baseDir.mkdirs()
+            temporary.toFile().outputStream().use { stream ->
+                stream.write(content.toByteArray(Charsets.UTF_8))
+                stream.fd.sync()
             }
-            val file = File(baseDir, fileName)
-            file.writeText(content, Charsets.UTF_8)
-        } catch (e: Exception) {
-            System.err.println("Error saving local file $fileName: ${e.message}")
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            Files.deleteIfExists(temporary)
         }
     }
 

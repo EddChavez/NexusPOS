@@ -25,8 +25,26 @@ data class ProductPresentationDto(
     val barcode: String,
     val name: String,
     val factorMillis: Long, // 1000 = 1 base unit, 24000 = caja de 24
-    val priceCents: Long
-)
+    val priceCents: Long,
+    val priceTiers: List<PresentationPriceTier> = emptyList()
+) {
+    fun priceFor(quantityMillis: Long): Long = resolvePresentationPrice(priceCents, priceTiers, quantityMillis)
+}
+
+@Serializable
+data class PresentationPriceTier(val minimumQuantityMillis: Long, val unitPriceCents: Long)
+
+@Serializable
+data class UpdatePresentationPricesRequest(val tiers: List<PresentationPriceTier>)
+
+fun resolvePresentationPrice(
+    publicPriceCents: Long,
+    tiers: List<PresentationPriceTier>,
+    quantityMillis: Long
+): Long = tiers.asSequence()
+    .filter { it.minimumQuantityMillis <= quantityMillis }
+    .maxByOrNull { it.minimumQuantityMillis }
+    ?.unitPriceCents?.coerceAtMost(publicPriceCents) ?: publicPriceCents
 
 @Serializable
 data class ProductDto(

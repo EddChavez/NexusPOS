@@ -14,6 +14,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -22,6 +24,7 @@ import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
 import mx.nexuspos.contracts.catalog.CatalogImportRequest
+import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
 import mx.nexuspos.contracts.catalog.CreateDepartmentRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
@@ -185,7 +188,15 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
         }
 
         get("/health") {
-            call.respond(mapOf("status" to "UP"))
+            val ready = withContext(Dispatchers.IO) {
+                try {
+                    dbFactory.dataSource.connection.use { it.isValid(2) }
+                } catch (_: java.sql.SQLException) {
+                    false
+                }
+            }
+            if (ready) call.respond(mapOf("status" to "UP"))
+            else call.respond(HttpStatusCode.ServiceUnavailable, mapOf("status" to "DOWN"))
         }
 
         route("/api/v1") {
@@ -334,6 +345,16 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
                 val req = call.receive<UpdateProductRequest>()
                 val updated = catalogService.updateProduct(id, req)
+                broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
+                call.respond(updated)
+            }
+
+            put("/products/{id}/presentations/{presentationId}/prices") {
+                val id = call.parameters["id"] ?: throw ValidationException("ID de producto requerido")
+                val presentationId = call.parameters["presentationId"]
+                    ?: throw ValidationException("ID de presentación requerido")
+                val request = call.receive<UpdatePresentationPricesRequest>()
+                val updated = catalogService.updatePresentationPrices(id, presentationId, request.tiers)
                 broadcastEventJson("product.updated", jsonConfig.encodeToString(updated))
                 call.respond(updated)
             }

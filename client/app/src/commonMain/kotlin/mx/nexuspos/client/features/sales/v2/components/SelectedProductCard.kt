@@ -2,7 +2,6 @@ package mx.nexuspos.client.features.sales.v2.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,12 +17,9 @@ import mx.nexuspos.core.Money
 @Composable
 fun SelectedProductCard(
     selectedLine: CartLine?,
-    onApplyPriceTier: (Money) -> Unit,
     onInspectCatalog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isPriceMenuExpanded by remember(selectedLine?.id) { mutableStateOf(false) }
-
     OutlinedCard(
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.outlinedCardColors(
@@ -79,63 +75,21 @@ fun SelectedProductCard(
 
                 HorizontalDivider()
 
-                // Fila de Precio y Dropdown de Escalas [Precio ▾]
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = "Precio aplicado",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "${selectedLine.unitPrice.format()} / ${selectedLine.unit.symbol}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                Text("Precio aplicado", style = MaterialTheme.typography.labelMedium)
+                Text(selectedLine.unitPrice.format(), style = MaterialTheme.typography.titleMedium)
+                if (selectedLine.priceTiers.isNotEmpty()) {
+                    val tier = selectedLine.priceTiers.filter { it.minimumQuantityMillis <= selectedLine.quantity.millis }
+                        .maxByOrNull { it.minimumQuantityMillis }
+                    val nextTier = selectedLine.priceTiers.filter { it.minimumQuantityMillis > selectedLine.quantity.millis }
+                        .minByOrNull { it.minimumQuantityMillis }
+                    if (tier != null && selectedLine.unitPrice.cents < (selectedLine.publicPriceCents ?: 0)) {
+                        Text("Mayoreo aplicado", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     }
-
-                    // Selector de Escala de Precios con DropdownMenu oficial M3
-                    Box {
-                        TextButton(
-                            onClick = { isPriceMenuExpanded = true },
-                            contentPadding = PaddingValues(horizontal = 6.dp)
-                        ) {
-                            Text("Precio")
-                            Icon(Icons.Default.ArrowDropDown, null)
-                        }
-
-                        DropdownMenu(
-                            expanded = isPriceMenuExpanded,
-                            onDismissRequest = { isPriceMenuExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Precio 1 (Público): ${selectedLine.unitPrice.format()}") },
-                                onClick = {
-                                    isPriceMenuExpanded = false
-                                    onApplyPriceTier(selectedLine.unitPrice)
-                                }
-                            )
-                            val wholesalePrice = Money((selectedLine.unitPrice.cents * 0.90).toLong())
-                            DropdownMenuItem(
-                                text = { Text("Precio 2 (Mayoreo -10%): ${wholesalePrice.format()}") },
-                                onClick = {
-                                    isPriceMenuExpanded = false
-                                    onApplyPriceTier(wholesalePrice)
-                                }
-                            )
-                            val specialPrice = Money((selectedLine.unitPrice.cents * 0.80).toLong())
-                            DropdownMenuItem(
-                                text = { Text("Precio 3 (Especial -20%): ${specialPrice.format()}") },
-                                onClick = {
-                                    isPriceMenuExpanded = false
-                                    onApplyPriceTier(specialPrice)
-                                }
-                            )
-                        }
+                    nextTier?.let {
+                        Text(
+                            "Desde ${volumeQuantityLabel(it.minimumQuantityMillis, selectedLine.unit)} · ${Money(minOf(it.unitPriceCents, selectedLine.publicPriceCents ?: it.unitPriceCents)).format()}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
 

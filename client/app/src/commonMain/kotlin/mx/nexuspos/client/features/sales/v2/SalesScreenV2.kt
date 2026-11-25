@@ -78,13 +78,7 @@ fun SalesScreenV2(
 
     fun selectSearchMatch(product: ProductDto) {
         val presentation = product.presentations.firstOrNull() ?: return
-        if (ProductUnit.fromCode(product.baseUnit) == ProductUnit.KILOGRAM) {
-            submitSearch(presentation.barcode.ifBlank { product.sku })
-        } else {
-            viewModel.addProductPresentation(product, presentation, Quantity.ONE)
-            viewModel.onScannerInputChanged("")
-            searchQuery = ""
-        }
+        submitSearch(presentation.barcode.ifBlank { product.sku })
     }
 
     // Verificador de modales activos para la Capa 1 de prioridad de teclado
@@ -318,10 +312,6 @@ fun SalesScreenV2(
                                 if (state.selectedCartLineId != line.id) viewModel.selectCartLine(line.id)
                                 viewModel.showDiscountDialog(true)
                             },
-                            onChangePriceLine = { line ->
-                                if (state.selectedCartLineId != line.id) viewModel.selectCartLine(line.id)
-                                viewModel.onApplyWholesalePrice()
-                            },
                             onQuantityFocusChanged = { isQuantityFocused = it },
                             onFinishQuantityEdit = { omniboxFocusRequester.requestFocus() },
                             modifier = Modifier.weight(1f)
@@ -358,11 +348,6 @@ fun SalesScreenV2(
                         // Producto seleccionado en el ticket.
                         SelectedProductCard(
                             selectedLine = selectedLine,
-                            onApplyPriceTier = { newPrice ->
-                                selectedLine?.let { line ->
-                                    viewModel.updateCartLinePrice(line.id, newPrice)
-                                }
-                            },
                             onInspectCatalog = { onNavigateToModule(AppModule.PRODUCTS) }
                         )
 
@@ -584,14 +569,13 @@ fun SalesScreenV2(
 
         // 16. Sincronización de contingencia offline (Requisito 4.6)
         if (state.isShowingOfflineSyncDialog) {
-            mx.nexuspos.client.features.offline.OfflineSyncDialog(
-                isOpen = true,
+            OfflineSyncDialogV2(
                 queuedSales = viewModel.saleQueue.getAll(),
                 connectionState = state.connectionState,
+                serverUrl = viewModel.apiClient.baseUrl,
                 isSyncing = state.isSyncingOfflineSales,
                 syncMessage = state.offlineSyncMessage,
                 onSyncNow = { viewModel.triggerOfflineSync() },
-                onClearSynced = { viewModel.clearSyncedOfflineSales() },
                 onDismiss = { viewModel.closeOfflineSyncDialog() }
             )
         }

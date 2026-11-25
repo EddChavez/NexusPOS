@@ -1,6 +1,7 @@
 package mx.nexuspos.contracts.sales
 
 import kotlinx.serialization.Serializable
+import mx.nexuspos.contracts.catalog.PresentationPriceTier
 
 @Serializable
 data class ParkedSaleItemDto(
@@ -16,7 +17,10 @@ data class ParkedSaleItemDto(
     val totalCents: Long,
     val isWeighed: Boolean = false,
     val discountCents: Long = 0,
-    val discountPercent: Double = 0.0
+    val discountPercent: Double = 0.0,
+    val fixedDiscountCents: Long? = null,
+    val publicPriceCents: Long? = null,
+    val priceTiers: List<PresentationPriceTier> = emptyList()
 )
 
 @Serializable

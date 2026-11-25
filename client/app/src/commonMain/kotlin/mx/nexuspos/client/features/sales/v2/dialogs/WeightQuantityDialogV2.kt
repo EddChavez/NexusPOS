@@ -70,9 +70,8 @@ fun WeightQuantityDialogV2(
     val input = if (byAmount) amountInput else weightInput
     val focus = remember { FocusRequester() }
     val dispatchFocus = remember { FocusRequester() }
-    val price = currentLine?.unitPrice ?: Money(presentation.priceCents)
     val budget = if (byAmount) parseCheckoutCents(input.text)?.takeIf { it > 0L } else null
-    val suggestedWeight = budget?.let { weightForBudget(price, Money(it)) }
+    val suggestedWeight = budget?.let { weightForBudget(presentation, Money(it)) }
     val suggestedText = suggestedWeight?.millis?.toString().orEmpty()
     val dispatch = dispatchInput ?: TextFieldValue(suggestedText)
     val weight = when {
@@ -81,6 +80,7 @@ fun WeightQuantityDialogV2(
         dispatchInput == null -> suggestedWeight
         else -> dispatch.text.trim().toLongOrNull()?.takeIf { it > 0L }?.let(::Quantity)
     }
+    val price = Money(weight?.let { presentation.priceFor(it.millis) } ?: presentation.priceCents)
     val exceedsPricingRange = weight != null && price.cents > 0L &&
         weight.millis > (Long.MAX_VALUE - 500L) / price.cents
     val total = weight?.takeUnless { exceedsPricingRange }?.let { PricingRules.calculateLineTotal(price, it) }
@@ -381,4 +381,21 @@ internal fun weightForBudget(pricePerKilogram: Money, budget: Money): Quantity? 
         if (PricingRules.calculateLineTotal(pricePerKilogram, candidate) <= budget) return candidate
     }
     return Quantity(wholeGrams).takeIf { it.isPositive() }
+}
+
+
+internal fun weightForBudget(presentation: ProductPresentationDto, budget: Money): Quantity? {
+    val ranges = listOf(1L) + presentation.priceTiers
+        .map { it.minimumQuantityMillis }
+        .filter { it > 1L }
+        .sorted()
+    for (index in ranges.indices.reversed()) {
+        val lower = ranges[index]
+        val upper = ranges.getOrNull(index + 1)?.minus(1) ?: Long.MAX_VALUE
+        val price = Money(presentation.priceFor(lower))
+        val affordable = weightForBudget(price, budget)?.millis ?: continue
+        val weight = minOf(affordable, upper)
+        if (weight >= lower) return Quantity(weight)
+    }
+    return null
 }

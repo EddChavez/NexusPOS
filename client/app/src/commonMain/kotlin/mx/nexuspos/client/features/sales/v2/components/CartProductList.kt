@@ -36,7 +36,6 @@ fun CartProductList(
     onUpdateQuantity: (String, Quantity) -> Unit,
     onReweighLine: (CartLine) -> Unit,
     onDiscountLine: (CartLine) -> Unit,
-    onChangePriceLine: (CartLine) -> Unit,
     onQuantityFocusChanged: (Boolean) -> Unit,
     onFinishQuantityEdit: () -> Unit,
     modifier: Modifier = Modifier
@@ -73,7 +72,6 @@ fun CartProductList(
                     onUpdateQuantity = { onUpdateQuantity(line.id, it) },
                     onReweigh = { onReweighLine(line) },
                     onDiscount = { onDiscountLine(line) },
-                    onChangePrice = { onChangePriceLine(line) },
                     onQuantityFocusChanged = onQuantityFocusChanged,
                     onFinishQuantityEdit = onFinishQuantityEdit
                 )
@@ -91,7 +89,6 @@ private fun CartProductRow(
     onUpdateQuantity: (Quantity) -> Unit,
     onReweigh: () -> Unit,
     onDiscount: () -> Unit,
-    onChangePrice: () -> Unit,
     onQuantityFocusChanged: (Boolean) -> Unit,
     onFinishQuantityEdit: () -> Unit
 ) {
@@ -115,7 +112,7 @@ private fun CartProductRow(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ProductDetails(line, isSelected, Modifier.weight(1f))
                         if (canReweigh) ReweighButton(onReweigh)
-                        ProductMenu(onRemove, onDiscount, onChangePrice)
+                        ProductMenu(onRemove, onDiscount)
                     }
                 }
                 Row(
@@ -130,7 +127,7 @@ private fun CartProductRow(
                     }
                     QuantityStepper(line, onUpdateQuantity, onQuantityFocusChanged, onFinishQuantityEdit)
                     ProductPrices(line, isSelected, Modifier.widthIn(min = 100.dp))
-                    if (!compact) ProductMenu(onRemove, onDiscount, onChangePrice)
+                    if (!compact) ProductMenu(onRemove, onDiscount)
                 }
             }
         }
@@ -288,7 +285,7 @@ private fun ReweighButton(onReweigh: () -> Unit) {
 }
 
 @Composable
-private fun ProductMenu(onRemove: () -> Unit, onDiscount: () -> Unit, onChangePrice: () -> Unit) {
+private fun ProductMenu(onRemove: () -> Unit, onDiscount: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }) {
@@ -309,14 +306,6 @@ private fun ProductMenu(onRemove: () -> Unit, onDiscount: () -> Unit, onChangePr
                 onClick = {
                     expanded = false
                     onDiscount()
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("Cambiar precio") },
-                leadingIcon = { Icon(Icons.Default.PriceChange, null) },
-                onClick = {
-                    expanded = false
-                    onChangePrice()
                 }
             )
         }

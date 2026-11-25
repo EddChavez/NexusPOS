@@ -18,6 +18,8 @@ import mx.nexuspos.contracts.catalog.CreatePresentationRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.DepartmentDto
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.catalog.PresentationPriceTier
+import mx.nexuspos.contracts.catalog.UpdatePresentationPricesRequest
 import mx.nexuspos.contracts.catalog.UpdateDepartmentRequest
 import mx.nexuspos.contracts.catalog.UpdateProductRequest
 
@@ -91,6 +93,22 @@ class ProductsViewModel(
         loadProducts()
     }
 
+    suspend fun savePresentationPrices(
+        productId: String,
+        presentationId: String,
+        tiers: List<PresentationPriceTier>
+    ): Result<ProductDto> =
+        apiClient.updatePresentationPrices(productId, presentationId, UpdatePresentationPricesRequest(tiers))
+            .onSuccess { product ->
+                _uiState.update { state ->
+                    state.copy(
+                        products = state.products.map { if (it.id == product.id) product else it },
+                        selectedProduct = if (state.selectedProduct?.id == product.id) product else state.selectedProduct,
+                        successMessage = "Tarifas guardadas para ${product.name}."
+                    )
+                }
+            }
+
     fun selectProduct(product: ProductDto?) {
         _uiState.update { it.copy(selectedProduct = product) }
     }
@@ -130,7 +148,7 @@ class ProductsViewModel(
                 id = currentProduct?.presentations?.firstOrNull()?.id,
                 barcode = barcode.trim(),
                 name = name.trim(),
-                factorMillis = 1000L,
+                factorMillis = currentProduct?.presentations?.firstOrNull()?.factorMillis ?: 1000L,
                 priceCents = priceCents
             )
 
