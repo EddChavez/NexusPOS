@@ -35,7 +35,7 @@ graph TD
     end
 
     subgraph P2 ["Prioridad Alta (Operación Comercial & Proveedores)"]
-        CXP["Gestión de Proveedores, Compras y Cuentas por Pagar"]
+        CXP["Relacionar pagos a proveedores con salidas de caja"]
         VOL["Precios Escalonados por Volumen (Mayoreo/Medio Mayoreo)"]
         PROMO["Motor de Promociones y Combos (2x1, Packs)"]
     end
@@ -82,12 +82,12 @@ graph TD
 ### Bloque 2: Operación Comercial y Compras (Fase Siguiente)
 
 #### 2.1. Gestión de Proveedores, Compras y Cuentas por Pagar
-- **Problema:** Las entradas de inventario se realizan por ajuste manual; falta rastrear facturas de compra, costos reales de adquisición y adeudos con proveedores.
-- **Solución Técnica:**
-  - Catálogo de Proveedores: Razón social, RFC, días de crédito, plazo de entrega, contactos y teléfonos.
-  - Registro de Orden de Compra y Recepción de Mercancía: Alta de productos al almacén actualizando el Costo Promedio Ponderado (CPP).
-  - Módulo de Cuentas por Pagar (CxP): Calendario de vencimiento de facturas de compra, registro de abonos o liquidaciones en efectivo/transferencia.
-- **Esfuerzo:** Medio-Alto (1.5 etapas).
+
+Compras V2 ya registra proveedores, recepciones y devoluciones. Desde una recepción con factura, abre **Cuenta por pagar** e indica la fecha de vencimiento para registrar el adeudo. El listado **Cuentas por pagar** ordena las facturas por vencimiento y permite buscar las pendientes o consultar todas. Registra los abonos realizados en efectivo, por transferencia o con tarjeta. El historial guarda el importe, la referencia, la fecha y el usuario que autorizó el registro.
+
+- Una devolución reduce el importe pendiente. Si después de una devolución los pagos superan el importe de la factura, se muestra el saldo a favor.
+- Las compras anteriores se pueden incorporar de forma explícita desde su factura. Selecciona solo adeudos que quieras incorporar al módulo.
+- Los pagos registrados son independientes del turno de caja. Queda pendiente vincularlos con las salidas de efectivo, así como incorporar órdenes de compra y plazos de crédito por proveedor.
 
 #### 2.2. Precios Escalonados por Volumen (Menudeo, Mayoreo y Paquete)
 - **Problema:** En misceláneas y abarroteras es común dar precio especial a partir de cierta cantidad (ej. 3 piezas o caja cerrada).
@@ -159,7 +159,7 @@ graph TD
 | **Heartbeat Automático LAN** | Muy Baja | ⭐⭐⭐⭐⭐ (Resiliencia silenciosa) | **1 (Inmediato)** |
 | **Facturación CFDI 4.0 SAT** | Alta | ⭐⭐⭐⭐⭐ (Requisito fiscal México) | **2 (Próximo Bloque)** |
 | **Precios Escalonados (Mayoreo)** | Media | ⭐⭐⭐⭐ (Aumenta ticket promedio) | **3** |
-| **Proveedores y Compras (CxP)** | Media-Alta | ⭐⭐⭐⭐ (Control financiero total) | **4** |
+| **Vincular salidas de caja con pagos a proveedores** | Media | ⭐⭐⭐⭐ (Conciliación de caja) | **4** |
 | **Promociones Dinámicas (Combos)**| Media | ⭐⭐⭐⭐ (Competitividad comercial) | **5** |
 | **Pinpad Integrado (Tarjetas)** | Media-Alta | ⭐⭐⭐ (Cero errores de captura) | **6** |
 | **Dashboard BI y Rotación ABC** | Media | ⭐⭐⭐⭐ (Toma de decisiones) | **7** |

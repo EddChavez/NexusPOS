@@ -128,7 +128,9 @@ private fun ReceiptLineFields(
 }
 
 @Composable
-internal fun PurchaseDetail(purchase: PurchaseDetails, viewModel: PurchasesViewModel, loading: Boolean) {
+internal fun PurchaseDetail(
+    purchase: PurchaseDetails, viewModel: PurchasesViewModel, loading: Boolean, onViewPayable: (() -> Unit)? = null
+) {
     val header = purchase.summary
     val linesById = purchase.lines.associateBy { it.id }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -169,7 +171,10 @@ internal fun PurchaseDetail(purchase: PurchaseDetails, viewModel: PurchasesViewM
             }
         }
         HorizontalDivider()
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            if (onViewPayable != null) {
+                OutlinedButton(onViewPayable, enabled = !loading) { Text("Cuenta por pagar") }
+            }
             Button(viewModel::startReturn, enabled = !loading && purchase.lines.any { it.returnedMillis < it.quantityMillis }) {
                 Text("Devolver al proveedor")
             }

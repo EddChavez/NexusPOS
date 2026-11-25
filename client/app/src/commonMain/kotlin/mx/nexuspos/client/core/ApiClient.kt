@@ -1172,6 +1172,37 @@ open class ApiClient(
     suspend fun getPurchase(id: String): Result<PurchaseDetails> =
         purchaseCall { http.get("$baseUrl/api/v1/purchases/receipts/$id") }
 
+    suspend fun listSupplierPayables(includeSettled: Boolean, limit: Int, offset: Int): Result<List<SupplierPayable>> =
+        purchaseCall {
+            http.get("$baseUrl/api/v1/purchases/payables") {
+                parameter("includeSettled", includeSettled)
+                parameter("limit", limit)
+                parameter("offset", offset)
+            }
+        }
+
+    suspend fun getSupplierPayable(id: String): Result<SupplierPayableDetail?> {
+        val result = purchaseCall<SupplierPayableDetail> { http.get("$baseUrl/api/v1/purchases/payables/${id.encodeURLPathPart()}") }
+        val error = result.exceptionOrNull() as? PurchaseRequestException
+        return if (error?.status == 404 && error.error.code == "NO_SUPPLIER_PAYABLE") Result.success(null) else result
+    }
+
+    suspend fun registerSupplierPayable(id: String, pin: String, data: RegisterSupplierPayableRequest): Result<SupplierPayableDetail> =
+        purchaseCall {
+            http.post("$baseUrl/api/v1/purchases/payables/${id.encodeURLPathPart()}") {
+                contentType(ContentType.Application.Json)
+                setBody(PurchaseAuthorization(pin, data))
+            }
+        }
+
+    suspend fun recordSupplierPayment(id: String, pin: String, data: RecordSupplierPaymentRequest): Result<SupplierPayableDetail> =
+        purchaseCall {
+            http.post("$baseUrl/api/v1/purchases/payables/${id.encodeURLPathPart()}/payments") {
+                contentType(ContentType.Application.Json)
+                setBody(PurchaseAuthorization(pin, data))
+            }
+        }
+
     open suspend fun receivePurchase(pin: String, data: ReceivePurchaseRequest): Result<PurchaseDetails> =
         purchaseCall {
             http.post("$baseUrl/api/v1/purchases/receipts") {

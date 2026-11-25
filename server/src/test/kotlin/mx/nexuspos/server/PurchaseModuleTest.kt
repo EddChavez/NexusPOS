@@ -15,6 +15,8 @@ import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.catalog.CreatePresentationRequest
 import mx.nexuspos.contracts.catalog.CreateProductRequest
 import mx.nexuspos.contracts.catalog.ProductDto
+import mx.nexuspos.contracts.identity.LoginRequest
+import mx.nexuspos.contracts.identity.LoginResponse
 import mx.nexuspos.contracts.inventory.ProductLotDto
 import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.inventory.ReorderSuggestionsReportDto
@@ -25,6 +27,59 @@ import java.util.UUID
 import kotlin.test.*
 
 class PurchaseModuleTest {
+    @Test
+    fun payablesTrackReturnsAndIdempotentPaymentsWithoutChangingStock() = purchasesTest { client ->
+        val supplier = createSupplier(client)
+        val item = createProduct(client, "PAGABLE")
+        val purchase = receive(client, ReceivePurchaseRequest(
+            "payable-receipt", supplier.id, PurchaseDocumentType.INVOICE, "FAC-PAGABLE",
+            listOf(ReceivePurchaseLine(item.id, 3000, 1000))
+        )).body<PurchaseDetails>()
+        suspend fun login(pin: String): String = client.post("/api/v1/auth/login") {
+            contentType(ContentType.Application.Json)
+            setBody(LoginRequest(pin))
+        }.body<LoginResponse>().token
+        val admin = login("1234")
+        val cashier = login("0000")
+        val base = "/api/v1/purchases/payables"
+        val path = "$base/${purchase.summary.id}"
+        assertEquals(HttpStatusCode.Unauthorized, client.get(base).status)
+        assertEquals(HttpStatusCode.Forbidden, client.get(base) { bearerAuth(cashier) }.status)
+        assertEquals(HttpStatusCode.NotFound, client.get(path) { bearerAuth(admin) }.status)
+
+        val registration = RegisterSupplierPayableRequest("payable-register", "2026-12-15")
+        val account = client.post(path) {
+            bearerAuth(admin)
+            contentType(ContentType.Application.Json)
+            setBody(PurchaseAuthorization("1234", registration))
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }.body<SupplierPayableDetail>()
+        assertEquals(3000L, account.account.balanceCents)
+        assertEquals(3000L, product(client, item.id).currentStockMillis)
+
+        val payment = RecordSupplierPaymentRequest("payable-payment", 2500L, SupplierPaymentMethod.TRANSFER, "SPEI-01")
+        suspend fun pay(request: RecordSupplierPaymentRequest) = client.post("$path/payments") {
+            bearerAuth(admin)
+            contentType(ContentType.Application.Json)
+            setBody(PurchaseAuthorization("1234", request))
+        }
+        val paid = pay(payment).also { assertEquals(HttpStatusCode.Created, it.status) }.body<SupplierPayableDetail>()
+        assertEquals(500L, paid.account.balanceCents)
+        assertEquals(paid, pay(payment).body<SupplierPayableDetail>())
+        assertEquals(HttpStatusCode.Conflict, pay(payment.copy(idempotencyKey = "above-balance", amountCents = 501L)).status)
+        assertEquals(3000L, product(client, item.id).currentStockMillis)
+
+        assertEquals(HttpStatusCode.Created, returnStock(client, purchase.summary.id, ReturnPurchaseRequest(
+            "supplier-credit", "Devolución posterior al abono", listOf(ReturnPurchaseLine(purchase.lines.single().id, 1000))
+        )).status)
+        val afterReturn = client.get(path) { bearerAuth(admin) }.body<SupplierPayableDetail>()
+        assertEquals(0L, afterReturn.account.balanceCents)
+        assertEquals(500L, afterReturn.account.supplierCreditCents)
+        assertEquals(2500L, afterReturn.account.paidCents)
+        assertEquals(1, afterReturn.payments.size)
+        assertTrue(client.get(base) { bearerAuth(admin) }.body<List<SupplierPayable>>().isEmpty())
+        assertEquals(afterReturn.account, client.get("$base?includeSettled=true") { bearerAuth(admin) }.body<List<SupplierPayable>>().single())
+    }
+
     @Test
     fun receiptAndPartialReturnsReconcileInventoryLotsAndAmounts() = purchasesTest { client ->
         val denied = client.post("/api/v1/purchases/suppliers") {

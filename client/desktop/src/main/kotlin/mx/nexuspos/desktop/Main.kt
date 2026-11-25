@@ -1085,7 +1085,9 @@ fun main() = application {
                                     }
                                 }
                                 AppModule.PURCHASES -> {
-                                    if (isV2 && canManagePurchases) PurchasesScreenV2(purchasesViewModel)
+                                    if (isV2 && canManagePurchases) {
+                                        PurchasesScreenV2(purchasesViewModel, authState.currentUser?.permissions.orEmpty().toSet())
+                                    }
                                 }
                                 AppModule.SETTINGS -> {
                                     if (isV2) {

@@ -68,7 +68,9 @@ internal object PermissionCatalog {
             "cash.reverse" to "Revertir movimientos de efectivo", "cash.drawer.open" to "Abrir cajón manualmente")
         group("Compras",
             "purchases.view" to "Consultar compras", "purchases.receive" to "Recibir compras",
-            "purchases.return" to "Devolver a proveedor", "suppliers.edit" to "Crear o modificar proveedores")
+            "purchases.return" to "Devolver a proveedor", "suppliers.edit" to "Crear o modificar proveedores",
+            "purchases.payables.view" to "Consultar cuentas por pagar",
+            "purchases.payables.register" to "Registrar cuentas por pagar", "purchases.payables.pay" to "Registrar pagos a proveedores")
         group("Reportes", "reports.sales" to "Consultar reportes de ventas", "reports.margin" to "Consultar costos, margen y utilidad",
             "reports.customer" to "Ver ventas por cliente", "reports.export" to "Exportar reportes")
     }.map { definition ->
@@ -78,6 +80,8 @@ internal object PermissionCatalog {
             definition.key in setOf("reports.margin", "reports.customer", "reports.export") -> "reports.sales"
             definition.key == "inventory.valuation" -> "inventory.report"
             definition.key == "cash.detail" -> "cash.history"
+            definition.key == "purchases.payables.view" -> "purchases.view"
+            definition.key in setOf("purchases.payables.register", "purchases.payables.pay") -> "purchases.payables.view"
             definition.key == "products.cost.edit" -> "products.cost.view"
             else -> null
         }

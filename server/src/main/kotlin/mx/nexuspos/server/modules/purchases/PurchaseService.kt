@@ -3,6 +3,7 @@ package mx.nexuspos.server.modules.purchases
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.purchases.*
 import mx.nexuspos.server.persistence.DatabaseFactory
+import mx.nexuspos.server.platform.ConflictException
 import mx.nexuspos.server.platform.IdempotencyMismatchException
 import mx.nexuspos.server.platform.NotFoundException
 import mx.nexuspos.server.platform.StockChangedException
@@ -69,6 +70,62 @@ class PurchaseService(private val db: DatabaseFactory) {
     fun getReceipt(id: String): PurchaseDetails = db.inTransaction { conn ->
         lockReceipt(conn, id)
         readReceipt(conn, id)
+    }
+
+    fun listPayables(includeSettled: Boolean, limit: Int, offset: Int): List<SupplierPayable> =
+        db.inTransaction { listSupplierPayables(it, includeSettled, limit, offset) }
+
+    fun getPayable(id: String): SupplierPayableDetail? = db.inTransaction { conn ->
+        lockReceipt(conn, id)
+        readSupplierPayableDetail(conn, id)
+    }
+
+    fun registerPayable(id: String, request: RegisterSupplierPayableRequest, operatorId: String): SupplierPayableDetail {
+        val date = request.dueDate.trim()
+        if (date.length != 10 || runCatching { LocalDate.parse(date) }.isFailure) {
+            throw ValidationException("Captura el vencimiento en formato AAAA-MM-DD.")
+        }
+        return once<SupplierPayableDetail>("register-payable", request.idempotencyKey, "$id\n$date", operatorId) { conn, now ->
+            lockReceipt(conn, id)
+            val purchase = readReceipt(conn, id).summary
+            if (purchase.documentType != PurchaseDocumentType.INVOICE) {
+                throw ValidationException("Solo puedes registrar una cuenta por pagar a partir de una factura de compra.")
+            }
+            if (readSupplierPayable(conn, id) != null) throw ConflictException("La factura ya tiene una cuenta por pagar.")
+            if (purchase.totalCents <= purchase.returnedCents) throw ValidationException("La factura no tiene importe pendiente.")
+            conn.prepareStatement("INSERT INTO supplier_payables (receipt_id, due_date, created_by, created_at) VALUES (?, ?, ?, ?)").use {
+                it.setString(1, id)
+                it.setString(2, date)
+                it.setString(3, operatorId)
+                it.setLong(4, now)
+                it.executeUpdate()
+            }
+            checkNotNull(readSupplierPayableDetail(conn, id))
+        }
+    }
+
+    fun recordSupplierPayment(id: String, request: RecordSupplierPaymentRequest, operatorId: String): SupplierPayableDetail {
+        val clean = request.copy(reference = optionalText(request.reference, "referencia del pago", 120))
+        if (clean.amountCents <= 0) throw ValidationException("Captura un importe mayor a cero.")
+        return once<SupplierPayableDetail>("pay-supplier", clean.idempotencyKey, "$id\n" + json.encodeToString(clean), operatorId) { conn, now ->
+            lockReceipt(conn, id)
+            val account = readSupplierPayable(conn, id)
+                ?: throw NotFoundException("Esta compra no tiene una cuenta por pagar.")
+            if (clean.amountCents > account.balanceCents) throw ConflictException("El abono supera el saldo actual de la factura.")
+            conn.prepareStatement(
+                "INSERT INTO supplier_payments (id, receipt_id, amount_cents, method, reference, paid_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            ).use {
+                it.setString(1, "sp-" + UUID.randomUUID())
+                it.setString(2, id)
+                it.setLong(3, clean.amountCents)
+                it.setString(4, clean.method.name)
+                it.setString(5, clean.reference)
+                it.setString(6, operatorId)
+                it.setLong(7, now)
+                it.executeUpdate()
+            }
+            checkNotNull(readSupplierPayableDetail(conn, id))
+        }
     }
 
     fun receive(request: ReceivePurchaseRequest, operatorId: String): PurchaseDetails {

@@ -24,11 +24,12 @@ import mx.nexuspos.core.Quantity
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PurchasesScreenV2(viewModel: PurchasesViewModel) {
+fun PurchasesScreenV2(viewModel: PurchasesViewModel, permissions: Set<String> = emptySet()) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(viewModel) { viewModel.refresh() }
     val locked = state.saving || state.awaitingConfirmation
-    val showingList = state.page == PurchasesPage.HISTORY || state.page == PurchasesPage.SUPPLIERS
+    val showingList = state.page in setOf(PurchasesPage.HISTORY, PurchasesPage.SUPPLIERS, PurchasesPage.PAYABLES)
+    val canViewPayables = "purchases.payables.view" in permissions
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             Modifier.fillMaxWidth(),
@@ -48,11 +49,13 @@ fun PurchasesScreenV2(viewModel: PurchasesViewModel) {
                     PurchasesPage.RECEIVE -> "Recibir mercancía"
                     PurchasesPage.DETAIL -> "Detalle de compra"
                     PurchasesPage.RETURN -> "Devolución a proveedor"
+                    PurchasesPage.PAYABLES -> "Cuentas por pagar"
+                    PurchasesPage.PAYABLE -> "Cuenta del proveedor"
                 },
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.weight(1f)
             )
-            if (showingList || state.page == PurchasesPage.DETAIL || state.page == PurchasesPage.RECEIVE) {
+            if (showingList || state.page in setOf(PurchasesPage.DETAIL, PurchasesPage.RECEIVE, PurchasesPage.PAYABLE)) {
                 IconButton(viewModel::refresh, enabled = !state.loading && !locked) {
                     Icon(Icons.Default.Refresh, contentDescription = "Actualizar")
                 }
@@ -70,12 +73,17 @@ fun PurchasesScreenV2(viewModel: PurchasesViewModel) {
                     onClick = viewModel::openSuppliers,
                     label = { Text("Proveedores") }
                 )
-                Button(onClick = {
-                    if (state.page == PurchasesPage.SUPPLIERS) viewModel.editSupplier() else viewModel.startReceipt()
-                }) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (state.page == PurchasesPage.SUPPLIERS) "Nuevo proveedor" else "Nueva recepción")
+                if (canViewPayables) {
+                    FilterChip(state.page == PurchasesPage.PAYABLES, { viewModel.openPayables() }, label = { Text("Cuentas por pagar") })
+                }
+                if (state.page != PurchasesPage.PAYABLES) {
+                    Button(onClick = {
+                        if (state.page == PurchasesPage.SUPPLIERS) viewModel.editSupplier() else viewModel.startReceipt()
+                    }) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (state.page == PurchasesPage.SUPPLIERS) "Nuevo proveedor" else "Nueva recepción")
+                    }
                 }
             }
         }
@@ -99,10 +107,17 @@ fun PurchasesScreenV2(viewModel: PurchasesViewModel) {
                 PurchasesPage.SUPPLIERS -> SupplierList(state, viewModel)
                 PurchasesPage.SUPPLIER_FORM -> state.supplier?.let { SupplierForm(it, state.saving, viewModel) }
                 PurchasesPage.RECEIVE -> state.receipt?.let { ReceiptForm(it, state, viewModel) }
-                PurchasesPage.DETAIL -> state.details?.let { PurchaseDetail(it, viewModel, state.loading) }
+                PurchasesPage.DETAIL -> state.details?.let { purchase ->
+                    val accountAction: (() -> Unit)? = if (canViewPayables && purchase.summary.documentType == PurchaseDocumentType.INVOICE) {
+                        { viewModel.openPayable(purchase.summary.id, purchase.summary) }
+                    } else null
+                    PurchaseDetail(purchase, viewModel, state.loading, accountAction)
+                }
                 PurchasesPage.RETURN -> state.details?.let { purchase ->
                     state.returnDraft?.let { ReturnForm(purchase, it, state, viewModel) }
                 }
+                PurchasesPage.PAYABLES -> SupplierPayablesList(state, viewModel)
+                PurchasesPage.PAYABLE -> SupplierPayablePane(state, viewModel, permissions)
             }
         }
     }

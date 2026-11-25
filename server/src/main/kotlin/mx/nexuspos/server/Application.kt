@@ -53,6 +53,8 @@ import mx.nexuspos.contracts.inventory.RegisterStockMovementRequest
 import mx.nexuspos.contracts.loyalty.AdjustLoyaltyBalanceRequest
 import mx.nexuspos.contracts.purchases.PurchaseAuthorization
 import mx.nexuspos.contracts.purchases.ReceivePurchaseRequest
+import mx.nexuspos.contracts.purchases.RecordSupplierPaymentRequest
+import mx.nexuspos.contracts.purchases.RegisterSupplierPayableRequest
 import mx.nexuspos.contracts.purchases.ReturnPurchaseRequest
 import mx.nexuspos.contracts.purchases.SaveSupplierRequest
 import mx.nexuspos.contracts.reports.SalesAnalysisRequest
@@ -157,6 +159,8 @@ fun Application.nexusModule(
                 "SALES_ANALYSIS" -> "reports.sales"
                 "PURCHASE_RECEIVE" -> "purchases.receive"
                 "PURCHASE_RETURN" -> "purchases.return"
+                "SUPPLIER_PAYABLE_REGISTER" -> "purchases.payables.register"
+                "SUPPLIER_PAYMENT" -> "purchases.payables.pay"
                 "SUPPLIER_EDIT" -> "suppliers.edit"
                 else -> throw ForbiddenException("Autorización desconocida.")
             }
@@ -885,6 +889,43 @@ fun Application.nexusModule(
             }
 
             route("/purchases") {
+                route("/payables") {
+                    get {
+                        call.requireDesktopAccess(identityService, roles).require("purchases.payables.view")
+                        val query = call.request.queryParameters
+                        call.respond(purchaseService.listPayables(
+                            query["includeSettled"] == "true",
+                            query["limit"]?.toIntOrNull() ?: 50,
+                            query["offset"]?.toIntOrNull() ?: 0
+                        ))
+                    }
+                    get("/{id}") {
+                        call.requireDesktopAccess(identityService, roles).require("purchases.payables.view")
+                        val id = call.parameters["id"] ?: throw ValidationException("Indica la factura.")
+                        val detail = purchaseService.getPayable(id)
+                        if (detail == null) {
+                            call.respond(HttpStatusCode.NotFound, ApiError("NO_SUPPLIER_PAYABLE", "Esta compra no tiene una cuenta por pagar."))
+                        } else {
+                            call.respond(detail)
+                        }
+                    }
+                    post("/{id}") {
+                        call.requireDesktopAccess(identityService, roles).require("purchases.payables.register")
+                        val id = call.parameters["id"] ?: throw ValidationException("Indica la factura.")
+                        val req = call.receive<PurchaseAuthorization<RegisterSupplierPayableRequest>>()
+                        call.respond(HttpStatusCode.Created, purchaseService.registerPayable(
+                            id, req.data, requireSupervisor(req.pin, "SUPPLIER_PAYABLE_REGISTER")
+                        ))
+                    }
+                    post("/{id}/payments") {
+                        call.requireDesktopAccess(identityService, roles).require("purchases.payables.pay")
+                        val id = call.parameters["id"] ?: throw ValidationException("Indica la factura.")
+                        val req = call.receive<PurchaseAuthorization<RecordSupplierPaymentRequest>>()
+                        call.respond(HttpStatusCode.Created, purchaseService.recordSupplierPayment(
+                            id, req.data, requireSupervisor(req.pin, "SUPPLIER_PAYMENT")
+                        ))
+                    }
+                }
                 get("/suppliers") {
                     call.respond(purchaseService.listSuppliers())
                 }

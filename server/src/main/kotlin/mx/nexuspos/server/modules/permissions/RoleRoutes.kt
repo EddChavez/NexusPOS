@@ -128,6 +128,7 @@ internal fun permissionFor(path: String, method: HttpMethod): String? {
             else -> "sales.checkout"
         }
         "purchases" -> when {
+            parts.getOrNull(1) == "payables" -> null // These routes enforce their own permissions in all setup states.
             read -> "purchases.view"
             parts.getOrNull(1) == "suppliers" -> "suppliers.edit"
             leaf == "returns" -> "purchases.return"

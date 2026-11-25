@@ -17,7 +17,7 @@ import mx.nexuspos.contracts.catalog.ProductDto
 import mx.nexuspos.contracts.inventory.ReorderSuggestionItemDto
 import mx.nexuspos.contracts.purchases.*
 
-internal enum class PurchasesPage { HISTORY, SUPPLIERS, SUPPLIER_FORM, RECEIVE, DETAIL, RETURN }
+internal enum class PurchasesPage { HISTORY, SUPPLIERS, SUPPLIER_FORM, RECEIVE, DETAIL, RETURN, PAYABLES, PAYABLE }
 
 internal data class PurchasesState(
     val page: PurchasesPage = PurchasesPage.HISTORY,
@@ -30,6 +30,14 @@ internal data class PurchasesState(
     val returnDraft: ReturnDraft? = null,
     val detailId: String? = null,
     val details: PurchaseDetails? = null,
+    val payables: List<SupplierPayable> = emptyList(),
+    val payablesOffset: Int = 0,
+    val hasMorePayables: Boolean = false,
+    val includeSettled: Boolean = false,
+    val payableInvoice: PurchaseSummary? = null,
+    val payableId: String? = null,
+    val payable: SupplierPayableDetail? = null,
+    val payableLoaded: Boolean = false,
     val productQuery: String = "",
     val productResults: List<ProductDto> = emptyList(),
     val searching: Boolean = false,
@@ -60,7 +68,40 @@ class PurchasesViewModel(
             PurchasesPage.SUPPLIERS -> openSuppliers()
             PurchasesPage.RECEIVE -> loadSuppliers()
             PurchasesPage.DETAIL -> state.value.detailId?.let { openDetails(it) }
+            PurchasesPage.PAYABLES -> openPayables(state.value.includeSettled, state.value.payablesOffset)
+            PurchasesPage.PAYABLE -> state.value.payableId?.let { openPayable(it, state.value.payableInvoice) }
             else -> Unit
+        }
+    }
+
+    internal fun openPayables(includeSettled: Boolean = state.value.includeSettled, offset: Int = 0) {
+        val start = offset.coerceAtLeast(0)
+        open(PurchasesPage.PAYABLES) {
+            copy(payables = emptyList(), payablesOffset = start, hasMorePayables = false, includeSettled = includeSettled)
+        }
+        fetch(
+            { api.listSupplierPayables(includeSettled, PURCHASE_HISTORY_PAGE_SIZE + 1, start) }
+        ) { accounts -> copy(payables = accounts.take(PURCHASE_HISTORY_PAGE_SIZE), hasMorePayables = accounts.size > PURCHASE_HISTORY_PAGE_SIZE) }
+    }
+
+    internal fun openPayable(id: String, invoice: PurchaseSummary? = null) {
+        open(PurchasesPage.PAYABLE) { copy(payableId = id, payableInvoice = invoice, payable = null, payableLoaded = false) }
+        fetch({ api.getSupplierPayable(id) }) { copy(payable = it, payableLoaded = true) }
+    }
+
+    internal fun registerPayable(pin: String, request: RegisterSupplierPayableRequest) {
+        val id = state.value.payableInvoice?.id ?: return
+        save({ api.registerSupplierPayable(id, pin, request) }, reconcileOnFailure = true) { detail ->
+            mutableState.update { it.copy(payable = detail, success = "Cuenta por pagar registrada.") }
+        }
+    }
+
+    internal fun paySupplier(pin: String, request: RecordSupplierPaymentRequest) {
+        val id = state.value.payable?.account?.receiptId ?: return
+        save({ api.recordSupplierPayment(id, pin, request) }, reconcileOnFailure = true) { detail ->
+            // The idempotent response may be from an earlier attempt. Reload the current balance and ledger.
+            mutableState.update { it.copy(payable = detail, success = "Pago registrado.") }
+            fetch({ api.getSupplierPayable(id) }) { copy(payable = it ?: detail) }
         }
     }
 
@@ -209,6 +250,10 @@ class PurchasesViewModel(
             PurchasesPage.RETURN -> {
                 mutableState.update { it.copy(returnDraft = null) }
                 openDetails(checkNotNull(current.details).summary.id)
+            }
+            PurchasesPage.PAYABLE -> {
+                val invoice = current.payableInvoice
+                if (invoice != null) openDetails(invoice.id) else openPayables(current.includeSettled, current.payablesOffset)
             }
             else -> openHistory()
         }
