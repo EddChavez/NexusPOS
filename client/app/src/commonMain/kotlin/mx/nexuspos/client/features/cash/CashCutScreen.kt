@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import mx.nexuspos.client.features.cash.v2.CashCutHistoryPanel
 import mx.nexuspos.client.theme.NexusTheme
 import mx.nexuspos.client.ui.components.FeedbackMessageHost
 import mx.nexuspos.contracts.cash.CashSessionSummary
@@ -33,10 +34,17 @@ import java.time.format.DateTimeFormatter
 fun CashCutScreen(
     viewModel: CashCutViewModel,
     onBackToSales: () -> Unit,
-    activeCashierUserId: String = "usr-cajero"
+    activeCashierUserId: String = "usr-cajero",
+    useMaterialWorkspace: Boolean = false
 ) {
     val state by viewModel.uiState.collectAsState()
     var showConfirmCloseDialog by remember { mutableStateOf(false) }
+    val tab = state.activeTab.takeUnless { it == CashCutTab.HISTORY && !useMaterialWorkspace } ?: CashCutTab.SHIFT_CUT
+    val showHistory = tab == CashCutTab.HISTORY
+    val selectTab: (CashCutTab) -> Unit = {
+        viewModel.closePreview()
+        viewModel.selectTab(it)
+    }
     val preview = state.ticketPreviewText
 
     Column(
@@ -46,15 +54,16 @@ fun CashCutScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Toolbar superior
-        CashCutTopToolbar(
-            activeTab = state.activeTab,
-            onTabSelected = {
-                viewModel.closePreview()
-                viewModel.selectTab(it)
-            },
-            onBackToSales = onBackToSales
-        )
+        if (useMaterialWorkspace) {
+            CashCutWorkspaceHeader(
+                selectedTab = tab,
+                onTabSelected = selectTab,
+                busy = state.isClosingSession || state.isOpeningSession,
+                onBackToSales = onBackToSales
+            )
+        } else {
+            CashCutTopToolbar(tab, selectTab, onBackToSales)
+        }
 
         // Banners de error y confirmación
         FeedbackMessageHost(
@@ -71,14 +80,21 @@ fun CashCutScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth().weight(1f)
         ) {
-            if (preview != null) {
+            if (!showHistory && preview != null) {
                 CashCutReceiptPane(
                     title = state.ticketPreviewTitle,
                     receipt = preview,
                     onBack = viewModel::closePreview,
                     onPrint = viewModel::reprintPreview
                 )
-            } else when (state.activeTab) {
+            } else when (tab) {
+                CashCutTab.HISTORY -> {
+                    val zone = remember { ZoneId.systemDefault() }
+                    val today = remember(zone) {
+                        kotlinx.datetime.LocalDate.parse(java.time.LocalDate.now(zone).toString())
+                    }
+                    CashCutHistoryPanel(viewModel.apiClient, zone.id, today)
+                }
                 CashCutTab.SHIFT_CUT -> {
                     ShiftCutView(
                         state = state,
@@ -97,7 +113,7 @@ fun CashCutScreen(
     }
 
     // Modal de confirmación de Cierre Oficial (Corte Z)
-    if (showConfirmCloseDialog) {
+    if (!showHistory && showConfirmCloseDialog) {
         val diff = state.differenceCents
         AlertDialog(
             onDismissRequest = { showConfirmCloseDialog = false },
@@ -139,7 +155,7 @@ fun CashCutScreen(
     }
 
     // Modal para abrir nuevo turno si no hay sesión abierta
-    if (state.showOpenSessionDialog) {
+    if (!showHistory && state.showOpenSessionDialog) {
         OpenSessionModalDialog(
             fundText = state.openFundText,
             onFundTextChanged = viewModel::onOpenFundTextChanged,
@@ -171,6 +187,32 @@ private fun CashCutReceiptPane(title: String, receipt: String, onBack: () -> Uni
             Icon(Icons.Default.Print, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text("Reimprimir")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CashCutWorkspaceHeader(
+    selectedTab: CashCutTab,
+    onTabSelected: (CashCutTab) -> Unit,
+    busy: Boolean,
+    onBackToSales: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("Cortes de caja", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            TextButton(onBackToSales, enabled = !busy) { Text("Volver a ventas") }
+        }
+        val tabs = listOf(
+            CashCutTab.SHIFT_CUT to "Turno actual",
+            CashCutTab.DAILY_REPORT to "Reporte diario",
+            CashCutTab.HISTORY to "Historial"
+        )
+        PrimaryTabRow(selectedTabIndex = tabs.indexOfFirst { it.first == selectedTab }) {
+            tabs.forEach { (tab, label) ->
+                Tab(selected = selectedTab == tab, onClick = { onTabSelected(tab) }, enabled = !busy, text = { Text(label) })
+            }
         }
     }
 }

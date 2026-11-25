@@ -882,11 +882,14 @@ fun main() = application {
                                     }
                                 }
                                 AppModule.CASH_CUT -> {
-                                    CashCutScreen(
-                                        viewModel = cashCutViewModel,
-                                        onBackToSales = { activeModule = AppModule.SALES },
-                                        activeCashierUserId = salesState.activeCashierId
-                                    )
+                                    key(appConfig.baseUrl, authState.currentUser?.userId) {
+                                        CashCutScreen(
+                                            viewModel = cashCutViewModel,
+                                            onBackToSales = { activeModule = AppModule.SALES },
+                                            activeCashierUserId = salesState.activeCashierId,
+                                            useMaterialWorkspace = isV2
+                                        )
+                                    }
                                 }
                                 AppModule.CUSTOMERS -> {
                                     val sessionId = salesState.activeSession?.takeIf { it.status == "OPEN" }?.sessionId

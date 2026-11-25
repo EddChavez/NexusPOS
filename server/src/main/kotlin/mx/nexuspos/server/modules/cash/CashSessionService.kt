@@ -278,7 +278,7 @@ class CashSessionService(private val db: DatabaseFactory) {
                 """
                 UPDATE cash_sessions
                 SET closed_at = ?, expected_cash_cents = ?, counted_cash_cents = ?, difference_cents = ?, status = 'CLOSED', notes = ?
-                WHERE id = ?
+                WHERE id = ? AND status = 'OPEN'
                 """.trimIndent()
             )
             stmt.setLong(1, now)
@@ -287,8 +287,9 @@ class CashSessionService(private val db: DatabaseFactory) {
             stmt.setLong(4, difference)
             stmt.setString(5, request.notes)
             stmt.setString(6, sessionId)
-            stmt.executeUpdate()
-            stmt.close()
+            stmt.use {
+                if (it.executeUpdate() != 1) throw SessionClosedException("La sesión '$sessionId' ya está cerrada")
+            }
 
             if (request.denominations.isNotEmpty()) {
                 val denomInsert = conn.prepareStatement(

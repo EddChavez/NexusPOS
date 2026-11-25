@@ -10,6 +10,10 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.ApiError
+import mx.nexuspos.contracts.cash.CashCutDetailRequest
+import mx.nexuspos.contracts.cash.CashCutHistoryDetail
+import mx.nexuspos.contracts.cash.CashCutHistoryPage
+import mx.nexuspos.contracts.cash.CashCutHistoryRequest
 import mx.nexuspos.contracts.cash.CashSessionSummary
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.DailyFinancialReportDto
@@ -60,6 +64,8 @@ import mx.nexuspos.contracts.sales.SaleResponse
 import mx.nexuspos.contracts.purchases.*
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.contracts.system.SettingsPreferencesPatch
+
+internal class CashCutHistoryAccessDenied(message: String) : Exception(message)
 
 internal class PurchaseRequestException(val status: Int, val error: ApiError) : Exception(error.message)
 
@@ -519,6 +525,31 @@ open class ApiClient(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    open suspend fun searchCashCutHistory(request: CashCutHistoryRequest): Result<CashCutHistoryPage> =
+        cashHistoryCall("search", request)
+
+    open suspend fun getClosedCashCut(id: String, pin: String): Result<CashCutHistoryDetail> =
+        cashHistoryCall(id.encodeURLPathPart(), CashCutDetailRequest(pin))
+
+    private suspend inline fun <reified Request, reified Response> cashHistoryCall(
+        path: String, request: Request
+    ): Result<Response> = try {
+        val response = http.post("$baseUrl/api/v1/cash-sessions/history/$path") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+        if (response.status.isSuccess()) Result.success(response.body())
+        else {
+            val message = parseError(response).message
+            val denied = response.status == HttpStatusCode.Forbidden || response.status == HttpStatusCode.Unauthorized
+            Result.failure(if (denied) CashCutHistoryAccessDenied(message) else Exception(message))
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
     }
 
     open suspend fun openSession(req: OpenSessionRequest): Result<CashSessionSummary> {

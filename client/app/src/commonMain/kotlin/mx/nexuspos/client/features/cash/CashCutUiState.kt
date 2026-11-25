@@ -5,7 +5,8 @@ import mx.nexuspos.contracts.cash.DailyFinancialReportDto
 
 enum class CashCutTab {
     SHIFT_CUT,      // Arqueo y Corte de Turno
-    DAILY_REPORT    // Reporte Financiero del Día
+    DAILY_REPORT,   // Reporte Financiero del Día
+    HISTORY
 }
 
 data class CashCutUiState(

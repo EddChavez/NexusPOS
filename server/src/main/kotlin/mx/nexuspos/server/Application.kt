@@ -20,6 +20,8 @@ import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.ApiError
+import mx.nexuspos.contracts.cash.CashCutDetailRequest
+import mx.nexuspos.contracts.cash.CashCutHistoryRequest
 import mx.nexuspos.contracts.cash.CashMovementRequest
 import mx.nexuspos.contracts.cash.CloseSessionRequest
 import mx.nexuspos.contracts.cash.OpenSessionRequest
@@ -56,6 +58,7 @@ import mx.nexuspos.contracts.sales.ParkSaleRequest
 import mx.nexuspos.contracts.sales.RetrieveParkedSaleRequest
 import mx.nexuspos.contracts.system.SettingsDto
 import mx.nexuspos.contracts.system.SettingsPreferencesPatch
+import mx.nexuspos.server.modules.cash.CashCutHistoryService
 import mx.nexuspos.server.modules.cash.CashSessionService
 import mx.nexuspos.server.modules.catalog.CatalogService
 import mx.nexuspos.server.modules.credit.CreditService
@@ -89,6 +92,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val inventoryService = InventoryService(dbFactory)
     val productLotsService = ProductLotsService(dbFactory)
     val cashService = CashSessionService(dbFactory)
+    val cashCutHistory = CashCutHistoryService(dbFactory)
     val creditService = CreditService(dbFactory)
     val loyaltyService = LoyaltyService(dbFactory)
     val settingsService = SettingsService(dbFactory)
@@ -97,9 +101,9 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
     val reportsService = ReportsService(dbFactory)
     val purchaseService = PurchaseService(dbFactory)
 
-    fun purchaseOperator(pin: String): String {
+    fun requireSupervisor(pin: String, action: String): String {
         if (!pin.matches(Regex("[0-9]{4}"))) throw UnauthorizedException("Captura el PIN de un encargado.")
-        val authorization = identityService.authorizeSupervisor(AuthorizeRequest(pin, "PURCHASES"))
+        val authorization = identityService.authorizeSupervisor(AuthorizeRequest(pin, action))
         if (!authorization.authorized) throw ForbiddenException("PIN de encargado incorrecto o usuario inactivo.")
         return authorization.supervisorId
     }
@@ -492,6 +496,19 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 call.respond(HttpStatusCode.Created, session)
             }
 
+            post("/cash-sessions/history/search") {
+                val req = call.receive<CashCutHistoryRequest>()
+                requireSupervisor(req.pin, "CASH_CUT_HISTORY")
+                call.respond(cashCutHistory.search(req))
+            }
+
+            post("/cash-sessions/history/{id}") {
+                val req = call.receive<CashCutDetailRequest>()
+                requireSupervisor(req.pin, "CASH_CUT_HISTORY")
+                val id = call.parameters["id"] ?: throw ValidationException("Indica el corte.")
+                call.respond(cashCutHistory.detail(id))
+            }
+
             get("/cash-sessions/current") {
                 val registerId = call.request.queryParameters["registerId"] ?: "caja-1"
                 val session = cashService.getCurrentOpenSession(registerId)
@@ -651,12 +668,12 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 }
                 post("/suppliers") {
                     val req = call.receive<PurchaseAuthorization<SaveSupplierRequest>>()
-                    purchaseOperator(req.pin)
+                    requireSupervisor(req.pin, "PURCHASES")
                     call.respond(HttpStatusCode.Created, purchaseService.saveSupplier(null, req.data))
                 }
                 put("/suppliers/{id}") {
                     val req = call.receive<PurchaseAuthorization<SaveSupplierRequest>>()
-                    purchaseOperator(req.pin)
+                    requireSupervisor(req.pin, "PURCHASES")
                     val id = call.parameters["id"] ?: throw ValidationException("Indica el proveedor.")
                     call.respond(purchaseService.saveSupplier(id, req.data))
                 }
@@ -667,7 +684,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 }
                 post("/receipts") {
                     val req = call.receive<PurchaseAuthorization<ReceivePurchaseRequest>>()
-                    call.respond(HttpStatusCode.Created, purchaseService.receive(req.data, purchaseOperator(req.pin)))
+                    call.respond(HttpStatusCode.Created, purchaseService.receive(req.data, requireSupervisor(req.pin, "PURCHASES")))
                 }
                 get("/receipts/{id}") {
                     val id = call.parameters["id"] ?: throw ValidationException("Indica la compra.")
@@ -676,7 +693,7 @@ fun Application.nexusModule(dbFactory: DatabaseFactory = DatabaseFactory()) {
                 post("/receipts/{id}/returns") {
                     val id = call.parameters["id"] ?: throw ValidationException("Indica la compra.")
                     val req = call.receive<PurchaseAuthorization<ReturnPurchaseRequest>>()
-                    call.respond(HttpStatusCode.Created, purchaseService.returnStock(id, req.data, purchaseOperator(req.pin)))
+                    call.respond(HttpStatusCode.Created, purchaseService.returnStock(id, req.data, requireSupervisor(req.pin, "PURCHASES")))
                 }
             }
 
