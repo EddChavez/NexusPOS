@@ -106,6 +106,7 @@ class BottomCheckoutPanelTest {
                 status = "OPEN"
             ),
             connectionState = ServerConnectionState.CONNECTED,
+            activeCashierId = "usr-1",
             lastCompletedSale = mockCompletedSale
         )
 

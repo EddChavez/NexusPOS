@@ -1343,8 +1343,23 @@ class SalesViewModel(
 
     fun showCashPaymentDialog(show: Boolean) {
         _uiState.update { state ->
-            if (state.isCheckoutInProgress || state.isShowingCashPayment == show) state
-            else state.copy(isShowingCashPayment = show, checkoutErrorMessage = null)
+            val blocked = state.checkoutShiftBlockReason
+            when {
+                show && blocked != null -> state.copy(isShowingCashPayment = false, errorMessage = blocked)
+                state.isCheckoutInProgress || state.isShowingCashPayment == show -> state
+                else -> state.copy(isShowingCashPayment = show, checkoutErrorMessage = null)
+            }
+        }
+    }
+
+    fun requestCheckout() {
+        val state = _uiState.value
+        val blocked = state.checkoutShiftBlockReason
+        when {
+            blocked != null -> setErrorMessage(blocked)
+            state.activeSession == null -> showSessionDialog(true)
+            state.cartLines.isEmpty() -> setErrorMessage("Agrega al menos un producto al carrito para cobrar.")
+            else -> showCashPaymentDialog(true)
         }
     }
 
@@ -1493,6 +1508,11 @@ class SalesViewModel(
             if (it.isCheckoutInProgress) it else it.copy(isCheckoutInProgress = true, checkoutErrorMessage = null)
         }
         if (state.isCheckoutInProgress) return
+        val blocked = state.checkoutShiftBlockReason
+        if (blocked != null) {
+            reportCheckoutError(blocked)
+            return
+        }
 
         val refreshed = state.cartLines.map { line ->
             if (line.promotion == null) line else line.pricedAt(line.quantity)
@@ -1531,6 +1551,14 @@ class SalesViewModel(
         scope.launch {
             if (server != apiClient.baseUrl) {
                 reportCheckoutError("Cambió el servidor durante el cobro. Confirma el turno antes de continuar.")
+                return@launch
+            }
+            val current = _uiState.value
+            val currentBlock = current.checkoutShiftBlockReason
+            if (currentBlock != null || current.activeCashierId != state.activeCashierId ||
+                current.activeSession?.sessionId != state.activeSession?.sessionId || current.activeSession?.status != "OPEN"
+            ) {
+                reportCheckoutError(currentBlock ?: "Cambió el turno o el operador. Verifica la caja antes de cobrar.")
                 return@launch
             }
             val linesReq = state.cartLines.map { line ->

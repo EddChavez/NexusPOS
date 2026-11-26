@@ -27,7 +27,8 @@ fun CheckoutSummaryBar(
     onReprintTicket: () -> Unit,
     onCheckout: () -> Unit,
     modifier: Modifier = Modifier,
-    os: HostOs = HostOsDetector.current
+    os: HostOs = HostOsDetector.current,
+    checkoutEnabled: Boolean = true
 ) {
     val summary = formatCheckoutSummary(cartLines)
     OutlinedCard(
@@ -41,14 +42,14 @@ fun CheckoutSummaryBar(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     SummaryText(summary, ticketNote, Modifier.weight(1f))
-                    CheckoutActions(total, onOpenNoteDialog, onReprintTicket, onCheckout, os)
+                    CheckoutActions(total, onOpenNoteDialog, onReprintTicket, onCheckout, os, checkoutEnabled)
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     SummaryText(summary, ticketNote)
                     CheckoutActions(
                         total, onOpenNoteDialog, onReprintTicket,
-                        onCheckout, os, Modifier.fillMaxWidth()
+                        onCheckout, os, checkoutEnabled, Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -81,6 +82,7 @@ private fun CheckoutActions(
     onReprintTicket: () -> Unit,
     onCheckout: () -> Unit,
     os: HostOs,
+    checkoutEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     FlowRow(
@@ -100,6 +102,7 @@ private fun CheckoutActions(
         }
         Button(
             onClick = onCheckout,
+            enabled = checkoutEnabled,
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
         ) {
             Column {

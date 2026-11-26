@@ -207,15 +207,7 @@ fun SalesScreen(
                 onOpenCashDrawer = { viewModel.openCashDrawer() },
                 onReprintTicket = { viewModel.reprintLastTicket() },
                 onDailySalesAndReturns = { viewModel.openDailySalesAndReturns() },
-                onCheckout = {
-                    if (state.activeSession == null) {
-                        viewModel.showSessionDialog(true)
-                    } else if (state.cartLines.isEmpty()) {
-                        viewModel.setErrorMessage("Agrega al menos un producto al carrito para cobrar.")
-                    } else {
-                        viewModel.showCashPaymentDialog(true)
-                    }
-                },
+                onCheckout = viewModel::requestCheckout,
                 modifier = Modifier.fillMaxWidth()
             )
         }

@@ -133,7 +133,19 @@ data class SalesUiState(
     val isShowingPriceCheckerDialog: Boolean = false,
     val isShowingCancelTicketDialog: Boolean = false,
     val ticketPendingCancelId: String? = null
-)
+) {
+    val checkoutShiftBlockReason: String?
+        get() {
+            if (isHandingOffShift) return "Espera a que se confirme el relevo antes de cobrar."
+            val shift = activeSession ?: return null
+            if (shift.status != "OPEN" || shift.operatorUserId == activeCashierId) return null
+            val nextStep = if (allowShiftHandoff && "cash.handoff" in activeCashierPermissions) {
+                if (connectionState == ServerConnectionState.NO_SERVER) "Conéctate para asumir el turno antes de cobrar."
+                else "Asume el turno para cobrar."
+            } else "El operador debe cerrar el turno antes de que puedas abrir uno nuevo."
+            return "Turno a cargo de ${shift.operatorName}. $nextStep"
+        }
+}
 
 /**
  * Convierte el estado de ventas a la proyección requerida por [CaptureBar].

@@ -59,6 +59,8 @@ En Desktop, después de validar el PIN de un usuario con permisos `cash.view` y 
 
 Cambia la política en **Configuración V2 → Turnos → Solicitar fondo inicial**. La opción se aplica en la siguiente apertura. Un rol que carece de alguno de los dos permisos conserva su acceso habitual sin activar la apertura al iniciar sesión.
 
+Cuando el turno está a cargo de otro operador, Ventas muestra su nombre y deshabilita el cobro, incluidos el atajo y la contingencia sin red. El usuario puede cobrar después de asumir el turno con autorización o abrir un turno nuevo tras el cierre anterior.
+
 ### Arqueo y cortes
 
 Después de confirmar el cierre del turno, Desktop ofrece **Salir de NexusPOS** o **Nuevo turno**. Al elegir **Nuevo turno**, la terminal vuelve al PIN y aplica la configuración del fondo de caja. Si el cierre se hizo desde **Cortes**, la confirmación también permite consultar y reimprimir el comprobante.

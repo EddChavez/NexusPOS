@@ -606,13 +606,7 @@ fun main() = application {
                     // Local Module Shortcuts for Sales
                     Key.F12 -> {
                         if (activeModule == AppModule.SALES) {
-                            if (salesState.activeSession == null) {
-                                viewModel.showSessionDialog(true)
-                            } else if (salesState.cartLines.isEmpty()) {
-                                viewModel.setErrorMessage("Agrega al menos un producto al carrito para cobrar.")
-                            } else {
-                                viewModel.showCashPaymentDialog(true)
-                            }
+                            viewModel.requestCheckout()
                             true
                         } else false
                     }

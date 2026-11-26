@@ -112,15 +112,7 @@ fun SalesScreenV2(
             onAction = { action ->
                 when (action) {
                     PosAction.SWITCH_TICKET -> viewModel.cycleNextTicket()
-                    PosAction.CHECKOUT -> {
-                        if (state.activeSession == null) {
-                            viewModel.showSessionDialog(true)
-                        } else if (state.cartLines.isEmpty()) {
-                            viewModel.setErrorMessage("Agrega al menos un producto al carrito para cobrar.")
-                        } else {
-                            viewModel.showCashPaymentDialog(true)
-                        }
-                    }
+                    PosAction.CHECKOUT -> viewModel.requestCheckout()
                     PosAction.FAST_SALE -> viewModel.showGenericProductDialog(true)
                     PosAction.PRICE_CHECKER -> viewModel.showPriceCheckerDialog(true)
                     PosAction.REPRINT_TICKET -> viewModel.reprintLastTicket()
@@ -302,12 +294,24 @@ fun SalesScreenV2(
                             CartPriceListChoice(viewModel, selectedLine)
                         }
 
-                        val shift = state.activeSession
-                        if (shift != null && shift.operatorUserId != state.activeCashierId) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Turno a cargo de ${shift.operatorName}.", style = MaterialTheme.typography.bodySmall)
-                                if (state.allowShiftHandoff && "cash.handoff" in state.activeCashierPermissions) {
-                                    TextButton(viewModel::handoffCurrentShift, enabled = !state.isHandingOffShift) { Text("Asumir turno") }
+                        state.checkoutShiftBlockReason?.let { message ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                    if (state.allowShiftHandoff && "cash.handoff" in state.activeCashierPermissions &&
+                                        state.connectionState == ServerConnectionState.CONNECTED
+                                    ) {
+                                        TextButton(viewModel::handoffCurrentShift, enabled = !state.isHandingOffShift) {
+                                            Text("Asumir turno")
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -338,15 +342,8 @@ fun SalesScreenV2(
                             ticketNote = state.activeTicketNote,
                             onOpenNoteDialog = { viewModel.showTicketNoteDialog(true) },
                             onReprintTicket = { viewModel.reprintLastTicket() },
-                            onCheckout = {
-                                if (state.activeSession == null) {
-                                    viewModel.showSessionDialog(true)
-                                } else if (state.cartLines.isEmpty()) {
-                                    viewModel.setErrorMessage("Agrega al menos un producto al carrito para cobrar.")
-                                } else {
-                                    viewModel.showCashPaymentDialog(true)
-                                }
-                            }
+                            onCheckout = viewModel::requestCheckout,
+                            checkoutEnabled = state.checkoutShiftBlockReason == null
                         )
                     }
 

@@ -178,7 +178,7 @@ class MixedPaymentFeatureTest {
         privateStateField.isAccessible = true
         @Suppress("UNCHECKED_CAST")
         val stateFlow = privateStateField.get(viewModel) as kotlinx.coroutines.flow.MutableStateFlow<mx.nexuspos.client.features.sales.SalesUiState>
-        stateFlow.value = stateFlow.value.copy(activeSession = openSession)
+        stateFlow.value = stateFlow.value.copy(activeSession = openSession, activeCashierId = openSession.operatorUserId)
 
         viewModel.addGenericProduct("Bulto Harina", 35000L) // $350.00
 
@@ -242,7 +242,7 @@ class MixedPaymentFeatureTest {
         privateStateField.isAccessible = true
         @Suppress("UNCHECKED_CAST")
         val stateFlow = privateStateField.get(viewModel) as kotlinx.coroutines.flow.MutableStateFlow<mx.nexuspos.client.features.sales.SalesUiState>
-        stateFlow.value = stateFlow.value.copy(activeSession = openSession)
+        stateFlow.value = stateFlow.value.copy(activeSession = openSession, activeCashierId = openSession.operatorUserId)
 
         viewModel.addGenericProduct("Golosina", 500L)
         viewModel.checkoutMultiPayment(emptyList())
@@ -259,6 +259,7 @@ class MixedPaymentFeatureTest {
             openSession = createOpenSessionSummary()
         }
         val vm = SalesViewModel(api, scope = CoroutineScope(Dispatchers.Unconfined))
+        vm.setActiveCashier("user-1", "Cajero Prueba", "CASHIER")
         vm.addGenericProduct("Café", 6000)
         vm.showCashPaymentDialog(true)
         val payments = listOf(SalePaymentRequest("CASH", 6000, 10000))

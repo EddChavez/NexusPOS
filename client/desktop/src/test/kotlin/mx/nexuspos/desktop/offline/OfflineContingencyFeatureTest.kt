@@ -424,6 +424,51 @@ class OfflineContingencyFeatureTest {
     }
 
     @Test
+    fun onlyCurrentShiftOperatorCanOpenOrSubmitCheckoutOnlineAndOffline() {
+        for (connected in listOf(true, false)) {
+            val storage = InMemoryPersistenceProvider()
+            var shift = CashSessionSummary(
+                sessionId = "sess-1", registerId = "caja-1", cashierId = "usr-ana", cashierName = "Ana",
+                openedAt = 1, initialFundCents = 0, status = "OPEN", salesCashCents = 0, creditPaymentsCashCents = 0,
+                cashInCents = 0, cashOutCents = 0, refundsCashCents = 0, expectedCashCents = 0
+            )
+            var submitted: CreateSaleRequest? = null
+            val api = object : ApiClient() {
+                override suspend fun checkHealth() = connected
+                override suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> = Result.success(shift)
+                override suspend fun completeSale(req: CreateSaleRequest): Result<SaleResponse> {
+                    submitted = req
+                    return Result.success(SaleResponse(
+                        "sale-1", 1, req.cashSessionId, "Luis", status = "COMPLETED", subtotalCents = 1800,
+                        taxCents = 0, totalCents = 1800, lines = emptyList(), payments = emptyList(), createdAt = 2
+                    ))
+                }
+            }
+            val model = SalesViewModel(api, CoroutineScope(Dispatchers.Unconfined), storage)
+            model.setActiveCashier("usr-luis", "Luis", "CASHIER")
+            model.addProductPresentation(sampleProduct, sampleProduct.presentations.single(), Quantity.ONE)
+
+            model.requestCheckout()
+            assertFalse(model.uiState.value.isShowingCashPayment)
+            assertContains(model.uiState.value.errorMessage.orEmpty(), "Turno a cargo de Ana")
+            model.checkoutCash(2000)
+            assertNull(submitted)
+            assertTrue(model.saleQueue.getAll().isEmpty())
+            assertEquals(1, model.uiState.value.cartLines.size)
+            assertNull(model.uiState.value.lastCompletedSale)
+
+            shift = shift.copy(operatorUserId = "usr-luis", operatorName = "Luis")
+            model.loadActiveSession()
+            model.requestCheckout()
+            assertTrue(model.uiState.value.isShowingCashPayment)
+            model.checkoutCash(2000)
+            val sale = if (connected) submitted else model.saleQueue.getPending().single().request
+            assertEquals("usr-luis", sale?.cashierUserId)
+            assertEquals("sess-1", sale?.cashSessionId)
+        }
+    }
+
+    @Test
     fun offlineCashCheckoutRequiresAKnownOpenShift() {
         val api = object : ApiClient() {
             override suspend fun checkHealth(): Boolean = false
