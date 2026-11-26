@@ -105,7 +105,7 @@ fun InventoryScreen(
 
         // BANNERS DE NOTIFICACIÓN
         FeedbackMessageHost(
-            errorMessage = state.errorMessage,
+            errorMessage = state.errorMessage ?: state.activeTabError,
             successMessage = state.successMessage,
             onDismissError = viewModel::dismissMessages,
             onDismissSuccess = viewModel::dismissMessages

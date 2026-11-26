@@ -31,18 +31,26 @@ class InventoryViewModel(
     private val productRequests = MutableStateFlow(0L)
     private val movementRequests = MutableStateFlow(0L)
     private val reorderRequests = MutableStateFlow(0L)
+    private val lotsRequests = MutableStateFlow(0L)
 
     init {
-        refreshAll()
+        refreshActiveTab()
     }
 
-    fun refreshAll() {
-        loadSummary()
-        loadDepartments()
-        loadProducts()
-        loadMovements()
-        loadReorderSuggestions()
-        loadLotsReport()
+    fun refreshActiveTab() {
+        when (_uiState.value.activeTab) {
+            InventoryTab.STOCK_TABLE -> {
+                loadSummary()
+                loadDepartments()
+                loadProducts()
+            }
+            InventoryTab.KARDEX -> loadMovements()
+            InventoryTab.REORDER_SUGGESTIONS -> {
+                loadDepartments()
+                loadReorderSuggestions()
+            }
+            InventoryTab.LOTS_AND_EXPIRATIONS -> loadLotsReport()
+        }
     }
 
     fun loadSummary() {
@@ -70,7 +78,8 @@ class InventoryViewModel(
         val snapshot = _uiState.value
         if (query != snapshot.searchQuery || departmentId != snapshot.selectedDepartmentId) return
         val request = productRequests.updateAndGet { it + 1L }
-        _uiState.update { it.copy(isLoading = true) }
+        val tab = InventoryTab.STOCK_TABLE
+        _uiState.update { it.copy(isLoading = true, tabLoadErrors = it.tabLoadErrors - tab) }
         scope.launch {
             val result = apiClient.searchProducts(query = query, departmentId = departmentId)
             ensureActive()
@@ -88,7 +97,9 @@ class InventoryViewModel(
                             isLoading = false
                         )
                     },
-                    onFailure = { state.copy(isLoading = false, errorMessage = it.message ?: "No se pudo cargar el inventario.") }
+                    onFailure = { failure ->
+                        state.copy(isLoading = false, tabLoadErrors = state.tabLoadErrors + (tab to (failure.message ?: "No se pudo cargar el inventario.")))
+                    }
                 )
             }
         }
@@ -96,7 +107,8 @@ class InventoryViewModel(
 
     fun loadMovements(productId: String? = _uiState.value.movementProduct?.id, type: String? = null) {
         val request = movementRequests.updateAndGet { it + 1L }
-        _uiState.update { it.copy(isMovementsLoading = true) }
+        val tab = InventoryTab.KARDEX
+        _uiState.update { it.copy(isMovementsLoading = true, tabLoadErrors = it.tabLoadErrors - tab) }
         scope.launch {
             val result = apiClient.getStockMovements(productId = productId, type = type, limit = 150)
             ensureActive()
@@ -104,7 +116,9 @@ class InventoryViewModel(
                 if (movementRequests.value != request) state
                 else result.fold(
                     onSuccess = { state.copy(movements = it, isMovementsLoading = false) },
-                    onFailure = { state.copy(isMovementsLoading = false, errorMessage = it.message ?: "No se pudo consultar el kárdex.") }
+                    onFailure = { failure ->
+                        state.copy(isMovementsLoading = false, tabLoadErrors = state.tabLoadErrors + (tab to (failure.message ?: "No se pudo consultar el kárdex.")))
+                    }
                 )
             }
         }
@@ -129,13 +143,8 @@ class InventoryViewModel(
     }
 
     fun onTabSelected(tab: InventoryTab) {
-        _uiState.update { it.copy(activeTab = tab) }
-        when (tab) {
-            InventoryTab.KARDEX -> loadMovements()
-            InventoryTab.REORDER_SUGGESTIONS -> loadReorderSuggestions()
-            InventoryTab.LOTS_AND_EXPIRATIONS -> loadLotsReport()
-            InventoryTab.STOCK_TABLE -> {}
-        }
+        val previous = _uiState.getAndUpdate { if (it.activeTab == tab) it else it.copy(activeTab = tab, errorMessage = null) }
+        if (previous.activeTab != tab) refreshActiveTab()
     }
 
     fun loadReorderSuggestions(
@@ -143,7 +152,8 @@ class InventoryViewModel(
         onlyOutOfStock: Boolean = _uiState.value.reorderOnlyOutOfStock
     ) {
         val request = reorderRequests.updateAndGet { it + 1L }
-        _uiState.update { it.copy(isReorderLoading = true) }
+        val tab = InventoryTab.REORDER_SUGGESTIONS
+        _uiState.update { it.copy(isReorderLoading = true, tabLoadErrors = it.tabLoadErrors - tab) }
         scope.launch {
             val result = apiClient.getReorderSuggestions(departmentId, onlyOutOfStock)
             ensureActive()
@@ -152,7 +162,9 @@ class InventoryViewModel(
                     state.reorderOnlyOutOfStock != onlyOutOfStock
                 ) state else result.fold(
                     onSuccess = { state.copy(reorderReport = it, isReorderLoading = false) },
-                    onFailure = { state.copy(isReorderLoading = false, errorMessage = it.message ?: "No se pudo calcular el pedido.") }
+                    onFailure = { failure ->
+                        state.copy(isReorderLoading = false, tabLoadErrors = state.tabLoadErrors + (tab to (failure.message ?: "No se pudo calcular el pedido.")))
+                    }
                 )
             }
         }
@@ -252,9 +264,7 @@ class InventoryViewModel(
                     )
                 }
                 onSaved()
-                loadSummary()
-                loadProducts()
-                loadMovements()
+                refreshActiveTab()
             }.onFailure { err ->
                 val latest = if (expectedStockMillis != null) apiClient.getProduct(productId).getOrNull() else null
                 _uiState.update { state ->
@@ -270,13 +280,20 @@ class InventoryViewModel(
     }
 
     fun loadLotsReport() {
+        val request = lotsRequests.updateAndGet { it + 1L }
+        val tab = InventoryTab.LOTS_AND_EXPIRATIONS
+        _uiState.update { it.copy(isLotsLoading = true, tabLoadErrors = it.tabLoadErrors - tab) }
         scope.launch {
-            _uiState.update { it.copy(isLotsLoading = true, errorMessage = null) }
             val res = apiClient.getExpirationsReport()
-            res.onSuccess { report ->
-                _uiState.update { it.copy(lotsReport = report, isLotsLoading = false) }
-            }.onFailure { err ->
-                _uiState.update { it.copy(isLotsLoading = false, errorMessage = err.message) }
+            ensureActive()
+            _uiState.update { state ->
+                if (request != lotsRequests.value) state
+                else res.fold(
+                    onSuccess = { state.copy(lotsReport = it, isLotsLoading = false) },
+                    onFailure = { failure ->
+                        state.copy(isLotsLoading = false, tabLoadErrors = state.tabLoadErrors + (tab to (failure.message ?: "No se pudieron consultar los lotes.")))
+                    }
+                )
             }
         }
     }
@@ -345,10 +362,7 @@ class InventoryViewModel(
                     )
                 }
                 onSaved()
-                loadLotsReport()
-                loadSummary()
-                loadProducts()
-                loadMovements()
+                refreshActiveTab()
             }.onFailure { err ->
                 _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
             }
@@ -379,10 +393,7 @@ class InventoryViewModel(
                     )
                 }
                 onSaved()
-                loadLotsReport()
-                loadSummary()
-                loadProducts()
-                loadMovements()
+                refreshActiveTab()
             }.onFailure { err ->
                 _uiState.update { it.copy(isSubmitting = false, errorMessage = err.message) }
             }
@@ -390,6 +401,6 @@ class InventoryViewModel(
     }
 
     fun dismissMessages() {
-        _uiState.update { it.copy(errorMessage = null, successMessage = null) }
+        _uiState.update { it.copy(errorMessage = null, successMessage = null, tabLoadErrors = it.tabLoadErrors - it.activeTab) }
     }
 }

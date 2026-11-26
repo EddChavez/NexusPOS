@@ -55,5 +55,8 @@ data class InventoryUiState(
     val isMovementsLoading: Boolean = false,
     val isSubmitting: Boolean = false,
     val errorMessage: String? = null,
-    val successMessage: String? = null
-)
+    val successMessage: String? = null,
+    val tabLoadErrors: Map<InventoryTab, String> = emptyMap()
+) {
+    val activeTabError: String? get() = tabLoadErrors[activeTab]
+}

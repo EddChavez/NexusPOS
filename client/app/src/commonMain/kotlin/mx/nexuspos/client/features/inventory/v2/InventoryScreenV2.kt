@@ -93,7 +93,7 @@ fun InventoryScreenV2(
                 style = MaterialTheme.typography.headlineSmall
             )
             if (!inAction) {
-                IconButton(onClick = viewModel::refreshAll, enabled = !state.isSubmitting) {
+                IconButton(onClick = viewModel::refreshActiveTab, enabled = !state.isSubmitting) {
                     Icon(Icons.Default.Refresh, "Actualizar inventario")
                 }
             }
@@ -140,7 +140,7 @@ fun InventoryScreenV2(
                     }
                 }
                 FeedbackMessageHost(
-                    errorMessage = state.errorMessage, successMessage = state.successMessage,
+                    errorMessage = state.errorMessage ?: state.activeTabError, successMessage = state.successMessage,
                     onDismissError = viewModel::dismissMessages, onDismissSuccess = viewModel::dismissMessages
                 )
                 OutlinedCard(Modifier.weight(1f).fillMaxWidth(), shape = MaterialTheme.shapes.large) {

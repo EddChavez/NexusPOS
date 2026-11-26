@@ -15,6 +15,58 @@ class InventoryWorkspaceTest {
     private val product = ProductDto("p", "SKU", "Café", baseUnit = "KG", currentStockMillis = 3250)
 
     @Test
+    fun loadsOnlyTheActiveTabAndKeepsAccessErrorsInTheirTab() {
+        val kardex = CompletableDeferred<Result<List<StockMovementDto>>>()
+        val calls = mutableListOf<InventoryTab>()
+        val denied = IllegalStateException("Tu rol no permite realizar esta acción.")
+        val api = object : InventoryApi() {
+            override suspend fun searchProducts(barcode: String?, query: String?, departmentId: String?, includeInactive: Boolean): Result<List<ProductDto>> {
+                calls += InventoryTab.STOCK_TABLE
+                return Result.success(listOf(product))
+            }
+
+            override suspend fun getStockMovements(productId: String?, type: String?, limit: Int): Result<List<StockMovementDto>> {
+                calls += InventoryTab.KARDEX
+                return kardex.await()
+            }
+
+            override suspend fun getExpirationsReport(): Result<ExpirationsReportDto> {
+                calls += InventoryTab.LOTS_AND_EXPIRATIONS
+                return Result.failure(denied)
+            }
+
+            override suspend fun getReorderSuggestions(departmentId: String?, onlyOutOfStock: Boolean): Result<ReorderSuggestionsReportDto> {
+                calls += InventoryTab.REORDER_SUGGESTIONS
+                return Result.failure(denied)
+            }
+        }
+        val viewModel = InventoryViewModel(api, CoroutineScope(Dispatchers.Unconfined))
+        assertEquals(listOf(InventoryTab.STOCK_TABLE), calls)
+        assertNull(viewModel.uiState.value.activeTabError)
+
+        viewModel.onTabSelected(InventoryTab.KARDEX)
+        viewModel.onTabSelected(InventoryTab.STOCK_TABLE)
+        kardex.complete(Result.failure(denied))
+        assertNull(viewModel.uiState.value.activeTabError)
+        assertEquals(denied.message, viewModel.uiState.value.tabLoadErrors[InventoryTab.KARDEX])
+
+        viewModel.onTabSelected(InventoryTab.LOTS_AND_EXPIRATIONS)
+        assertEquals(denied.message, viewModel.uiState.value.activeTabError)
+        viewModel.refreshActiveTab()
+        assertEquals(
+            listOf(InventoryTab.STOCK_TABLE, InventoryTab.KARDEX, InventoryTab.STOCK_TABLE,
+                InventoryTab.LOTS_AND_EXPIRATIONS, InventoryTab.LOTS_AND_EXPIRATIONS),
+            calls
+        )
+        viewModel.dismissMessages()
+        assertNull(viewModel.uiState.value.activeTabError)
+
+        viewModel.onTabSelected(InventoryTab.REORDER_SUGGESTIONS)
+        assertEquals(denied.message, viewModel.uiState.value.activeTabError)
+        assertNull(viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
     fun clearingTheLedgerFilterIgnoresTheLateProductResponseAndPreservesStockSelection() {
         val filtered = CompletableDeferred<Result<List<StockMovementDto>>>()
         val api = object : InventoryApi() {

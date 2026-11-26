@@ -137,7 +137,7 @@ fun main() = application {
     val canManagePurchases = authState.isAuthenticated && authState.currentUser?.let { "purchases.view" in it.permissions || it.role in setOf("ADMIN", "SUPERVISOR") } == true
     val purchasesViewModel = remember(appConfig.baseUrl, authState.isAuthenticated, authState.currentUser?.userId) {
         PurchasesViewModel(viewModel.apiClient, onInventoryChanged = {
-            inventoryViewModel.refreshAll()
+            inventoryViewModel.refreshActiveTab()
             productsViewModel.loadProducts()
             viewModel.preloadCatalogCache()
         }, onCashChanged = { viewModel.loadActiveSession(appConfig.registerId) })
