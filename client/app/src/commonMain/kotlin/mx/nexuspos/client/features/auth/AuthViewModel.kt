@@ -30,6 +30,7 @@ class AuthViewModel(
 
     // Callback invoked upon successful cashier login
     var onLoginSuccess: ((LoginResponse, CashSessionSummary?) -> Unit)? = null
+    var onTerminalLocked: (() -> Unit)? = null
 
     // Callback invoked upon successful supervisor elevation
     var onSupervisorSuccess: ((SupervisorAction) -> Unit)? = null
@@ -189,6 +190,7 @@ class AuthViewModel(
         val serverUrl = pendingLogin?.serverUrl ?: apiClient.baseUrl
         pendingLogin = null
         apiClient.sessionToken = null
+        _supervisorState.value = SupervisorAuthState()
         if (token != null) scope.launch { apiClient.closeDesktopSession(token, serverUrl) }
         _uiState.update {
             it.copy(
@@ -200,6 +202,7 @@ class AuthViewModel(
                 shift = null
             )
         }
+        onTerminalLocked?.invoke()
     }
 
     fun unlockWithUser(user: LoginResponse) {
@@ -288,8 +291,10 @@ class AuthViewModel(
             is SupervisorAction.RefundSale -> "REFUND_SALE"
         }
 
+        val attempt = loginAttempt
         scope.launch {
             val res = apiClient.authorizeSupervisor(pin, action = actionName)
+            if (attempt != loginAttempt) return@launch
             res.onSuccess { authResponse ->
                 if (authResponse.authorized) {
                     _supervisorState.update { SupervisorAuthState(isVisible = false) }

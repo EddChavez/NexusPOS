@@ -26,6 +26,8 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -111,7 +113,11 @@ fun main() = application {
     }
 
     val viewModel = remember {
-        SalesViewModel(apiClient = ApiClient(baseUrl = appConfig.baseUrl), initialRegisterId = appConfig.registerId)
+        SalesViewModel(
+            apiClient = ApiClient(baseUrl = appConfig.baseUrl),
+            initialRegisterId = appConfig.registerId,
+            requireDesktopSession = true
+        )
     }
     val authViewModel = remember { AuthViewModel(viewModel.apiClient, loginRegisterId = { appConfig.registerId }) }
     val desktopScope = rememberCoroutineScope()
@@ -126,16 +132,21 @@ fun main() = application {
         viewModel.apiClient.setupStatus().onSuccess { setupState = it.state }
             .onFailure { setupError = it.message ?: "No se pudo comprobar la conexión." }
     }
-    val customersViewModel = remember { CustomersViewModel(viewModel.apiClient) }
-    val productsViewModel = remember { ProductsViewModel(viewModel.apiClient) }
-    val inventoryViewModel = remember { InventoryViewModel(viewModel.apiClient) }
-    val settingsViewModel = remember { SettingsViewModel(viewModel.apiClient) }
-    val cashCutViewModel = remember { CashCutViewModel(viewModel.apiClient, registerId = appConfig.registerId) }
     val salesState by viewModel.uiState.collectAsState()
     val authState by authViewModel.uiState.collectAsState()
+    val desktopSession = authState.currentUser?.token
+    val moduleScope = remember(desktopSession, appConfig.baseUrl, appConfig.registerId) {
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).also { if (desktopSession == null) it.cancel() }
+    }
+    DisposableEffect(moduleScope) { onDispose { moduleScope.cancel() } }
+    val customersViewModel = remember(moduleScope) { CustomersViewModel(viewModel.apiClient, moduleScope) }
+    val productsViewModel = remember(moduleScope) { ProductsViewModel(viewModel.apiClient, moduleScope) }
+    val inventoryViewModel = remember(moduleScope) { InventoryViewModel(viewModel.apiClient, moduleScope) }
+    val settingsViewModel = remember(moduleScope) { SettingsViewModel(viewModel.apiClient, moduleScope) }
+    val cashCutViewModel = remember(moduleScope) { CashCutViewModel(viewModel.apiClient, moduleScope, appConfig.registerId) }
     val canViewTransactions = authState.isAuthenticated && authState.currentUser?.permissions?.contains("transactions.own") == true
     val canManagePurchases = authState.isAuthenticated && authState.currentUser?.let { "purchases.view" in it.permissions || it.role in setOf("ADMIN", "SUPERVISOR") } == true
-    val purchasesViewModel = remember(appConfig.baseUrl, authState.isAuthenticated, authState.currentUser?.userId) {
+    val purchasesViewModel = remember(moduleScope) {
         PurchasesViewModel(viewModel.apiClient, onInventoryChanged = {
             inventoryViewModel.refreshActiveTab()
             productsViewModel.loadProducts()
@@ -166,30 +177,28 @@ fun main() = application {
         ) activeModule = AppModule.SALES
     }
 
-    LaunchedEffect(authState.isAuthenticated) {
-        if (!authState.isAuthenticated) shiftCloseNotice = null
-        if (!authState.isAuthenticated && activeModule == AppModule.SETTINGS) {
-            settingsViewModel.closeUserDialog()
-            activeModule = AppModule.SALES
-        }
+    LaunchedEffect(Unit) {
+        if (!viewModel.apiClient.checkHealth()) isShowingServerDialog = true
+        viewModel.checkServerConnection()
     }
 
-    // Wire auth and hardware printer callbacks
     LaunchedEffect(Unit) {
+        scaleManager.readingFlow.collect { reading -> scaleReading = reading }
+    }
+
+    // Wire session-owned modules to desktop services.
+    LaunchedEffect(moduleScope) {
+        authViewModel.onTerminalLocked = {
+            moduleScope.cancel()
+            viewModel.onTerminalLocked()
+            shiftCloseNotice = null
+            activeModule = AppModule.SALES
+        }
         cashCutViewModel.hasUnconfirmedSales = viewModel::hasUnconfirmedSales
         settingsViewModel.onPreferencesSaved = { settings ->
             viewModel.applySettings(settings)
             customersViewModel.currentSettings = settings
         }
-        // 0. Base URL and server health check
-        viewModel.apiClient.baseUrl = appConfig.baseUrl
-        val isHealthy = viewModel.apiClient.checkHealth()
-        if (!isHealthy) {
-            isShowingServerDialog = true
-        } else {
-            viewModel.loadActiveSession(appConfig.registerId)
-        }
-
         // 1. SettingsViewModel network & server LAN bridge
         settingsViewModel.networkConfigLoader = {
             appConfig = appConfigRepo.load()
@@ -296,13 +305,6 @@ fun main() = application {
 
         settingsViewModel.loadPrinterConfig()
 
-        // 1.5 SettingsViewModel scale bridge
-        launch {
-            scaleManager.readingFlow.collect { reading ->
-                scaleReading = reading
-            }
-        }
-
         viewModel.scaleReadingProvider = { scaleManager.getCurrentReading() }
         viewModel.autoAcceptScaleWeightProvider = { scaleManager.getConfig().autoAcceptStableWeight }
 
@@ -406,9 +408,7 @@ fun main() = application {
             viewModel.loadParkedSales()
             viewModel.preloadCatalogCache()
             viewModel.loadSettings()
-            productsViewModel.loadProducts()
-            settingsViewModel.loadUsers()
-            customersViewModel.loadSettings()
+            viewModel.checkServerConnection()
         }
         authViewModel.onSupervisorSuccess = { action ->
             when (action) {
@@ -885,7 +885,7 @@ fun main() = application {
                     onConfigureServerConnection = { isShowingServerDialog = true },
                     onRecoverRoot = if (setupState == SetupState.READY) ({ recoveringRoot = true }) else null
                 )
-            } else {
+            } else key(desktopSession) {
                 val isV2 = appConfig.salesUiVersion == "V2"
                 val selectModule: (AppModule) -> Unit = { selected ->
                     if ((selected == AppModule.PURCHASES && (!isV2 || !canManagePurchases)) ||

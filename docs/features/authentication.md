@@ -38,6 +38,9 @@ Permitir a los operadores de caja iniciar sesión y alternar turnos en segundos 
 ## 4. Flujo Funcional
 
 ### A. Inicio de Sesión y Cambio de Cajero
+
+Al bloquear la terminal se cierran las vistas internas de la sesión anterior. Al entrar con un PIN válido, Desktop vuelve a Ventas y carga los módulos con los permisos del usuario autenticado. Los carritos en curso se conservan. El indicador de conexión se actualiza con el estado de la red, independientemente de las respuestas de autenticación.
+
 1. El operador ingresa su PIN en la pantalla de acceso. El administrador raíz selecciona **Usar PIN raíz**.
 2. La terminal envía `POST /api/v1/auth/login`. Si el PIN es válido, el servidor devuelve el usuario, sus permisos y el token de sesión.
 3. Si el usuario tiene `cash.view` y `cash.open`, Desktop consulta el turno de la caja configurada antes de mostrar ventas. Reutiliza el turno abierto o completa la [apertura de un turno nuevo](cash-session.md#apertura-al-iniciar-sesión).

@@ -35,9 +35,12 @@ class OfflineSyncManager(
         _summary.update { it.copy(totalPending = queue.pendingCount()) }
     }
 
-    suspend fun syncPendingSales(automatic: Boolean = false): SyncResult = syncMutex.withLock {
+    suspend fun syncPendingSales(automatic: Boolean = false, cashierId: String? = null): SyncResult = syncMutex.withLock {
         val endpoint = apiClient.baseUrl
-        val pending = queue.getPending(automatic).filter { it.belongsTo(endpoint) }
+        val token = apiClient.sessionToken
+        val pending = queue.getPending(automatic).filter {
+            it.belongsTo(endpoint) && (cashierId == null || it.request.cashierUserId == cashierId)
+        }
         if (pending.isEmpty()) {
             _summary.update {
                 it.copy(totalPending = queue.pendingCount(), isSyncing = false, lastSyncMessage = "No hay ventas para sincronizar en este intento.")
@@ -53,9 +56,10 @@ class OfflineSyncManager(
 
         try {
             for (sale in pending) {
-                if (apiClient.baseUrl != endpoint) break
+                if (apiClient.baseUrl != endpoint || apiClient.sessionToken != token) break
                 val res = apiClient.completeSale(sale.request)
                 coroutineContext.ensureActive()
+                if (res.isFailure && apiClient.sessionToken != token) break
                 try {
                     res.onSuccess { completedSale ->
                         queue.markSynced(sale.localFolio, completedSale.folio, completedSale.id)
@@ -96,10 +100,10 @@ class OfflineSyncManager(
         SyncResult(successCount + failCount, successCount, failCount, errors)
     }
 
-    fun triggerSync(automatic: Boolean = false, onCompleted: ((SyncResult) -> Unit)? = null) {
+    fun triggerSync(automatic: Boolean = false, cashierId: String? = null, onCompleted: ((SyncResult) -> Unit)? = null) {
         if (_summary.value.isSyncing) return
         scope.launch {
-            val result = syncPendingSales(automatic)
+            val result = syncPendingSales(automatic, cashierId)
             onCompleted?.invoke(result)
         }
     }

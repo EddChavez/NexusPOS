@@ -91,6 +91,7 @@ import mx.nexuspos.contracts.purchases.*
 import mx.nexuspos.contracts.system.*
 
 internal class CashCutHistoryAccessDenied(message: String) : Exception(message)
+internal class CurrentSessionAccessDenied(message: String) : Exception(message)
 
 internal class PurchaseRequestException(val status: Int, val error: ApiError) : Exception(error.message)
 
@@ -667,8 +668,13 @@ open class ApiClient(
             } else {
                 val err = parseError(res)
                 if (res.status == HttpStatusCode.NotFound && err.code == "NO_OPEN_SESSION") Result.success(null)
+                else if (res.status in setOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden)) {
+                    Result.failure(CurrentSessionAccessDenied(err.message))
+                }
                 else Result.failure(Exception(err.message))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

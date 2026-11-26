@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mx.nexuspos.client.core.ApiClient
+import mx.nexuspos.client.core.CurrentSessionAccessDenied
 import mx.nexuspos.client.core.SaleSubmissionRejected
 import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.core.saleOutcomeIsUncertain
@@ -54,7 +55,8 @@ class SalesViewModel(
     val apiClient: ApiClient = ApiClient(),
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main),
     val persistenceProvider: LocalPersistenceProvider = getDefaultPersistenceProvider(),
-    initialRegisterId: String = "caja-1"
+    initialRegisterId: String = "caja-1",
+    private val requireDesktopSession: Boolean = false
 ) {
     val catalogCache = OfflineCatalogCache(persistenceProvider)
     val saleQueue = OfflineSaleQueue(persistenceProvider)
@@ -67,6 +69,7 @@ class SalesViewModel(
     private var activeSessionServer = apiClient.baseUrl
     private var activeSessionRequest = 0L
     private val connectionCheck = Mutex()
+    private val canReadProtectedData: Boolean get() = !requireDesktopSession || apiClient.sessionToken != null
 
     var currentSettings: SettingsDto? = null
 
@@ -80,8 +83,10 @@ class SalesViewModel(
     }
 
     fun preloadCatalogCache() {
+        if (!canReadProtectedData) return
+        val token = apiClient.sessionToken
         scope.launch {
-            apiClient.searchProducts().onSuccess(catalogCache::saveCatalog)
+            apiClient.searchProducts().onSuccess { if (token == apiClient.sessionToken) catalogCache.saveCatalog(it) }
         }
     }
 
@@ -127,9 +132,16 @@ class SalesViewModel(
     }
 
     fun triggerOfflineSync(automatic: Boolean = false) {
+        if (!canReadProtectedData) return
         if (_uiState.value.isSyncingOfflineSales) return
+        val token = apiClient.sessionToken
+        val cashierId = _uiState.value.activeCashierId.takeIf { requireDesktopSession }
         _uiState.update { it.copy(isSyncingOfflineSales = true, offlineSyncMessage = "Sincronizando...") }
-        syncManager.triggerSync(automatic) { result ->
+        syncManager.triggerSync(automatic, cashierId) { result ->
+            if (token != apiClient.sessionToken) {
+                _uiState.update { it.copy(isSyncingOfflineSales = false, offlinePendingSalesCount = saleQueue.pendingCount()) }
+                return@triggerSync
+            }
             _uiState.update {
                 it.copy(
                     isSyncingOfflineSales = false,
@@ -166,8 +178,9 @@ class SalesViewModel(
         if (!connectionCheck.tryLock()) return
         try {
             val server = apiClient.baseUrl
+            val token = apiClient.sessionToken
             val isHealthy = apiClient.checkHealth()
-            if (apiClient.baseUrl != server) return
+            if (apiClient.baseUrl != server || token != apiClient.sessionToken) return
             val wasOffline = _uiState.value.connectionState == ServerConnectionState.NO_SERVER
             _uiState.update {
                 it.copy(connectionState = if (isHealthy) ServerConnectionState.CONNECTED else ServerConnectionState.NO_SERVER)
@@ -177,7 +190,10 @@ class SalesViewModel(
                 preloadCatalogCache()
                 loadActiveSession()
             }
-            if (saleQueue.getPending(automatic = true).any { it.belongsTo(server) }) {
+            if (saleQueue.getPending(automatic = true).any {
+                    it.belongsTo(server) && (!requireDesktopSession || it.request.cashierUserId == _uiState.value.activeCashierId)
+                }
+            ) {
                 triggerOfflineSync(automatic = true)
             }
         } finally {
@@ -193,14 +209,34 @@ class SalesViewModel(
             activeSessionServer = server
             _uiState.update { it.copy(activeSession = null) }
         }
+        if (!canReadProtectedData) return
+        val token = apiClient.sessionToken
         scope.launch {
             val res = apiClient.getCurrentSession(registerId)
-            if (request != activeSessionRequest || server != apiClient.baseUrl) return@launch
+            if (request != activeSessionRequest || server != apiClient.baseUrl || token != apiClient.sessionToken) return@launch
             res.onSuccess { session ->
                 _uiState.update { it.copy(activeSession = session) }
-            }.onFailure {
-                _uiState.update { it.copy(connectionState = ServerConnectionState.NO_SERVER) }
+            }.onFailure { error ->
+                if (error is CurrentSessionAccessDenied) _uiState.update { it.copy(activeSession = null) }
             }
+        }
+    }
+
+    fun onTerminalLocked() {
+        activeSessionRequest++
+        _uiState.update { previous ->
+            val fresh = SalesUiState(
+                connectionState = previous.connectionState,
+                tickets = previous.tickets,
+                maxCashierDiscountPercent = previous.maxCashierDiscountPercent,
+                allowShiftHandoff = previous.allowShiftHandoff,
+                cashDrawerLimitEnabled = previous.cashDrawerLimitEnabled,
+                offlinePendingSalesCount = previous.offlinePendingSalesCount,
+                isSyncingOfflineSales = previous.isSyncingOfflineSales,
+                isCheckoutInProgress = previous.isCheckoutInProgress,
+                isClosingCashSession = previous.isClosingCashSession
+            )
+            previous.tickets.firstOrNull { it.id == previous.activeTicketId }?.let { activateTicket(fresh, it) } ?: fresh
         }
     }
 
@@ -213,11 +249,14 @@ class SalesViewModel(
 
     fun setActiveCashier(userId: String, name: String, role: String, permissions: List<String> = emptyList()) {
         _uiState.update {
+            val sameCashier = it.activeCashierId == userId
             it.copy(
                 activeCashierId = userId,
                 activeCashierName = name,
                 activeCashierRole = role,
-                activeCashierPermissions = permissions
+                activeCashierPermissions = permissions,
+                isShowingCashPayment = sameCashier && it.isShowingCashPayment,
+                checkoutErrorMessage = it.checkoutErrorMessage.takeIf { sameCashier }
             )
         }
     }
@@ -724,9 +763,12 @@ class SalesViewModel(
     // ==========================================
 
     fun loadParkedSales(registerId: String? = null) {
+        if (!canReadProtectedData) return
+        val token = apiClient.sessionToken
         scope.launch {
             _uiState.update { it.copy(isLoadingParkedSales = true) }
             val res = apiClient.getParkedSales(registerId)
+            if (token != apiClient.sessionToken) return@launch
             res.onSuccess { list ->
                 _uiState.update {
                     it.copy(
@@ -972,9 +1014,12 @@ class SalesViewModel(
     }
 
     fun loadShiftSales(sessionId: String? = _uiState.value.activeSession?.sessionId) {
+        if (!canReadProtectedData) return
+        val token = apiClient.sessionToken
         _uiState.update { it.copy(isLoadingShiftSales = true) }
         scope.launch {
             val res = apiClient.getSales(sessionId = sessionId, limit = 200)
+            if (token != apiClient.sessionToken) return@launch
             res.onSuccess { sales ->
                 _uiState.update {
                     it.copy(
@@ -1396,8 +1441,11 @@ class SalesViewModel(
             return
         }
         _uiState.update { it.copy(isHandingOffShift = true, errorMessage = null) }
+        val token = apiClient.sessionToken
         scope.launch {
-            apiClient.handoffShift(session.sessionId).onSuccess { updated ->
+            val result = apiClient.handoffShift(session.sessionId)
+            if (apiClient.sessionToken != token) return@launch
+            result.onSuccess { updated ->
                 _uiState.update { it.copy(activeSession = updated, isHandingOffShift = false) }
             }.onFailure { error ->
                 _uiState.update { it.copy(isHandingOffShift = false, errorMessage = error.message) }
@@ -1548,6 +1596,7 @@ class SalesViewModel(
             return
         }
 
+        val checkoutToken = apiClient.sessionToken
         scope.launch {
             if (server != apiClient.baseUrl) {
                 reportCheckoutError("Cambió el servidor durante el cobro. Confirma el turno antes de continuar.")
@@ -1682,6 +1731,11 @@ class SalesViewModel(
             response.onSuccess { sale ->
                 runCatching { saleQueue.removeOnline(submission.localFolio) }
                 _uiState.update { current ->
+                    if (checkoutToken != apiClient.sessionToken || server != apiClient.baseUrl) {
+                        return@update resetCheckedOutTicket(current, state.activeTicketId).copy(
+                            isCheckoutInProgress = false, offlinePendingSalesCount = saleQueue.pendingCount()
+                        )
+                    }
                     val cashPay = sale.payments.firstOrNull { it.method == "CASH" }
                     val changeMsg = if (cashPay != null && cashPay.changeCents > 0L) {
                         " | Cambio: $${cashPay.changeCents / 100.0}"
@@ -1718,7 +1772,9 @@ class SalesViewModel(
                             isShowingCashPayment = false,
                             isCheckoutInProgress = false,
                             offlinePendingSalesCount = saleQueue.pendingCount(),
-                            errorMessage = "El cobro quedó pendiente de confirmación. Consulta la cola de ventas antes de volver a cobrar."
+                            errorMessage = if (checkoutToken == apiClient.sessionToken && server == apiClient.baseUrl) {
+                                "El cobro quedó pendiente de confirmación. Consulta la cola de ventas antes de volver a cobrar."
+                            } else current.errorMessage
                         )
                     }
                 } else {
@@ -1726,10 +1782,15 @@ class SalesViewModel(
                         runCatching { saleQueue.markFailed(submission.localFolio, error.message.orEmpty(), automaticRetry = false) }
                     }
                     _uiState.update { it.copy(offlinePendingSalesCount = saleQueue.pendingCount()) }
+                    if (checkoutToken != apiClient.sessionToken || server != apiClient.baseUrl) {
+                        _uiState.update { it.copy(isCheckoutInProgress = false) }
+                        return@onFailure
+                    }
                     if ((error as? SaleSubmissionRejected)?.code == "PRICE_CHANGED" && server == apiClient.baseUrl) {
                         refreshCheckoutPrices(state.activeTicketId)
                     }
-                    reportCheckoutError(error.message ?: "No se pudo completar el cobro.")
+                    if (checkoutToken == apiClient.sessionToken) reportCheckoutError(error.message ?: "No se pudo completar el cobro.")
+                    else _uiState.update { it.copy(isCheckoutInProgress = false) }
                 }
             }
         }
@@ -1737,10 +1798,11 @@ class SalesViewModel(
 
     private suspend fun refreshCheckoutPrices(ticketId: String) {
         val server = apiClient.baseUrl
+        val token = apiClient.sessionToken
         val lines = _uiState.value.takeIf { it.activeTicketId == ticketId }?.cartLines.orEmpty()
         val latest = lines.mapNotNull { it.productId }.distinct().mapNotNull { id -> apiClient.getProduct(id).getOrNull() }
             .flatMap { it.presentations }.associateBy { it.id }
-        if (apiClient.baseUrl != server) return
+        if (apiClient.baseUrl != server || apiClient.sessionToken != token) return
         _uiState.update { current ->
             if (current.activeTicketId != ticketId) current else recalculateTotals(current.copy(
                 isShowingCashPayment = false,

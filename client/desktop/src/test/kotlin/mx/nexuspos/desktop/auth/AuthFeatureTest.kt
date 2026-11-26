@@ -1,8 +1,10 @@
 package mx.nexuspos.desktop.auth
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import mx.nexuspos.client.core.ApiClient
+import mx.nexuspos.client.core.ServerConnectionState
 import mx.nexuspos.client.features.auth.AuthViewModel
 import mx.nexuspos.client.features.auth.SupervisorAction
 import mx.nexuspos.client.features.sales.CartLine
@@ -19,6 +21,43 @@ import mx.nexuspos.core.Quantity
 import kotlin.test.*
 
 class AuthFeatureTest {
+
+    @Test
+    fun quickSignInDoesNotReuseAnOldShiftOrMisreportServerConnectivity() {
+        val pending = CompletableDeferred<Result<CashSessionSummary?>>()
+        var calls = 0
+        val api = object : ApiClient() {
+            override suspend fun checkHealth() = true
+            override suspend fun getSettings() = Result.success(SettingsDto())
+            override suspend fun getCurrentSession(registerId: String): Result<CashSessionSummary?> {
+                calls++
+                return if (calls == 1) pending.await() else Result.failure(IllegalStateException("Inicia sesión en esta terminal."))
+            }
+        }
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val sales = SalesViewModel(api, scope, requireDesktopSession = true)
+        val auth = AuthViewModel(api, scope)
+        auth.onTerminalLocked = sales::onTerminalLocked
+        assertEquals(0, calls)
+
+        auth.unlockWithUser(LoginResponse("old-token", "operator-1", "Ana", "ADMIN", emptyList()))
+        sales.loadActiveSession()
+        sales.showCashPaymentDialog(true)
+        auth.lockTerminal()
+        assertFalse(sales.uiState.value.isShowingCashPayment)
+        assertNull(sales.uiState.value.activeSession)
+        sales.loadActiveSession()
+        assertEquals(1, calls)
+
+        auth.unlockWithUser(LoginResponse("new-token", "operator-2", "Luis", "SUPERVISOR", emptyList()))
+        sales.loadActiveSession()
+        pending.complete(Result.success(shiftForTest("operator-1")))
+
+        assertEquals(2, calls)
+        assertEquals(ServerConnectionState.CONNECTED, sales.uiState.value.connectionState)
+        assertNull(sales.uiState.value.activeSession)
+        assertNull(sales.uiState.value.errorMessage)
+    }
 
     private class FakeApiClient : ApiClient() {
         var loginResult: (String) -> Result<LoginResponse> = { pin ->
