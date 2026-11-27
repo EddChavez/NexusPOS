@@ -35,6 +35,14 @@ class AuthViewModel(
     // Callback invoked upon successful supervisor elevation
     var onSupervisorSuccess: ((SupervisorAction) -> Unit)? = null
 
+    init {
+        apiClient.onDesktopSessionInvalid = { token, message ->
+            scope.launch {
+                if (token == apiClient.sessionToken) lockTerminal(message)
+            }
+        }
+    }
+
     // ==========================================
     // LOGIN & LOCK SCREEN
     // ==========================================
@@ -184,7 +192,9 @@ class AuthViewModel(
         _uiState.update { it.copy(isLoading = false, shift = LoginShiftPrompt(pending.registerId, currency, error)) }
     }
 
-    fun lockTerminal() {
+    fun lockTerminal() = lockTerminal(null)
+
+    private fun lockTerminal(message: String?) {
         loginAttempt++
         val token = apiClient.sessionToken
         val serverUrl = pendingLogin?.serverUrl ?: apiClient.baseUrl
@@ -198,7 +208,7 @@ class AuthViewModel(
                 currentUser = null,
                 pinInput = "",
                 isLoading = false,
-                errorMessage = null,
+                errorMessage = message,
                 shift = null
             )
         }

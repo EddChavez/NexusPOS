@@ -254,7 +254,7 @@ fun Application.nexusModule(
         exception<AppException> { call, cause ->
             val status = when (cause) {
                 is NotFoundException -> HttpStatusCode.NotFound
-                is UnauthorizedException -> HttpStatusCode.Unauthorized
+                is UnauthorizedException, is DesktopSessionInvalidException -> HttpStatusCode.Unauthorized
                 is MobileRateLimitException, is PinAttemptLimitException -> HttpStatusCode.TooManyRequests
                 is ForbiddenException -> HttpStatusCode.Forbidden
                 is PriceChangedException, is IdempotencyMismatchException, is SessionClosedException,

@@ -1,5 +1,7 @@
 package mx.nexuspos.server.platform
 
+import mx.nexuspos.contracts.ApiError
+
 open class AppException(
     val code: String,
     override val message: String,
@@ -26,6 +28,9 @@ class SessionClosedException(message: String) :
 
 class UnauthorizedException(message: String) :
     AppException("UNAUTHENTICATED", message)
+
+class DesktopSessionInvalidException(message: String) :
+    AppException(ApiError.DESKTOP_SESSION_INVALID, message)
 
 class ForbiddenException(message: String) :
     AppException("PERMISSION_DENIED", message)

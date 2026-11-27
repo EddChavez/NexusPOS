@@ -9,6 +9,7 @@ import io.ktor.server.testing.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
+import mx.nexuspos.contracts.ApiError
 import mx.nexuspos.contracts.cash.*
 import mx.nexuspos.contracts.catalog.*
 import mx.nexuspos.contracts.sales.*
@@ -20,6 +21,7 @@ import mx.nexuspos.contracts.system.*
 import mx.nexuspos.server.modules.setup.SetupPurpose
 import mx.nexuspos.server.modules.setup.StoreSetupService
 import mx.nexuspos.server.persistence.DatabaseFactory
+import mx.nexuspos.server.platform.Security
 import java.util.UUID
 import kotlin.test.*
 
@@ -42,12 +44,24 @@ class StoreSetupTest {
             List(2) { async { http.post("/api/v1/setup/complete") { payload(request) }.status } }.map { it.await() }
         }
         assertEquals(setOf(HttpStatusCode.Created, HttpStatusCode.Conflict), submissions.toSet())
-        assertEquals(HttpStatusCode.Unauthorized, http.post("/api/v1/auth/login") { payload(LoginRequest("1234")) }.status)
+        val incorrectPin = http.post("/api/v1/auth/login") { payload(LoginRequest("1234")) }
+        assertEquals(HttpStatusCode.Unauthorized, incorrectPin.status)
+        assertEquals("UNAUTHENTICATED", incorrectPin.body<ApiError>().code)
         val root = http.post("/api/v1/auth/login") { payload(LoginRequest("284619")) }.body<LoginResponse>()
         assertTrue(http.get("/api/v1/users/${root.userId}") { bearerAuth(root.token) }.body<UserDto>().isRoot)
         assertEquals("Matriz", http.get("/api/v1/system/store-profile") { bearerAuth(root.token) }.body<StoreProfile>().branchName)
         assertEquals(HttpStatusCode.Forbidden, http.delete("/api/v1/users/${root.userId}") { bearerAuth(root.token) }.status)
         assertEquals(HttpStatusCode.Unauthorized, http.get("/api/v1/users").status)
+        val expiringSession = http.post("/api/v1/auth/login") { payload(LoginRequest("284619")) }.body<LoginResponse>()
+        db.inTransaction { connection ->
+            connection.prepareStatement("UPDATE desktop_sessions SET expires_at = 0 WHERE token_hash = ?").use {
+                it.setString(1, Security.hashToken(expiringSession.token))
+                assertEquals(1, it.executeUpdate())
+            }
+        }
+        val expiredSession = http.get("/api/v1/users") { bearerAuth(expiringSession.token) }
+        assertEquals(HttpStatusCode.Unauthorized, expiredSession.status)
+        assertEquals(ApiError.DESKTOP_SESSION_INVALID, expiredSession.body<ApiError>().code)
 
         val permissions = setOf("customers.view", "customers.update", "customers.credit.payment")
         val role = http.post("/api/v1/roles") {
@@ -84,7 +98,9 @@ class StoreSetupTest {
         assertEquals(HttpStatusCode.NoContent, http.post("/api/v1/setup/recover-root") {
             payload(RecoverRootRequest(recovery, "713805"))
         }.status)
-        assertEquals(HttpStatusCode.Unauthorized, http.get("/api/v1/users") { bearerAuth(root.token) }.status)
+        val invalidDesktopSession = http.get("/api/v1/users") { bearerAuth(root.token) }
+        assertEquals(HttpStatusCode.Unauthorized, invalidDesktopSession.status)
+        assertEquals(ApiError.DESKTOP_SESSION_INVALID, invalidDesktopSession.body<ApiError>().code)
         assertEquals(HttpStatusCode.OK, http.post("/api/v1/auth/login") { payload(LoginRequest("713805")) }.status)
     }
 

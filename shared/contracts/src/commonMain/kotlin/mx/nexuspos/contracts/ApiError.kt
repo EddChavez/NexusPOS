@@ -8,4 +8,8 @@ data class ApiError(
     val message: String,
     val details: Map<String, String> = emptyMap(),
     val requestId: String = ""
-)
+) {
+    companion object {
+        const val DESKTOP_SESSION_INVALID = "DESKTOP_SESSION_INVALID"
+    }
+}

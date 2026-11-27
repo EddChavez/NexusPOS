@@ -8,6 +8,7 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import mx.nexuspos.contracts.ApiError
@@ -100,6 +101,8 @@ open class ApiClient(
     client: HttpClient? = null
 ) {
     internal var sessionToken: String? = null
+    internal var onDesktopSessionInvalid: ((token: String, message: String) -> Unit)? = null
+    private val desktopSessionToken = AttributeKey<String>("DesktopSessionToken")
     var baseUrl: String = baseUrl
         set(value) {
             if (value != field) sessionToken = null
@@ -120,8 +123,17 @@ open class ApiClient(
                 if (target.host == expected.host && target.port == expected.port && target.protocol == expected.protocol &&
                     !request.headers.contains(HttpHeaders.Authorization)
                 ) {
-                    this@ApiClient.sessionToken?.let { request.bearerAuth(it) }
+                    this@ApiClient.sessionToken?.let { token ->
+                        request.bearerAuth(token)
+                        request.attributes.put(desktopSessionToken, token)
+                    }
                 }
+            }
+            onResponse { response ->
+                if (response.status != HttpStatusCode.Unauthorized) return@onResponse
+                val token = response.request.attributes.getOrNull(desktopSessionToken) ?: return@onResponse
+                val error = parseError(response)
+                if (error.code == ApiError.DESKTOP_SESSION_INVALID) onDesktopSessionInvalid?.invoke(token, error.message)
             }
         })
         install(ContentNegotiation) {

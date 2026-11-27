@@ -2,6 +2,7 @@ package mx.nexuspos.server.modules.identity
 
 import mx.nexuspos.contracts.identity.*
 import mx.nexuspos.server.persistence.DatabaseFactory
+import mx.nexuspos.server.platform.DesktopSessionInvalidException
 import mx.nexuspos.server.platform.NotFoundException
 import mx.nexuspos.server.platform.ForbiddenException
 import mx.nexuspos.server.modules.setup.revokeUserSessions
@@ -100,7 +101,7 @@ class IdentityService(private val db: DatabaseFactory, seedDefaults: Boolean = t
     }
 
     fun authenticate(token: String?): UserDto {
-        if (token.isNullOrBlank() || token.length != 73) throw UnauthorizedException("Inicia sesión en esta terminal.")
+        if (token.isNullOrBlank() || token.length != 73) throw DesktopSessionInvalidException("Inicia sesión en esta terminal.")
         return db.inTransaction { connection ->
             connection.prepareStatement(
                 """
@@ -112,7 +113,7 @@ class IdentityService(private val db: DatabaseFactory, seedDefaults: Boolean = t
                 it.setString(1, Security.hashToken(token))
                 it.setLong(2, System.currentTimeMillis())
                 it.executeQuery().use { row ->
-                    if (!row.next()) throw UnauthorizedException("La sesión terminó. Ingresa tu PIN.")
+                    if (!row.next()) throw DesktopSessionInvalidException("La sesión terminó. Ingresa tu PIN.")
                     UserDto(row.getString("id"), row.getString("name"), row.getString("role"), true, row.getBoolean("is_root"))
                 }
             }
